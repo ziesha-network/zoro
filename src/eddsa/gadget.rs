@@ -17,8 +17,8 @@ fn verify(composer: &mut TurboComposer, pk: WitnessPoint, msg: Witness, sig: Wit
     inp.push(msg);
     let h = mimc::gadget::mimc(composer, inp);
 
-    let BASE = JubJubAffine::from_raw_unchecked(BlsScalar::from(10), BlsScalar::from(18));
-    let sb = composer.component_mul_generator(sig.s, BASE);
+    let base = JubJubAffine::from_raw_unchecked(BlsScalar::from(10), BlsScalar::from(18));
+    let sb = composer.component_mul_generator(sig.s, base);
 
     let mut r_plus_ha = composer.component_mul_point(h, pk);
     r_plus_ha = composer.component_add_point(r_plus_ha, sig.r);

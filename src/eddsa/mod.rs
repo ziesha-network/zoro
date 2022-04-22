@@ -4,6 +4,7 @@ use crate::mimc;
 use dusk_plonk::prelude::*;
 use std::ops::Mul;
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct Signature {
     r: JubJubAffine,
     s: JubJubScalar,
