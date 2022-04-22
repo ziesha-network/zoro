@@ -7,6 +7,7 @@ mod core;
 mod eddsa;
 mod merkle;
 mod mimc;
+mod utils;
 
 use circuit::MainCircuit;
 
