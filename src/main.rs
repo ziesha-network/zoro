@@ -15,6 +15,13 @@ use dusk_plonk::prelude::*;
 use rand_core::OsRng;
 
 fn main() {
+    let sk = eddsa::generate_keys(vec![mimc::mimc(vec![BlsScalar::one(), BlsScalar::one()])]);
+    let sig = eddsa::sign(&sk, BlsScalar::from(12345));
+    println!(
+        "Signature verify: {}",
+        eddsa::verify(sk.public_key, BlsScalar::from(12345), sig)
+    );
+
     let pp = PublicParameters::setup(1 << 13, &mut OsRng).unwrap();
     let mut circuit = MainCircuit::default();
     let (pk, vd) = circuit.compile(&pp).unwrap();
