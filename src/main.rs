@@ -2,6 +2,7 @@
 extern crate lazy_static;
 
 mod account;
+mod eddsa;
 mod merkle;
 mod mimc;
 
