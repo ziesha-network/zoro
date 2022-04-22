@@ -33,8 +33,8 @@ pub struct PrivateKey {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Signature {
-    r: JubJubAffine,
-    s: JubJubScalar,
+    pub r: JubJubAffine,
+    pub s: JubJubScalar,
 }
 
 pub fn generate_keys(seed: Vec<BlsScalar>) -> PrivateKey {
@@ -91,8 +91,7 @@ pub fn verify(pk: JubJubAffine, msg: BlsScalar, sig: Signature) -> bool {
 
     let sb = JubJubExtended::from(*BASE) * sig.s;
 
-    let mut r_plus_ha = JubJubExtended::from(pk) * h;
-    r_plus_ha = r_plus_ha + sig.r;
+    let r_plus_ha = JubJubExtended::from(pk) * h + sig.r;
 
     r_plus_ha == sb
 }

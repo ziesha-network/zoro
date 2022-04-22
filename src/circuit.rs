@@ -1,4 +1,4 @@
-use super::{core, merkle};
+use super::{core, eddsa, merkle, mimc};
 use dusk_plonk::prelude::*;
 
 // Validation:
@@ -42,6 +42,17 @@ impl Circuit for MainCircuit {
         let root_wit = composer.append_witness(tree.root());
         merkle::gadget::check_proof(composer, index_wit, val_wit, proof_wits, root_wit);
 
+        let sk = eddsa::generate_keys(vec![mimc::mimc(vec![BlsScalar::one(), BlsScalar::one()])]);
+        let sig = eddsa::sign(&sk, BlsScalar::from(12345));
+
+        let pk_wit = composer.append_point(sk.public_key);
+        let msg_wit = composer.append_witness(BlsScalar::from(12345));
+        let sig_wit = eddsa::gadget::WitnessSignature {
+            r: composer.append_point(sig.r),
+            s: composer.append_witness(sig.s),
+        };
+        eddsa::gadget::verify(composer, pk_wit, msg_wit, sig_wit);
+
         Ok(())
     }
 
@@ -50,6 +61,6 @@ impl Circuit for MainCircuit {
     }
 
     fn padded_gates(&self) -> usize {
-        1 << 12
+        1 << 14
     }
 }

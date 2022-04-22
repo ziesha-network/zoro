@@ -7,7 +7,7 @@ pub struct WitnessSignature {
     pub s: Witness,
 }
 
-fn verify(composer: &mut TurboComposer, pk: WitnessPoint, msg: Witness, sig: WitnessSignature) {
+pub fn verify(composer: &mut TurboComposer, pk: WitnessPoint, msg: Witness, sig: WitnessSignature) {
     // h=H(R,A,M)
     let mut inp = Vec::new();
     inp.push(*sig.r.x());

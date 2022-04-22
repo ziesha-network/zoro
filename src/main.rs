@@ -22,7 +22,7 @@ fn main() {
         eddsa::verify(sk.public_key, BlsScalar::from(12345), sig)
     );
 
-    let pp = PublicParameters::setup(1 << 13, &mut OsRng).unwrap();
+    let pp = PublicParameters::setup(1 << 15, &mut OsRng).unwrap();
     let mut circuit = MainCircuit::default();
     let (pk, vd) = circuit.compile(&pp).unwrap();
 
