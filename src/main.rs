@@ -22,6 +22,7 @@ fn main() {
         let mut circuit = MainCircuit {
             state: BlsScalar::from(20u64),
             next_state: BlsScalar::from(794794754447u64),
+            transitions: Vec::new(),
         };
         circuit.prove(&pp, &pk, b"Test").unwrap()
     };

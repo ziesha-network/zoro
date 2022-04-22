@@ -1,10 +1,29 @@
-use super::merkle;
+use super::{core, merkle};
 use dusk_plonk::prelude::*;
+
+// Validation:
+// 0. Check verify_sig(tx)
+// 1. Check verify_proof(curr_root, src_before, src_proof)
+// 2. src_after := update_acc(src_before, tx)
+// 3. root_after_src := calc_new_root(src_after, src_proof)
+// 4. Check verify_proof(root_after_src, dst_before, dst_proof)
+// 5. dst_after := update_acc(dst_after, tx)
+// 6. root_after_dst := calc_new_root(dst_after, dst_proof)
+// 7. Check next_state == root_after_dst
+#[derive(Debug, Clone)]
+pub struct Transition {
+    tx: core::Transaction,
+    src_before: core::Account, // src_after can be derived
+    src_proof: [BlsScalar; 64],
+    dst_before: core::Account, // dst_after can be derived
+    dst_proof: [BlsScalar; 64],
+}
 
 #[derive(Debug, Default)]
 pub struct MainCircuit {
     pub state: BlsScalar,
     pub next_state: BlsScalar,
+    pub transitions: Vec<Transition>,
 }
 
 impl Circuit for MainCircuit {
