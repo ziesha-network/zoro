@@ -165,7 +165,6 @@ impl Circuit for MainCircuit {
                 ],
             );
 
-            let sig_ok = eddsa::gadget::verify(composer, src_addr_wit, tx_hash_wit, tx_sig_wit);
             let src_proof_ok = merkle::gadget::check_proof(
                 composer,
                 tx_dst_index_wit,
@@ -180,12 +179,9 @@ impl Circuit for MainCircuit {
                 src_proof_wits,
                 state_wit,
             );
-
             let merkle_proofs_ok = composer.component_and(src_proof_ok, dst_proof_ok, 2);
+            let sig_ok = eddsa::gadget::verify(composer, src_addr_wit, tx_hash_wit, tx_sig_wit);
             let everything_ok = composer.component_and(merkle_proofs_ok, sig_ok, 2);
-            unsafe {
-                println!("OK: {:?}", composer.evaluate_witness(&sig_ok),);
-            }
 
             let next_state_wit = merkle::gadget::calc_root(
                 composer,
@@ -193,6 +189,7 @@ impl Circuit for MainCircuit {
                 new_dst_hash_wit,
                 dst_proof_wits,
             );
+
             state_wit = composer.component_select(everything_ok, next_state_wit, state_wit);
         }
 
