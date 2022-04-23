@@ -7,6 +7,30 @@ pub struct WitnessSignature {
     pub s: Witness,
 }
 
+// Mul by 8
+fn mul_cofactor(composer: &mut TurboComposer, mut point: WitnessPoint) -> WitnessPoint {
+    point = composer.component_add_point(point, point);
+    point = composer.component_add_point(point, point);
+    point = composer.component_add_point(point, point);
+    point
+}
+
+fn mul(composer: &mut TurboComposer, scalar: Witness, point: WitnessPoint) -> WitnessPoint {
+    let scalar_bits = composer.component_decomposition::<255>(scalar);
+
+    let identity = composer.append_constant_identity();
+    let mut result = identity;
+
+    for bit in scalar_bits.iter().rev() {
+        result = composer.component_add_point(result, result);
+
+        let point_to_add = composer.component_select_identity(*bit, point);
+        result = composer.component_add_point(result, point_to_add);
+    }
+
+    result
+}
+
 pub fn verify(composer: &mut TurboComposer, pk: WitnessPoint, msg: Witness, sig: WitnessSignature) {
     // h=H(R,A,M)
     let mut inp = Vec::new();
@@ -17,10 +41,12 @@ pub fn verify(composer: &mut TurboComposer, pk: WitnessPoint, msg: Witness, sig:
     inp.push(msg);
     let h = mimc::gadget::mimc(composer, inp);
 
-    let sb = composer.component_mul_generator(sig.s, *BASE);
+    let mut sb = composer.component_mul_generator(sig.s, *BASE);
+    sb = mul_cofactor(composer, sb);
 
-    let mut r_plus_ha = composer.component_mul_point(h, pk);
+    let mut r_plus_ha = mul(composer, h, pk);
     r_plus_ha = composer.component_add_point(r_plus_ha, sig.r);
+    r_plus_ha = mul_cofactor(composer, r_plus_ha);
 
     composer.assert_equal_point(r_plus_ha, sb)
 }
