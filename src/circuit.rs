@@ -12,11 +12,11 @@ use dusk_plonk::prelude::*;
 // 7. Check next_state == root_after_dst
 #[derive(Debug, Clone)]
 pub struct Transition {
-    tx: core::Transaction,
-    src_before: core::Account, // src_after can be derived
-    src_proof: [BlsScalar; 64],
-    dst_before: core::Account, // dst_after can be derived
-    dst_proof: [BlsScalar; 64],
+    pub tx: core::Transaction,
+    pub src_before: core::Account, // src_after can be derived
+    pub src_proof: [BlsScalar; 64],
+    pub dst_before: core::Account, // dst_after can be derived
+    pub dst_proof: [BlsScalar; 64],
 }
 
 #[derive(Debug, Default)]
