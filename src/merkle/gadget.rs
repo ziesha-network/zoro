@@ -22,3 +22,16 @@ pub fn check_proof(
     }
     composer.assert_equal(curr, root)
 }
+
+pub fn check_proof2(
+    composer: &mut TurboComposer,
+    index: Witness,
+    val: Witness,
+    proof: Vec<Witness>,
+    root: Witness,
+) {
+    let selectors = composer.component_decomposition::<64>(index);
+    for sel in selectors.iter() {
+        println!("{:?}", unsafe { composer.evaluate_witness(sel) });
+    }
+}

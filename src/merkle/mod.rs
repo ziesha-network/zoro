@@ -9,6 +9,14 @@ pub struct SparseTree {
     levels: Vec<HashMap<u64, BlsScalar>>,
 }
 
+#[derive(Debug, Clone)]
+pub struct Proof(pub [BlsScalar; 64]);
+impl Default for Proof {
+    fn default() -> Self {
+        Self([BlsScalar::zero(); 64])
+    }
+}
+
 impl SparseTree {
     pub fn new() -> Self {
         Self {
@@ -24,22 +32,17 @@ impl SparseTree {
             .cloned()
             .unwrap_or(BlsScalar::zero())
     }
-    pub fn prove(&self, mut index: u64) -> [BlsScalar; 64] {
+    pub fn prove(&self, mut index: u64) -> Proof {
         let mut proof = [BlsScalar::zero(); 64];
         for level in 0..64 {
             let neigh = if index & 1 == 0 { index + 1 } else { index - 1 };
             proof[level] = self.get(level, neigh);
             index = index >> 1;
         }
-        proof
+        Proof(proof)
     }
-    pub fn verify(
-        mut index: u64,
-        mut value: BlsScalar,
-        proof: [BlsScalar; 64],
-        root: BlsScalar,
-    ) -> bool {
-        for p in proof {
+    pub fn verify(mut index: u64, mut value: BlsScalar, proof: Proof, root: BlsScalar) -> bool {
+        for p in proof.0 {
             value = if index & 1 == 0 {
                 mimc::mimc(vec![value, p])
             } else {

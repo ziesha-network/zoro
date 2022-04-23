@@ -1,7 +1,7 @@
 use crate::{eddsa, mimc};
 use dusk_plonk::prelude::*;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Account {
     pub nonce: u64,
     pub address: JubJubAffine,
@@ -19,7 +19,7 @@ impl Account {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Transaction {
     pub nonce: u64,
     pub src_index: u64,

@@ -44,9 +44,10 @@ impl Bank {
         ind as u64
     }
     pub fn change_state(&mut self, txs: Vec<core::Transaction>) -> Result<(), BankError> {
+        let mut transitions = Vec::new();
+
         let state = self.tree.root();
 
-        let mut transitions = Vec::new();
         for tx in txs.iter() {
             let src_acc = self.accounts[tx.src_index as usize].clone();
             if tx.nonce != src_acc.nonce {
@@ -93,7 +94,7 @@ impl Bank {
             let mut circuit = circuit::MainCircuit {
                 state,
                 next_state,
-                transitions: transitions,
+                transitions: circuit::TransitionBatch::new(transitions),
             };
             circuit.prove(&pp, &pk, b"Test").unwrap()
         };

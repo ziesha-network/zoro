@@ -10,48 +10,60 @@ use dusk_plonk::prelude::*;
 // 5. dst_after := update_acc(dst_after, tx)
 // 6. root_after_dst := calc_new_root(dst_after, dst_proof)
 // 7. Check next_state == root_after_dst
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Transition {
     pub tx: core::Transaction,
     pub src_before: core::Account, // src_after can be derived
-    pub src_proof: [BlsScalar; 64],
+    pub src_proof: merkle::Proof,
     pub dst_before: core::Account, // dst_after can be derived
-    pub dst_proof: [BlsScalar; 64],
+    pub dst_proof: merkle::Proof,
+}
+
+const BATCH_SIZE: usize = 1;
+
+#[derive(Debug, Clone)]
+pub struct TransitionBatch(pub [Transition; BATCH_SIZE]);
+impl TransitionBatch {
+    pub fn new(mut ts: Vec<Transition>) -> Self {
+        while ts.len() < BATCH_SIZE {
+            ts.push(Transition::default());
+        }
+        Self(ts.try_into().unwrap())
+    }
+}
+impl Default for TransitionBatch {
+    fn default() -> Self {
+        Self(
+            (0..BATCH_SIZE)
+                .map(|_| Transition::default())
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap(),
+        )
+    }
 }
 
 #[derive(Debug, Default)]
 pub struct MainCircuit {
     pub state: BlsScalar,
     pub next_state: BlsScalar,
-    pub transitions: Vec<Transition>,
+    pub transitions: TransitionBatch,
 }
 
 impl Circuit for MainCircuit {
     const CIRCUIT_ID: [u8; 32] = [0xff; 32];
     fn gadget(&mut self, composer: &mut TurboComposer) -> Result<(), Error> {
-        let mut tree = merkle::SparseTree::new();
-        tree.set(12345, BlsScalar::one());
-        let prf = tree.prove(12345);
-        let mut proof_wits = Vec::new();
-        for b in prf.clone() {
-            proof_wits.push(composer.append_witness(b));
+        let mut state_wit = composer.append_public_witness(self.state);
+        for trans in self.transitions.0.iter() {
+            let index_wit = composer.append_witness(BlsScalar::from(trans.tx.src_index));
+            let val_wit = composer.append_witness(trans.src_before.hash());
+            let mut proof_wits = Vec::new();
+            for b in trans.src_proof.0.clone() {
+                proof_wits.push(composer.append_witness(b));
+            }
+
+            merkle::gadget::check_proof(composer, index_wit, val_wit, proof_wits, state_wit);
         }
-        merkle::SparseTree::verify(12345, BlsScalar::from(1), prf.clone(), tree.root());
-        let index_wit = composer.append_witness(BlsScalar::from(12345));
-        let val_wit = composer.append_witness(BlsScalar::from(1));
-        let root_wit = composer.append_witness(tree.root());
-        merkle::gadget::check_proof(composer, index_wit, val_wit, proof_wits, root_wit);
-
-        let sk = eddsa::generate_keys(vec![mimc::mimc(vec![BlsScalar::one(), BlsScalar::one()])]);
-        let sig = eddsa::sign(&sk, BlsScalar::from(12345));
-
-        let pk_wit = composer.append_point(sk.public_key);
-        let msg_wit = composer.append_witness(BlsScalar::from(12345));
-        let sig_wit = eddsa::gadget::WitnessSignature {
-            r: composer.append_point(sig.r),
-            s: composer.append_witness(sig.s),
-        };
-        eddsa::gadget::verify(composer, pk_wit, msg_wit, sig_wit);
 
         Ok(())
     }
