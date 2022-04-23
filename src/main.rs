@@ -12,7 +12,6 @@ mod utils;
 use circuit::MainCircuit;
 
 use dusk_plonk::prelude::*;
-use rand_core::OsRng;
 
 fn main() {
     let alice_keys =

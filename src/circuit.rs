@@ -55,14 +55,38 @@ impl Circuit for MainCircuit {
     fn gadget(&mut self, composer: &mut TurboComposer) -> Result<(), Error> {
         let mut state_wit = composer.append_public_witness(self.state);
         for trans in self.transitions.0.iter() {
-            let index_wit = composer.append_witness(BlsScalar::from(trans.tx.src_index));
+            let tx_src_index_wit = composer.append_witness(BlsScalar::from(trans.tx.src_index));
             let val_wit = composer.append_witness(trans.src_before.hash());
             let mut proof_wits = Vec::new();
             for b in trans.src_proof.0.clone() {
                 proof_wits.push(composer.append_witness(b));
             }
 
-            merkle::gadget::check_proof(composer, index_wit, val_wit, proof_wits, state_wit);
+            let src_addr = composer.append_point(trans.src_before.address);
+
+            let tx_nonce_wit = composer.append_witness(BlsScalar::from(trans.tx.nonce));
+            let tx_dst_index_wit = composer.append_witness(BlsScalar::from(trans.tx.dst_index));
+            let tx_amount_wit = composer.append_witness(BlsScalar::from(trans.tx.amount));
+            let tx_fee_wit = composer.append_witness(BlsScalar::from(trans.tx.fee));
+            let tx_hash = mimc::gadget::mimc(
+                composer,
+                vec![
+                    tx_nonce_wit,
+                    tx_src_index_wit,
+                    tx_dst_index_wit,
+                    tx_amount_wit,
+                    tx_fee_wit,
+                ],
+            );
+            let tx_sig_r_wit = composer.append_point(trans.tx.sig.r);
+            let tx_sig_s_wit = composer.append_witness(trans.tx.sig.s);
+            let tx_sig_wit = eddsa::gadget::WitnessSignature {
+                r: tx_sig_r_wit,
+                s: tx_sig_s_wit,
+            };
+            eddsa::gadget::verify(composer, src_addr, tx_hash, tx_sig_wit);
+
+            merkle::gadget::check_proof(composer, tx_src_index_wit, val_wit, proof_wits, state_wit);
         }
 
         Ok(())
