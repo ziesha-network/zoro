@@ -1,10 +1,12 @@
 use crate::{core, merkle};
 use dusk_plonk::prelude::*;
 
+#[derive(Clone, Debug)]
 pub enum BankError {
     AddressNotFound,
     BalanceInsufficient,
     InvalidNonce,
+    InvalidSignature,
 }
 
 pub struct Bank {
@@ -13,16 +15,23 @@ pub struct Bank {
 }
 
 impl Bank {
+    pub fn balances(&self) -> Vec<(u64, u64)> {
+        self.accounts
+            .iter()
+            .enumerate()
+            .map(|(i, a)| (i as u64, a.balance))
+            .collect()
+    }
     pub fn new() -> Self {
         Self {
             tree: merkle::SparseTree::new(),
             accounts: Vec::new(),
         }
     }
-    pub fn find(&self, addr: &JubJubAffine) -> Option<usize> {
-        self.accounts.iter().position(|a| a.address == *addr)
+    pub fn get_account(&self, index: u64) -> Option<core::Account> {
+        self.accounts.get(index as usize).cloned()
     }
-    pub fn add_account(&mut self, address: JubJubAffine, balance: BlsScalar) {
+    pub fn add_account(&mut self, address: JubJubAffine, balance: u64) -> u64 {
         let acc = core::Account {
             address,
             balance,
@@ -31,20 +40,23 @@ impl Bank {
         let ind = self.accounts.len();
         self.tree.set(ind as u64, acc.hash());
         self.accounts.push(acc);
+        ind as u64
     }
     pub fn change_state(&mut self, txs: Vec<core::Transaction>) -> Result<(), BankError> {
-        for tx in txs {
-            let src_ind = self.find(&tx.src).ok_or(BankError::AddressNotFound)?;
-            let dst_ind = self.find(&tx.dst).ok_or(BankError::AddressNotFound)?;
-            if tx.nonce != self.accounts[src_ind].nonce {
+        for tx in txs.iter() {
+            let src_acc = self.accounts[tx.src_index as usize].clone();
+            if tx.nonce != src_acc.nonce {
                 return Err(BankError::InvalidNonce);
             }
-            if self.accounts[src_ind].balance < tx.fee + tx.amount {
+            if !tx.verify(src_acc.address) {
+                return Err(BankError::InvalidSignature);
+            }
+            if src_acc.balance < tx.fee + tx.amount {
                 return Err(BankError::BalanceInsufficient);
             } else {
-                self.accounts[src_ind].nonce += 1;
-                self.accounts[src_ind].balance -= tx.fee + tx.amount;
-                self.accounts[dst_ind].balance += tx.amount;
+                self.accounts[tx.src_index as usize].nonce += 1;
+                self.accounts[tx.src_index as usize].balance -= tx.fee + tx.amount;
+                self.accounts[tx.dst_index as usize].balance += tx.amount;
             }
         }
         Ok(())

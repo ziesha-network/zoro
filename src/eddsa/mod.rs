@@ -31,7 +31,7 @@ pub struct PrivateKey {
     scalar: JubJubScalar,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Signature {
     pub r: JubJubAffine,
     pub s: JubJubScalar,
