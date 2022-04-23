@@ -1,5 +1,5 @@
 use super::{Signature, BASE};
-use crate::mimc;
+use crate::{mimc, utils};
 use dusk_plonk::prelude::*;
 
 pub struct WitnessSignature {
@@ -31,7 +31,12 @@ fn mul(composer: &mut TurboComposer, scalar: Witness, point: WitnessPoint) -> Wi
     result
 }
 
-pub fn verify(composer: &mut TurboComposer, pk: WitnessPoint, msg: Witness, sig: WitnessSignature) {
+pub fn verify(
+    composer: &mut TurboComposer,
+    pk: WitnessPoint,
+    msg: Witness,
+    sig: WitnessSignature,
+) -> Witness {
     // h=H(R,A,M)
     let mut inp = Vec::new();
     inp.push(*sig.r.x());
@@ -48,5 +53,7 @@ pub fn verify(composer: &mut TurboComposer, pk: WitnessPoint, msg: Witness, sig:
     r_plus_ha = composer.component_add_point(r_plus_ha, sig.r);
     r_plus_ha = mul_cofactor(composer, r_plus_ha);
 
-    composer.assert_equal_point(r_plus_ha, sb)
+    let x_equals = utils::component_equals(composer, *r_plus_ha.x(), *sb.x());
+    let y_equals = utils::component_equals(composer, *r_plus_ha.y(), *sb.y());
+    composer.component_and(x_equals, y_equals, 2)
 }

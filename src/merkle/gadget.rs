@@ -1,4 +1,4 @@
-use crate::mimc;
+use crate::{mimc, utils};
 use dusk_plonk::prelude::*;
 
 fn merge_hash(composer: &mut TurboComposer, dir: Witness, a: Witness, b: Witness) -> Witness {
@@ -28,7 +28,7 @@ pub fn check_proof(
     val: Witness,
     proof: Vec<Witness>,
     root: Witness,
-) {
+) -> Witness {
     let new_root = calc_root(composer, index, val, proof);
-    composer.assert_equal(new_root, root)
+    utils::component_equals(composer, new_root, root)
 }

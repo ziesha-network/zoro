@@ -19,7 +19,7 @@ pub struct Transition {
     pub dst_proof: merkle::Proof,
 }
 
-const BATCH_SIZE: usize = 2;
+const BATCH_SIZE: usize = 4;
 
 #[derive(Debug, Clone)]
 pub struct TransitionBatch(pub [Transition; BATCH_SIZE]);
@@ -129,16 +129,6 @@ impl Circuit for MainCircuit {
                 src_proof_wits.clone(),
             );
 
-            eddsa::gadget::verify(composer, src_addr_wit, tx_hash_wit, tx_sig_wit);
-
-            merkle::gadget::check_proof(
-                composer,
-                tx_src_index_wit,
-                src_hash_wit,
-                src_proof_wits,
-                state_wit,
-            );
-
             let dst_nonce_wit = composer.append_witness(BlsScalar::from(trans.dst_before.nonce));
             let dst_addr_wit = composer.append_point(trans.dst_before.address);
             let dst_balance_wit =
@@ -156,14 +146,6 @@ impl Circuit for MainCircuit {
             for b in trans.dst_proof.0.clone() {
                 dst_proof_wits.push(composer.append_witness(b));
             }
-
-            merkle::gadget::check_proof(
-                composer,
-                tx_dst_index_wit,
-                dst_hash_wit,
-                dst_proof_wits.clone(),
-                middle_root_wit,
-            );
 
             let new_dst_balance_wit = composer.gate_add(
                 Constraint::new()
@@ -183,12 +165,35 @@ impl Circuit for MainCircuit {
                 ],
             );
 
-            state_wit = merkle::gadget::calc_root(
+            let sig_ok = eddsa::gadget::verify(composer, src_addr_wit, tx_hash_wit, tx_sig_wit);
+            let src_proof_ok = merkle::gadget::check_proof(
+                composer,
+                tx_dst_index_wit,
+                dst_hash_wit,
+                dst_proof_wits.clone(),
+                middle_root_wit,
+            );
+            let dst_proof_ok = merkle::gadget::check_proof(
+                composer,
+                tx_src_index_wit,
+                src_hash_wit,
+                src_proof_wits,
+                state_wit,
+            );
+
+            let merkle_proofs_ok = composer.component_and(src_proof_ok, dst_proof_ok, 2);
+            let everything_ok = composer.component_and(merkle_proofs_ok, sig_ok, 2);
+            unsafe {
+                println!("OK: {:?}", composer.evaluate_witness(&sig_ok),);
+            }
+
+            let next_state_wit = merkle::gadget::calc_root(
                 composer,
                 tx_dst_index_wit,
                 new_dst_hash_wit,
                 dst_proof_wits,
             );
+            state_wit = composer.component_select(everything_ok, next_state_wit, state_wit);
         }
 
         let claimed_next_state_wit = composer.append_public_witness(self.next_state);
@@ -202,6 +207,6 @@ impl Circuit for MainCircuit {
     }
 
     fn padded_gates(&self) -> usize {
-        1 << 15
+        1 << 17
     }
 }

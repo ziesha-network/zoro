@@ -86,7 +86,17 @@ impl Bank {
 
         let next_state = self.tree.root();
 
-        let pp = PublicParameters::setup(1 << 16, &mut OsRng).unwrap();
+        let pp = if std::path::Path::new("params.dat").exists() {
+            println!("Reading params...");
+            unsafe { PublicParameters::from_slice_unchecked(&std::fs::read("params.dat").unwrap()) }
+        } else {
+            println!("Generating params...");
+            let pp = PublicParameters::setup(1 << 18, &mut OsRng).unwrap();
+            std::fs::write("params.dat", pp.to_raw_var_bytes()).unwrap();
+            pp
+        };
+        println!("Params are ready!");
+
         let mut circuit = circuit::MainCircuit::default();
         let (pk, vd) = circuit.compile(&pp).unwrap();
 
