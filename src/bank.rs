@@ -86,7 +86,7 @@ impl Bank {
 
         let next_state = self.tree.root();
 
-        let pp = PublicParameters::setup(1 << 15, &mut OsRng).unwrap();
+        let pp = PublicParameters::setup(1 << 16, &mut OsRng).unwrap();
         let mut circuit = circuit::MainCircuit::default();
         let (pk, vd) = circuit.compile(&pp).unwrap();
 

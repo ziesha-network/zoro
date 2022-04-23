@@ -21,7 +21,8 @@ fn main() {
     let mut b = bank::Bank::new();
     let alice_index = b.add_account(alice_keys.public_key, 1000);
     let bob_index = b.add_account(bob_keys.public_key, 500);
-    let mut tx = core::Transaction {
+
+    let mut tx1 = core::Transaction {
         nonce: 0,
         src_index: alice_index,
         dst_index: bob_index,
@@ -29,7 +30,18 @@ fn main() {
         fee: 1,
         sig: eddsa::Signature::default(),
     };
-    tx.sign(alice_keys);
-    b.change_state(vec![tx]).unwrap();
+    tx1.sign(alice_keys);
+
+    let mut tx2 = core::Transaction {
+        nonce: 0,
+        src_index: bob_index,
+        dst_index: alice_index,
+        amount: 50,
+        fee: 1,
+        sig: eddsa::Signature::default(),
+    };
+    tx2.sign(bob_keys);
+
+    b.change_state(vec![tx1, tx2]).unwrap();
     println!("{:?}", b.balances());
 }

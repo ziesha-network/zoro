@@ -8,6 +8,20 @@ fn merge_hash(composer: &mut TurboComposer, dir: Witness, a: Witness, b: Witness
     composer.component_select(dir, r, l)
 }
 
+pub fn calc_root(
+    composer: &mut TurboComposer,
+    index: Witness,
+    val: Witness,
+    proof: Vec<Witness>,
+) -> Witness {
+    let selectors = composer.component_decomposition::<64>(index);
+    let mut curr = val;
+    for (p, dir) in proof.into_iter().zip(selectors.into_iter()) {
+        curr = merge_hash(composer, dir, curr, p);
+    }
+    curr
+}
+
 pub fn check_proof(
     composer: &mut TurboComposer,
     index: Witness,
@@ -15,10 +29,6 @@ pub fn check_proof(
     proof: Vec<Witness>,
     root: Witness,
 ) {
-    let selectors = composer.component_decomposition::<64>(index);
-    let mut curr = val;
-    for (p, dir) in proof.into_iter().zip(selectors.into_iter()) {
-        curr = merge_hash(composer, dir, curr, p);
-    }
-    composer.assert_equal(curr, root)
+    let new_root = calc_root(composer, index, val, proof);
+    composer.assert_equal(new_root, root)
 }

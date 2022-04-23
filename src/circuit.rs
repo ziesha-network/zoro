@@ -19,7 +19,7 @@ pub struct Transition {
     pub dst_proof: merkle::Proof,
 }
 
-const BATCH_SIZE: usize = 1;
+const BATCH_SIZE: usize = 2;
 
 #[derive(Debug, Clone)]
 pub struct TransitionBatch(pub [Transition; BATCH_SIZE]);
@@ -55,20 +55,30 @@ impl Circuit for MainCircuit {
     fn gadget(&mut self, composer: &mut TurboComposer) -> Result<(), Error> {
         let mut state_wit = composer.append_public_witness(self.state);
         for trans in self.transitions.0.iter() {
-            let tx_src_index_wit = composer.append_witness(BlsScalar::from(trans.tx.src_index));
-            let val_wit = composer.append_witness(trans.src_before.hash());
-            let mut proof_wits = Vec::new();
+            let src_nonce_wit = composer.append_witness(BlsScalar::from(trans.src_before.nonce));
+            let src_addr_wit = composer.append_point(trans.src_before.address);
+            let src_balance_wit =
+                composer.append_witness(BlsScalar::from(trans.src_before.balance));
+            let src_hash_wit = mimc::gadget::mimc(
+                composer,
+                vec![
+                    src_nonce_wit,
+                    *src_addr_wit.x(),
+                    *src_addr_wit.y(),
+                    src_balance_wit,
+                ],
+            );
+            let mut src_proof_wits = Vec::new();
             for b in trans.src_proof.0.clone() {
-                proof_wits.push(composer.append_witness(b));
+                src_proof_wits.push(composer.append_witness(b));
             }
 
-            let src_addr = composer.append_point(trans.src_before.address);
-
             let tx_nonce_wit = composer.append_witness(BlsScalar::from(trans.tx.nonce));
+            let tx_src_index_wit = composer.append_witness(BlsScalar::from(trans.tx.src_index));
             let tx_dst_index_wit = composer.append_witness(BlsScalar::from(trans.tx.dst_index));
             let tx_amount_wit = composer.append_witness(BlsScalar::from(trans.tx.amount));
             let tx_fee_wit = composer.append_witness(BlsScalar::from(trans.tx.fee));
-            let tx_hash = mimc::gadget::mimc(
+            let tx_hash_wit = mimc::gadget::mimc(
                 composer,
                 vec![
                     tx_nonce_wit,
@@ -84,10 +94,105 @@ impl Circuit for MainCircuit {
                 r: tx_sig_r_wit,
                 s: tx_sig_s_wit,
             };
-            eddsa::gadget::verify(composer, src_addr, tx_hash, tx_sig_wit);
 
-            merkle::gadget::check_proof(composer, tx_src_index_wit, val_wit, proof_wits, state_wit);
+            let new_src_nonce_wit = composer.gate_add(
+                Constraint::new()
+                    .left(1)
+                    .constant(BlsScalar::one())
+                    .output(1)
+                    .a(src_nonce_wit),
+            );
+            let new_src_balance_wit = composer.gate_add(
+                Constraint::new()
+                    .left(1)
+                    .right(BlsScalar::one().neg())
+                    .fourth(BlsScalar::one().neg())
+                    .output(1)
+                    .a(src_balance_wit)
+                    .b(tx_amount_wit)
+                    .d(tx_fee_wit),
+            );
+            let new_src_hash_wit = mimc::gadget::mimc(
+                composer,
+                vec![
+                    new_src_nonce_wit,
+                    *src_addr_wit.x(),
+                    *src_addr_wit.y(),
+                    new_src_balance_wit,
+                ],
+            );
+
+            let middle_root_wit = merkle::gadget::calc_root(
+                composer,
+                tx_src_index_wit,
+                new_src_hash_wit,
+                src_proof_wits.clone(),
+            );
+
+            eddsa::gadget::verify(composer, src_addr_wit, tx_hash_wit, tx_sig_wit);
+
+            merkle::gadget::check_proof(
+                composer,
+                tx_src_index_wit,
+                src_hash_wit,
+                src_proof_wits,
+                state_wit,
+            );
+
+            let dst_nonce_wit = composer.append_witness(BlsScalar::from(trans.dst_before.nonce));
+            let dst_addr_wit = composer.append_point(trans.dst_before.address);
+            let dst_balance_wit =
+                composer.append_witness(BlsScalar::from(trans.dst_before.balance));
+            let dst_hash_wit = mimc::gadget::mimc(
+                composer,
+                vec![
+                    dst_nonce_wit,
+                    *dst_addr_wit.x(),
+                    *dst_addr_wit.y(),
+                    dst_balance_wit,
+                ],
+            );
+            let mut dst_proof_wits = Vec::new();
+            for b in trans.dst_proof.0.clone() {
+                dst_proof_wits.push(composer.append_witness(b));
+            }
+
+            merkle::gadget::check_proof(
+                composer,
+                tx_dst_index_wit,
+                dst_hash_wit,
+                dst_proof_wits.clone(),
+                middle_root_wit,
+            );
+
+            let new_dst_balance_wit = composer.gate_add(
+                Constraint::new()
+                    .left(1)
+                    .right(1)
+                    .output(1)
+                    .a(dst_balance_wit)
+                    .b(tx_amount_wit),
+            );
+            let new_dst_hash_wit = mimc::gadget::mimc(
+                composer,
+                vec![
+                    dst_nonce_wit,
+                    *dst_addr_wit.x(),
+                    *dst_addr_wit.y(),
+                    new_dst_balance_wit,
+                ],
+            );
+
+            state_wit = merkle::gadget::calc_root(
+                composer,
+                tx_dst_index_wit,
+                new_dst_hash_wit,
+                dst_proof_wits,
+            );
         }
+
+        let claimed_next_state_wit = composer.append_public_witness(self.next_state);
+        composer.assert_equal(state_wit, claimed_next_state_wit);
 
         Ok(())
     }
@@ -97,6 +202,6 @@ impl Circuit for MainCircuit {
     }
 
     fn padded_gates(&self) -> usize {
-        1 << 14
+        1 << 15
     }
 }
