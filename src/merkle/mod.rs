@@ -2,6 +2,7 @@ pub mod gadget;
 
 use dusk_plonk::prelude::*;
 
+use super::config::LOG_TREE_SIZE;
 use crate::mimc;
 use std::collections::HashMap;
 
@@ -10,21 +11,21 @@ pub struct SparseTree {
 }
 
 #[derive(Debug, Clone)]
-pub struct Proof(pub [BlsScalar; 64]);
+pub struct Proof(pub [BlsScalar; LOG_TREE_SIZE]);
 impl Default for Proof {
     fn default() -> Self {
-        Self([BlsScalar::zero(); 64])
+        Self([BlsScalar::zero(); LOG_TREE_SIZE])
     }
 }
 
 impl SparseTree {
     pub fn new() -> Self {
         Self {
-            levels: vec![HashMap::new(); 65],
+            levels: vec![HashMap::new(); LOG_TREE_SIZE + 1],
         }
     }
     pub fn root(&self) -> BlsScalar {
-        *self.levels[64].get(&0).expect("Tree empty!")
+        *self.levels[LOG_TREE_SIZE].get(&0).expect("Tree empty!")
     }
     fn get(&self, level: usize, index: u64) -> BlsScalar {
         self.levels[level]
@@ -33,8 +34,8 @@ impl SparseTree {
             .unwrap_or(BlsScalar::zero())
     }
     pub fn prove(&self, mut index: u64) -> Proof {
-        let mut proof = [BlsScalar::zero(); 64];
-        for level in 0..64 {
+        let mut proof = [BlsScalar::zero(); LOG_TREE_SIZE];
+        for level in 0..LOG_TREE_SIZE {
             let neigh = if index & 1 == 0 { index + 1 } else { index - 1 };
             proof[level] = self.get(level, neigh);
             index = index >> 1;
@@ -53,7 +54,7 @@ impl SparseTree {
         value == root
     }
     pub fn set(&mut self, mut index: u64, mut value: BlsScalar) {
-        for level in 0..65 {
+        for level in 0..(LOG_TREE_SIZE + 1) {
             self.levels[level].insert(index, value);
             let neigh = if index & 1 == 0 { index + 1 } else { index - 1 };
             let neigh_val = self.get(level, neigh);

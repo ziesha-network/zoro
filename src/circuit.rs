@@ -1,3 +1,4 @@
+use super::config::*;
 use super::{core, eddsa, merkle, mimc};
 use dusk_plonk::prelude::*;
 
@@ -18,9 +19,6 @@ pub struct Transition {
     pub dst_before: core::Account, // dst_after can be derived
     pub dst_proof: merkle::Proof,
 }
-
-const LOG_BATCH_SIZE: usize = 3;
-const BATCH_SIZE: usize = 1 << LOG_BATCH_SIZE;
 
 #[derive(Debug, Clone)]
 pub struct TransitionBatch(pub [Transition; BATCH_SIZE]);

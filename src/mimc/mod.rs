@@ -1,8 +1,5 @@
+use super::config::MIMC_PARAMS;
 use dusk_plonk::prelude::*;
-
-lazy_static! {
-    pub static ref MIMC_PARAMS: Vec<BlsScalar> = vec![BlsScalar::from(1u64), BlsScalar::from(2u64)];
-}
 
 pub mod gadget;
 
