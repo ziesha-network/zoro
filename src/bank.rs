@@ -91,15 +91,21 @@ impl Bank {
             unsafe { PublicParameters::from_slice_unchecked(&std::fs::read("params.dat").unwrap()) }
         } else {
             println!("Generating params...");
-            let pp = PublicParameters::setup(1 << 18, &mut OsRng).unwrap();
+            let pp = PublicParameters::setup(1 << 19, &mut OsRng).unwrap();
             std::fs::write("params.dat", pp.to_raw_var_bytes()).unwrap();
             pp
         };
         println!("Params are ready!");
 
+        let mut start = std::time::Instant::now();
         let mut circuit = circuit::MainCircuit::default();
         let (pk, vd) = circuit.compile(&pp).unwrap();
+        println!(
+            "Compiling took: {}ms",
+            (std::time::Instant::now() - start).as_millis()
+        );
 
+        start = std::time::Instant::now();
         let proof = {
             let mut circuit = circuit::MainCircuit {
                 state,
@@ -108,6 +114,10 @@ impl Bank {
             };
             circuit.prove(&pp, &pk, b"Test").unwrap()
         };
+        println!(
+            "Proving took: {}ms",
+            (std::time::Instant::now() - start).as_millis()
+        );
 
         let public_inputs: Vec<PublicInputValue> = vec![state.into(), next_state.into()];
         circuit::MainCircuit::verify(&pp, &vd, &proof, &public_inputs, b"Test").unwrap();

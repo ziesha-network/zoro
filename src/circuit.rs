@@ -19,7 +19,8 @@ pub struct Transition {
     pub dst_proof: merkle::Proof,
 }
 
-const BATCH_SIZE: usize = 4;
+const LOG_BATCH_SIZE: usize = 3;
+const BATCH_SIZE: usize = 1 << LOG_BATCH_SIZE;
 
 #[derive(Debug, Clone)]
 pub struct TransitionBatch(pub [Transition; BATCH_SIZE]);
@@ -204,6 +205,6 @@ impl Circuit for MainCircuit {
     }
 
     fn padded_gates(&self) -> usize {
-        1 << 17
+        1 << (15 + LOG_BATCH_SIZE)
     }
 }
