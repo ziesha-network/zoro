@@ -30,13 +30,7 @@ pub fn bit_not(composer: &mut TurboComposer, a: Witness) -> Witness {
 
 pub fn bit_eq(composer: &mut TurboComposer, a: Witness, b: Witness) -> Witness {
     let xor = composer.component_xor(a, b, 2);
-    composer.gate_add(
-        Constraint::new()
-            .left(BlsScalar::one().neg())
-            .constant(BlsScalar::one())
-            .output(1)
-            .a(xor),
-    )
+    bit_not(composer, xor)
 }
 
 pub fn bit_lt(composer: &mut TurboComposer, a: Witness, b: Witness) -> Witness {
