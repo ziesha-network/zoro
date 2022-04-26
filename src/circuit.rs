@@ -43,13 +43,13 @@ impl Default for TransitionBatch {
 }
 
 #[derive(Debug, Default)]
-pub struct MainCircuit {
+pub struct UpdateCircuit {
     pub state: BlsScalar,
     pub next_state: BlsScalar,
     pub transitions: TransitionBatch,
 }
 
-impl Circuit for MainCircuit {
+impl Circuit for UpdateCircuit {
     const CIRCUIT_ID: [u8; 32] = [0xff; 32];
     fn gadget(&mut self, composer: &mut TurboComposer) -> Result<(), Error> {
         let mut state_wit = composer.append_public_witness(self.state);
