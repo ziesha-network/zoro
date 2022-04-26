@@ -44,9 +44,9 @@ impl Default for TransitionBatch {
 
 #[derive(Debug, Default)]
 pub struct UpdateCircuit {
-    pub state: BlsScalar,
-    pub next_state: BlsScalar,
-    pub transitions: TransitionBatch,
+    pub state: BlsScalar,             // Public
+    pub next_state: BlsScalar,        // Public
+    pub transitions: TransitionBatch, // Secret :)
 }
 
 impl Circuit for UpdateCircuit {
