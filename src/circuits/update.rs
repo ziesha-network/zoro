@@ -1,5 +1,5 @@
-use super::config::*;
-use super::{core, eddsa, gadgets, merkle, mimc};
+use crate::config::*;
+use crate::{core, eddsa, gadgets, merkle, mimc};
 use dusk_plonk::prelude::*;
 
 // Validation:

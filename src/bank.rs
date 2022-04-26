@@ -1,4 +1,4 @@
-use crate::{circuit, core, merkle};
+use crate::{circuits, core, merkle};
 use dusk_plonk::prelude::*;
 
 #[derive(Clone, Debug)]
@@ -26,7 +26,7 @@ impl Bank {
     }
     pub fn new(params: PublicParameters) -> Self {
         let start = std::time::Instant::now();
-        let (update_pk, update_vd) = circuit::UpdateCircuit::default().compile(&params).unwrap();
+        let (update_pk, update_vd) = circuits::UpdateCircuit::default().compile(&params).unwrap();
         println!(
             "Compiling took: {}ms",
             (std::time::Instant::now() - start).as_millis()
@@ -86,7 +86,7 @@ impl Bank {
                     self.accounts[tx.dst_index as usize].hash(),
                 );
 
-                transitions.push(circuit::Transition {
+                transitions.push(circuits::Transition {
                     tx: tx.clone(),
                     src_before,
                     src_proof,
@@ -100,10 +100,10 @@ impl Bank {
 
         let start = std::time::Instant::now();
         let proof = {
-            let mut circuit = circuit::UpdateCircuit {
+            let mut circuit = circuits::UpdateCircuit {
                 state,
                 next_state,
-                transitions: circuit::TransitionBatch::new(transitions),
+                transitions: circuits::TransitionBatch::new(transitions),
             };
             circuit
                 .prove(&self.params, &self.update_circuit.0, b"Test")
@@ -115,7 +115,7 @@ impl Bank {
         );
 
         let public_inputs: Vec<PublicInputValue> = vec![state.into(), next_state.into()];
-        circuit::UpdateCircuit::verify(
+        circuits::UpdateCircuit::verify(
             &self.params,
             &self.update_circuit.1,
             &proof,

@@ -2,7 +2,7 @@
 extern crate lazy_static;
 
 mod bank;
-mod circuit;
+mod circuits;
 mod config;
 mod core;
 mod eddsa;
