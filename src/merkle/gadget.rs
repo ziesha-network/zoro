@@ -30,5 +30,5 @@ pub fn check_proof(
     root: Witness,
 ) -> Witness {
     let new_root = calc_root(composer, index, val, proof);
-    gadgets::component_equals(composer, new_root, root)
+    gadgets::eq(composer, new_root, root)
 }

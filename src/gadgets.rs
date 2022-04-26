@@ -1,31 +1,9 @@
 use dusk_plonk::prelude::*;
 
-pub fn component_bit_equals(composer: &mut TurboComposer, a: Witness, b: Witness) -> Witness {
-    let xor = composer.component_xor(a, b, 2);
-    composer.gate_add(
-        Constraint::new()
-            .left(BlsScalar::one().neg())
-            .constant(BlsScalar::one())
-            .output(1)
-            .a(xor),
-    )
-}
-
-pub fn component_equals(composer: &mut TurboComposer, a: Witness, b: Witness) -> Witness {
-    let a_bits = composer.component_decomposition::<256>(a);
-    let b_bits = composer.component_decomposition::<256>(b);
-
-    let mut accum = composer.append_constant(BlsScalar::one());
-    for (aa, bb) in a_bits.into_iter().zip(b_bits.into_iter()) {
-        let eq = component_bit_equals(composer, aa, bb);
-        accum = composer.gate_mul(Constraint::new().mult(1).output(1).a(accum).b(eq));
-    }
-    accum
-}
-
 pub fn bit_and(composer: &mut TurboComposer, a: Witness, b: Witness) -> Witness {
     composer.gate_mul(Constraint::new().mult(1).output(1).a(a).b(b))
 }
+
 pub fn bit_or(composer: &mut TurboComposer, a: Witness, b: Witness) -> Witness {
     let and = bit_and(composer, a, b);
     composer.gate_add(
@@ -39,6 +17,7 @@ pub fn bit_or(composer: &mut TurboComposer, a: Witness, b: Witness) -> Witness {
             .d(and),
     )
 }
+
 pub fn bit_not(composer: &mut TurboComposer, a: Witness) -> Witness {
     composer.gate_add(
         Constraint::new()
@@ -48,19 +27,36 @@ pub fn bit_not(composer: &mut TurboComposer, a: Witness) -> Witness {
             .a(a),
     )
 }
+
 pub fn bit_eq(composer: &mut TurboComposer, a: Witness, b: Witness) -> Witness {
-    let not_a = bit_not(composer, a);
-    let not_b = bit_not(composer, b);
-    let not_a_and_not_b = bit_and(composer, not_a, not_a);
-    let a_and_b = bit_and(composer, a, b);
-    bit_or(composer, not_a, b)
+    let xor = composer.component_xor(a, b, 2);
+    composer.gate_add(
+        Constraint::new()
+            .left(BlsScalar::one().neg())
+            .constant(BlsScalar::one())
+            .output(1)
+            .a(xor),
+    )
 }
+
 pub fn bit_lt(composer: &mut TurboComposer, a: Witness, b: Witness) -> Witness {
     let not_a = bit_not(composer, a);
     bit_and(composer, not_a, b)
 }
 
-pub fn component_lte(composer: &mut TurboComposer, a: Witness, b: Witness) -> Witness {
+pub fn eq(composer: &mut TurboComposer, a: Witness, b: Witness) -> Witness {
+    let a_bits = composer.component_decomposition::<256>(a);
+    let b_bits = composer.component_decomposition::<256>(b);
+
+    let mut accum = composer.append_constant(BlsScalar::one());
+    for (aa, bb) in a_bits.into_iter().zip(b_bits.into_iter()) {
+        let eq = bit_eq(composer, aa, bb);
+        accum = composer.gate_mul(Constraint::new().mult(1).output(1).a(accum).b(eq));
+    }
+    accum
+}
+
+pub fn lte(composer: &mut TurboComposer, a: Witness, b: Witness) -> Witness {
     let a_bits = composer.component_decomposition::<256>(a);
     let b_bits = composer.component_decomposition::<256>(b);
 
