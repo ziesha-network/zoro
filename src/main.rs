@@ -11,16 +11,26 @@ mod merkle;
 mod mimc;
 mod utils;
 
-use circuit::MainCircuit;
-
 use dusk_plonk::prelude::*;
+use rand_core::OsRng;
 
 fn main() {
+    let pp = if std::path::Path::new("params.dat").exists() {
+        println!("Reading params...");
+        unsafe { PublicParameters::from_slice_unchecked(&std::fs::read("params.dat").unwrap()) }
+    } else {
+        println!("Generating params...");
+        let pp = PublicParameters::setup(1 << 19, &mut OsRng).unwrap();
+        std::fs::write("params.dat", pp.to_raw_var_bytes()).unwrap();
+        pp
+    };
+    println!("Params are ready!");
+
+    let mut b = bank::Bank::new(pp);
     let alice_keys =
         eddsa::generate_keys(vec![mimc::mimc(vec![BlsScalar::one(), BlsScalar::one()])]);
     let bob_keys =
         eddsa::generate_keys(vec![mimc::mimc(vec![BlsScalar::zero(), BlsScalar::one()])]);
-    let mut b = bank::Bank::new();
     let alice_index = b.add_account(alice_keys.public_key, 1000);
     let bob_index = b.add_account(bob_keys.public_key, 500);
 

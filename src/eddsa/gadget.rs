@@ -1,4 +1,4 @@
-use super::{Signature, BASE};
+use super::BASE;
 use crate::{gadgets, mimc};
 use dusk_plonk::prelude::*;
 

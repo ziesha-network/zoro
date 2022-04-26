@@ -1,6 +1,5 @@
 use crate::{circuit, core, merkle};
 use dusk_plonk::prelude::*;
-use rand_core::OsRng;
 
 #[derive(Clone, Debug)]
 pub enum BankError {
@@ -11,6 +10,8 @@ pub enum BankError {
 }
 
 pub struct Bank {
+    params: PublicParameters,
+    update_circuit: (ProverKey, VerifierData),
     tree: merkle::SparseTree,
     accounts: Vec<core::Account>,
 }
@@ -23,14 +24,25 @@ impl Bank {
             .map(|(i, a)| (i as u64, a.balance))
             .collect()
     }
-    pub fn new() -> Self {
+    pub fn new(params: PublicParameters) -> Self {
+        let start = std::time::Instant::now();
+        let (update_pk, update_vd) = circuit::MainCircuit::default().compile(&params).unwrap();
+        println!(
+            "Compiling took: {}ms",
+            (std::time::Instant::now() - start).as_millis()
+        );
         Self {
+            params,
+            update_circuit: (update_pk, update_vd),
             tree: merkle::SparseTree::new(),
             accounts: Vec::new(),
         }
     }
-    pub fn get_account(&self, index: u64) -> Option<core::Account> {
-        self.accounts.get(index as usize).cloned()
+    pub fn get_account(&self, index: u64) -> Result<core::Account, BankError> {
+        self.accounts
+            .get(index as usize)
+            .cloned()
+            .ok_or(BankError::AddressNotFound)
     }
     pub fn add_account(&mut self, address: JubJubAffine, balance: u64) -> u64 {
         let acc = core::Account {
@@ -57,7 +69,7 @@ impl Bank {
             } else if src_acc.balance < tx.fee + tx.amount {
                 return Err(BankError::BalanceInsufficient);
             } else {
-                let src_before = self.accounts[tx.src_index as usize].clone();
+                let src_before = self.get_account(tx.src_index)?;
                 let src_proof = self.tree.prove(tx.src_index);
                 self.accounts[tx.src_index as usize].nonce += 1;
                 self.accounts[tx.src_index as usize].balance -= tx.fee + tx.amount;
@@ -66,7 +78,7 @@ impl Bank {
                     self.accounts[tx.src_index as usize].hash(),
                 );
 
-                let dst_before = self.accounts[tx.dst_index as usize].clone();
+                let dst_before = self.get_account(tx.dst_index)?;
                 let dst_proof = self.tree.prove(tx.dst_index);
                 self.accounts[tx.dst_index as usize].balance += tx.amount;
                 self.tree.set(
@@ -86,33 +98,16 @@ impl Bank {
 
         let next_state = self.tree.root();
 
-        let pp = if std::path::Path::new("params.dat").exists() {
-            println!("Reading params...");
-            unsafe { PublicParameters::from_slice_unchecked(&std::fs::read("params.dat").unwrap()) }
-        } else {
-            println!("Generating params...");
-            let pp = PublicParameters::setup(1 << 19, &mut OsRng).unwrap();
-            std::fs::write("params.dat", pp.to_raw_var_bytes()).unwrap();
-            pp
-        };
-        println!("Params are ready!");
-
-        let mut start = std::time::Instant::now();
-        let mut circuit = circuit::MainCircuit::default();
-        let (pk, vd) = circuit.compile(&pp).unwrap();
-        println!(
-            "Compiling took: {}ms",
-            (std::time::Instant::now() - start).as_millis()
-        );
-
-        start = std::time::Instant::now();
+        let start = std::time::Instant::now();
         let proof = {
             let mut circuit = circuit::MainCircuit {
                 state,
                 next_state,
                 transitions: circuit::TransitionBatch::new(transitions),
             };
-            circuit.prove(&pp, &pk, b"Test").unwrap()
+            circuit
+                .prove(&self.params, &self.update_circuit.0, b"Test")
+                .unwrap()
         };
         println!(
             "Proving took: {}ms",
@@ -120,7 +115,14 @@ impl Bank {
         );
 
         let public_inputs: Vec<PublicInputValue> = vec![state.into(), next_state.into()];
-        circuit::MainCircuit::verify(&pp, &vd, &proof, &public_inputs, b"Test").unwrap();
+        circuit::MainCircuit::verify(
+            &self.params,
+            &self.update_circuit.1,
+            &proof,
+            &public_inputs,
+            b"Test",
+        )
+        .unwrap();
 
         Ok(())
     }

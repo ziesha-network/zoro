@@ -42,6 +42,7 @@ impl SparseTree {
         }
         Proof(proof)
     }
+    #[allow(dead_code)]
     pub fn verify(mut index: u64, mut value: BlsScalar, proof: Proof, root: BlsScalar) -> bool {
         for p in proof.0 {
             value = if index & 1 == 0 {
