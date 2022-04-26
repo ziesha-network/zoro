@@ -189,7 +189,7 @@ impl Circuit for MainCircuit {
                     .b(tx_fee_wit),
             ); // WARN: MIGHT OVERFLOW!
             let balance_enough =
-                gadgets::lte::<256>(composer, tx_balance_plus_fee, src_balance_wit);
+                gadgets::lte::<255>(composer, tx_balance_plus_fee, src_balance_wit);
             let sig_ok = eddsa::gadget::verify(composer, src_addr_wit, tx_hash_wit, tx_sig_wit);
             let sig_and_balance_ok = gadgets::bit_and(composer, balance_enough, sig_ok);
 

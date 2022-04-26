@@ -1,4 +1,4 @@
-use crate::{gadgets, mimc};
+use crate::{config, gadgets, mimc};
 use dusk_plonk::prelude::*;
 
 fn merge_hash(composer: &mut TurboComposer, dir: Witness, a: Witness, b: Witness) -> Witness {
@@ -14,7 +14,7 @@ pub fn calc_root(
     val: Witness,
     proof: Vec<Witness>,
 ) -> Witness {
-    let selectors = composer.component_decomposition::<64>(index);
+    let selectors = composer.component_decomposition::<{ config::LOG_TREE_SIZE }>(index);
     let mut curr = val;
     for (p, dir) in proof.into_iter().zip(selectors.into_iter()) {
         curr = merge_hash(composer, dir, curr, p);
@@ -30,5 +30,5 @@ pub fn check_proof(
     root: Witness,
 ) -> Witness {
     let new_root = calc_root(composer, index, val, proof);
-    gadgets::eq::<256>(composer, new_root, root)
+    gadgets::eq::<255>(composer, new_root, root)
 }
