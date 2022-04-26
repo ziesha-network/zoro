@@ -1,5 +1,5 @@
 use super::{Signature, BASE};
-use crate::{mimc, utils};
+use crate::{gadgets, mimc};
 use dusk_plonk::prelude::*;
 
 pub struct WitnessSignature {
@@ -53,7 +53,7 @@ pub fn verify(
     r_plus_ha = composer.component_add_point(r_plus_ha, sig.r);
     r_plus_ha = mul_cofactor(composer, r_plus_ha);
 
-    let x_equals = utils::component_equals(composer, *r_plus_ha.x(), *sb.x());
-    let y_equals = utils::component_equals(composer, *r_plus_ha.y(), *sb.y());
+    let x_equals = gadgets::component_equals(composer, *r_plus_ha.x(), *sb.x());
+    let y_equals = gadgets::component_equals(composer, *r_plus_ha.y(), *sb.y());
     composer.component_and(x_equals, y_equals, 2)
 }

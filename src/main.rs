@@ -6,6 +6,7 @@ mod circuit;
 mod config;
 mod core;
 mod eddsa;
+mod gadgets;
 mod merkle;
 mod mimc;
 mod utils;

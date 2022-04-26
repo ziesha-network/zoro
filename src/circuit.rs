@@ -1,5 +1,5 @@
 use super::config::*;
-use super::{core, eddsa, merkle, mimc, utils};
+use super::{core, eddsa, gadgets, merkle, mimc};
 use dusk_plonk::prelude::*;
 
 // Validation:
@@ -189,11 +189,11 @@ impl Circuit for MainCircuit {
                     .b(tx_fee_wit),
             ); // WARN: MIGHT OVERFLOW!
             let balance_enough =
-                utils::component_lte(composer, tx_balance_plus_fee, src_balance_wit);
+                gadgets::component_lte(composer, tx_balance_plus_fee, src_balance_wit);
             let sig_ok = eddsa::gadget::verify(composer, src_addr_wit, tx_hash_wit, tx_sig_wit);
-            let sig_and_balance_ok = utils::bit_and(composer, balance_enough, sig_ok);
+            let sig_and_balance_ok = gadgets::bit_and(composer, balance_enough, sig_ok);
 
-            let everything_ok = utils::bit_and(composer, merkle_proofs_ok, sig_and_balance_ok);
+            let everything_ok = gadgets::bit_and(composer, merkle_proofs_ok, sig_and_balance_ok);
 
             let next_state_wit = merkle::gadget::calc_root(
                 composer,
