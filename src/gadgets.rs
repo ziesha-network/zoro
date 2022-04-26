@@ -44,9 +44,9 @@ pub fn bit_lt(composer: &mut TurboComposer, a: Witness, b: Witness) -> Witness {
     bit_and(composer, not_a, b)
 }
 
-pub fn eq(composer: &mut TurboComposer, a: Witness, b: Witness) -> Witness {
-    let a_bits = composer.component_decomposition::<256>(a);
-    let b_bits = composer.component_decomposition::<256>(b);
+pub fn eq<const N: usize>(composer: &mut TurboComposer, a: Witness, b: Witness) -> Witness {
+    let a_bits = composer.component_decomposition::<N>(a);
+    let b_bits = composer.component_decomposition::<N>(b);
 
     let mut accum = composer.append_constant(BlsScalar::one());
     for (aa, bb) in a_bits.into_iter().zip(b_bits.into_iter()) {
@@ -56,9 +56,9 @@ pub fn eq(composer: &mut TurboComposer, a: Witness, b: Witness) -> Witness {
     accum
 }
 
-pub fn lte(composer: &mut TurboComposer, a: Witness, b: Witness) -> Witness {
-    let a_bits = composer.component_decomposition::<256>(a);
-    let b_bits = composer.component_decomposition::<256>(b);
+pub fn lte<const N: usize>(composer: &mut TurboComposer, a: Witness, b: Witness) -> Witness {
+    let a_bits = composer.component_decomposition::<N>(a);
+    let b_bits = composer.component_decomposition::<N>(b);
 
     let mut lt = composer.append_constant(BlsScalar::zero());
     let mut gt = composer.append_constant(BlsScalar::zero());
