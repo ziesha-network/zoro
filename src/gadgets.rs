@@ -28,26 +28,9 @@ pub fn bit_not(composer: &mut TurboComposer, a: Witness) -> Witness {
     )
 }
 
-pub fn bit_eq(composer: &mut TurboComposer, a: Witness, b: Witness) -> Witness {
-    let xor = composer.component_xor(a, b, 2);
-    bit_not(composer, xor)
-}
-
 pub fn bit_lt(composer: &mut TurboComposer, a: Witness, b: Witness) -> Witness {
     let not_a = bit_not(composer, a);
     bit_and(composer, not_a, b)
-}
-
-pub fn eq<const N: usize>(composer: &mut TurboComposer, a: Witness, b: Witness) -> Witness {
-    let a_bits = composer.component_decomposition::<N>(a);
-    let b_bits = composer.component_decomposition::<N>(b);
-
-    let mut accum = composer.append_constant(BlsScalar::one());
-    for (aa, bb) in a_bits.into_iter().zip(b_bits.into_iter()) {
-        let eq = bit_eq(composer, aa, bb);
-        accum = composer.gate_mul(Constraint::new().mult(1).output(1).a(accum).b(eq));
-    }
-    accum
 }
 
 pub fn lte<const N: usize>(composer: &mut TurboComposer, a: Witness, b: Witness) -> Witness {

@@ -1,20 +1,20 @@
-use crate::{eddsa, mimc};
-use dusk_plonk::prelude::*;
+use zeekit::{eddsa, mimc, Fr};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Account {
     pub nonce: u64,
-    pub address: JubJubAffine,
+    pub address: eddsa::PublicKey,
     pub balance: u64,
 }
 
 impl Account {
-    pub fn hash(&self) -> BlsScalar {
+    pub fn hash(&self) -> Fr {
+        let pnt = self.address.0.decompress();
         mimc::mimc(vec![
-            BlsScalar::from(self.nonce),
-            self.address.get_x(),
-            self.address.get_y(),
-            BlsScalar::from(self.balance),
+            Fr::from(self.nonce),
+            pnt.0,
+            pnt.1,
+            Fr::from(self.balance),
         ])
     }
 }
@@ -30,19 +30,19 @@ pub struct Transaction {
 }
 
 impl Transaction {
-    pub fn verify(&self, addr: JubJubAffine) -> bool {
-        eddsa::verify(addr, self.hash(), self.sig.clone())
+    pub fn verify(&self, addr: eddsa::PublicKey) -> bool {
+        eddsa::verify(&addr, self.hash(), &self.sig)
     }
     pub fn sign(&mut self, sk: eddsa::PrivateKey) {
         self.sig = eddsa::sign(&sk, self.hash());
     }
-    pub fn hash(&self) -> BlsScalar {
+    pub fn hash(&self) -> Fr {
         mimc::mimc(vec![
-            BlsScalar::from(self.nonce),
-            BlsScalar::from(self.src_index),
-            BlsScalar::from(self.dst_index),
-            BlsScalar::from(self.amount),
-            BlsScalar::from(self.fee),
+            Fr::from(self.nonce),
+            Fr::from(self.src_index),
+            Fr::from(self.dst_index),
+            Fr::from(self.amount),
+            Fr::from(self.fee),
         ])
     }
 }

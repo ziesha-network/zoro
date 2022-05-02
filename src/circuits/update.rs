@@ -1,6 +1,7 @@
 use crate::config::*;
-use crate::{core, eddsa, gadgets, merkle, mimc};
+use crate::{core, gadgets};
 use dusk_plonk::prelude::*;
+use zeekit::{eddsa, merkle, mimc};
 
 // Validation:
 // 0. Check verify_sig(tx)
@@ -13,6 +14,7 @@ use dusk_plonk::prelude::*;
 // 7. Check next_state == root_after_dst
 #[derive(Debug, Clone, Default)]
 pub struct Transition {
+    pub enabled: bool,
     pub tx: core::Transaction,
     pub src_before: core::Account, // src_after can be derived
     pub src_proof: merkle::Proof,
@@ -54,8 +56,12 @@ impl Circuit for UpdateCircuit {
     fn gadget(&mut self, composer: &mut TurboComposer) -> Result<(), Error> {
         let mut state_wit = composer.append_public_witness(self.state);
         for trans in self.transitions.0.iter() {
+            let enabled_wit =
+                composer.append_witness(BlsScalar::from(if trans.enabled { 1 } else { 0 }));
+            composer.component_boolean(enabled_wit);
+
             let src_nonce_wit = composer.append_witness(BlsScalar::from(trans.src_before.nonce));
-            let src_addr_wit = composer.append_point(trans.src_before.address);
+            let src_addr_wit = composer.append_point(trans.src_before.address.0.decompress());
             let src_balance_wit =
                 composer.append_witness(BlsScalar::from(trans.src_before.balance));
             let src_hash_wit = mimc::gadget::mimc(
@@ -129,7 +135,7 @@ impl Circuit for UpdateCircuit {
             );
 
             let dst_nonce_wit = composer.append_witness(BlsScalar::from(trans.dst_before.nonce));
-            let dst_addr_wit = composer.append_point(trans.dst_before.address);
+            let dst_addr_wit = composer.append_point(trans.dst_before.address.0.decompress());
             let dst_balance_wit =
                 composer.append_witness(BlsScalar::from(trans.dst_before.balance));
             let dst_hash_wit = mimc::gadget::mimc(
@@ -164,21 +170,22 @@ impl Circuit for UpdateCircuit {
                 ],
             );
 
-            let src_proof_ok = merkle::gadget::check_proof(
+            merkle::gadget::check_proof(
                 composer,
+                enabled_wit,
                 tx_dst_index_wit,
                 dst_hash_wit,
                 dst_proof_wits.clone(),
                 middle_root_wit,
             );
-            let dst_proof_ok = merkle::gadget::check_proof(
+            merkle::gadget::check_proof(
                 composer,
+                enabled_wit,
                 tx_src_index_wit,
                 src_hash_wit,
                 src_proof_wits,
                 state_wit,
             );
-            let merkle_proofs_ok = composer.component_and(src_proof_ok, dst_proof_ok, 2);
 
             let tx_balance_plus_fee = composer.gate_add(
                 Constraint::new()
@@ -188,12 +195,12 @@ impl Circuit for UpdateCircuit {
                     .a(tx_amount_wit)
                     .b(tx_fee_wit),
             ); // WARN: MIGHT OVERFLOW!
+
             let balance_enough =
                 gadgets::lte::<255>(composer, tx_balance_plus_fee, src_balance_wit);
-            let sig_ok = eddsa::gadget::verify(composer, src_addr_wit, tx_hash_wit, tx_sig_wit);
-            let sig_and_balance_ok = gadgets::bit_and(composer, balance_enough, sig_ok);
+            composer.assert_equal_constant(balance_enough, BlsScalar::one(), None);
 
-            let everything_ok = gadgets::bit_and(composer, merkle_proofs_ok, sig_and_balance_ok);
+            eddsa::gadget::verify(composer, enabled_wit, src_addr_wit, tx_hash_wit, tx_sig_wit);
 
             let next_state_wit = merkle::gadget::calc_root(
                 composer,
@@ -202,7 +209,7 @@ impl Circuit for UpdateCircuit {
                 dst_proof_wits,
             );
 
-            state_wit = composer.component_select(everything_ok, next_state_wit, state_wit);
+            state_wit = composer.component_select(enabled_wit, next_state_wit, state_wit);
         }
 
         let claimed_next_state_wit = composer.append_public_witness(self.next_state);

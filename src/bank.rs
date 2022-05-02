@@ -1,5 +1,6 @@
-use crate::{circuits, core, merkle};
+use crate::{circuits, core};
 use dusk_plonk::prelude::*;
+use zeekit::{eddsa, merkle};
 
 #[derive(Clone, Debug)]
 pub enum BankError {
@@ -44,7 +45,7 @@ impl Bank {
             .cloned()
             .ok_or(BankError::AddressNotFound)
     }
-    pub fn add_account(&mut self, address: JubJubAffine, balance: u64) -> u64 {
+    pub fn add_account(&mut self, address: eddsa::PublicKey, balance: u64) -> u64 {
         let acc = core::Account {
             address,
             balance,
@@ -87,6 +88,7 @@ impl Bank {
                 );
 
                 transitions.push(circuits::Transition {
+                    enabled: true,
                     tx: tx.clone(),
                     src_before,
                     src_proof,
@@ -99,10 +101,12 @@ impl Bank {
         let next_state = self.tree.root();
 
         let start = std::time::Instant::now();
+        let state_bls: BlsScalar = state.into();
+        let next_state_bls: BlsScalar = next_state.into();
         let proof = {
             let mut circuit = circuits::UpdateCircuit {
-                state,
-                next_state,
+                state: state_bls,
+                next_state: next_state_bls,
                 transitions: circuits::TransitionBatch::new(transitions),
             };
             circuit
@@ -114,7 +118,7 @@ impl Bank {
             (std::time::Instant::now() - start).as_millis()
         );
 
-        let public_inputs: Vec<PublicInputValue> = vec![state.into(), next_state.into()];
+        let public_inputs: Vec<PublicInputValue> = vec![state_bls.into(), next_state_bls.into()];
         circuits::UpdateCircuit::verify(
             &self.params,
             &self.update_circuit.1,
