@@ -200,6 +200,13 @@ impl Circuit for UpdateCircuit {
                 gadgets::lte::<255>(composer, tx_balance_plus_fee, src_balance_wit);
             composer.assert_equal_constant(balance_enough, BlsScalar::one(), None);
 
+            zeekit::gadgets::controllable_assert_eq(
+                composer,
+                enabled_wit,
+                tx_nonce_wit,
+                src_nonce_wit,
+            );
+
             eddsa::gadget::verify(composer, enabled_wit, src_addr_wit, tx_hash_wit, tx_sig_wit);
 
             let next_state_wit = merkle::gadget::calc_root(

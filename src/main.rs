@@ -51,8 +51,18 @@ fn main() {
         fee: 1,
         sig: eddsa::Signature::default(),
     };
-    tx2.sign(bob_keys.1);
+    tx2.sign(bob_keys.1.clone());
 
-    b.change_state(vec![tx1, tx2]).unwrap();
+    let mut tx3 = core::Transaction {
+        nonce: 1,
+        src_index: bob_index,
+        dst_index: alice_index,
+        amount: 50,
+        fee: 1,
+        sig: eddsa::Signature::default(),
+    };
+    tx3.sign(bob_keys.1);
+
+    b.change_state(vec![tx1, tx2, tx3]).unwrap();
     println!("{:?}", b.balances());
 }
