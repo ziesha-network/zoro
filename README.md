@@ -7,10 +7,14 @@ Zoro is the SNARK circuit implementation of Zeeka's Main Payment Network contrac
 Prime Field elements are integers that reside in the range `[0..p)` where `p` is a prime number. Prime-Fields form a mathematical field which means you can add, subtract, multiple or divide these numbers and the operations are **associative** and **commulative**:
 
 Add: `(a + b) mod P`
+
 Subtract: `(a - b) mod P`
+
 Multiply: `(a * b) mod P`
+
+Negate: `(P - a)` (Because `(a + (P - a)) mod P = 0`)
+
 Divide: `(a * (1/b)) mod P` (`1/b` can be calculated using euclidean algorithm. E.g if P==7, then inverse of `2` is `4`, because `2 * 4 mod 7 = 1`. So if you want to divide a field-element by `2`, you should just multiply it by `4`, easy!)
-Negation: `(P - a)` (Because `(a + (P - a)) mod P = 0`)
 
  - Associativity means: a + (b + c) = (a + b) + c, and a ⋅ (b ⋅ c) = (a ⋅ b) ⋅ c.
  - Commutativity means: a + b = b + a, and a ⋅ b = b ⋅ a.
@@ -26,9 +30,12 @@ We can model unimaginable forms of computations using this constraints. Some exa
 #### Multiplication/Addition of numbers
 
 We want to make sure that `w_1 * w_3 = w_2 + w_0`:
+
 We can represent this as: `(1*w_1) * (1*w_3) + (-1*w_2 + 1*w_0)==0`
+
 Or: `(0*w_0 + 1*w_1 + 0*w_2 + 0*w_3) * (0*w_0 + 0*w_1 + 0*w_2 + 1*w_3) + (1*w_0 + 0*w_1 + -1*w_2 + 0*w_3)==0`
-Simplifiying using vectors: `(0,1,0,0)⋅W * (0,0,0,1)⋅W + (1,0,-1,0)⋅W == 0`
+
+Simplified version using vectors: `(0,1,0,0)⋅W * (0,0,0,1)⋅W + (1,0,-1,0)⋅W == 0`
 
 #### Making sure a number is binary
 
@@ -50,7 +57,9 @@ w_1 * (1 - w_1) == 0
 Different logical operations can be done:
 
 AND: `w_0 * w_1 == w_2`
+
 OR: `w_0 + w_1 - w_0 * w_1 == w_2`
+
 NOT: `1 - w_0 == w_2`
 
 #### Converting a number to binary form
@@ -91,3 +100,21 @@ Repeated cubing and adding seems to provide this feature for us.
 Where `[k_0, k_1, ..., k_n]` are fixed numbers.
 In literature, this is called a MiMC hash function.
 
+#### Verification of Sparse Merkle Trees proofs
+
+A Sparse Merkle Tree is a full binary-tree, which has `2^N` leaves. `N` is generally 32 or 64. Thus the proofs are ~32 or ~64 hashes long. The leaves can be represented in a HashMap (E.g `HashMap<uint64, FieldElem>`).
+
+If the value of a certain index in this tree is not present in the HashMap, it means the value is 0. Thus we call it sparse.
+
+The directions of each proof element is derived from the binary representation of leaf index.
+
+E.g suppose there is a Sparse Merkle Tree with 2^3 leaves. The root value is `ROOT`. We want to prove that 5th leaf of this tree has a value of `VAL`. Binary representation of 5 is `101`. The proof is `[P0, P1, P2]`
+
+Then the corresponding constraints of merkle-proof check would be:
+
+```
+t1 == MiMC(P0, val)
+t2 == MiMC(t1, P1)
+t3 == MiMC(P2, t2)
+ROOT == t3
+```
