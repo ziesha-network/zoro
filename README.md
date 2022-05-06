@@ -4,7 +4,15 @@ Zoro is the SNARK circuit implementation of Zeeka's Main Payment Network contrac
 
 ### Prime-Field elements
 
-Prime Field elements are integers that reside in the range `[0..p)` where `p` is a prime number. Prime-Fields form a mathematical field which means you can add, subtract, multiple or divide these numbers and the operations are **associative** and **commulative**:
+Prime Field elements are integers that reside in the range `[0..p)` where `p` is a prime number. For different configurations of different proving systems, the value of `p` is different. E.g for proving systems based on Bls12-381 elliptic-curves (Which is the curve used by Zeeka Network), `p` is:
+
+```
+0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001
+```
+
+These Prime-Fields are also known as the "Scalar Field" of the elliptic-curve being used. So, we are using the Scalar Field of Bls12-381 elliptic curve as our Prime-Field.
+
+Prime-Fields form a mathematical field which means you can add, subtract, multiple or divide these numbers and the operations are **associative** and **commutative**:
 
 Add: `(a + b) mod P`
 
@@ -99,6 +107,25 @@ Repeated cubing and adding seems to provide this feature for us.
 
 Where `[k_0, k_1, ..., k_n]` are fixed numbers.
 In literature, this is called a MiMC hash function.
+
+#### EdDSA signatures
+
+There is a group of elliptic-curves known as *Twisted Edwards curves*, which can be used as the building block of a Digital Signature Algorithm, called [EdDSA](https://en.wikipedia.org/wiki/EdDSA). Twisted Edwards curves are defined using the following equation:
+
+```
+a.x^2 + y^2 = 1 + d.x^2.y^2
+```
+
+`x` and `y` are scalars that reside in a Prime-Field. If the Prime-Field of the EdDSA curve is different from the Scalar Field of our proving system, the we must somehow implement Prime-Field operations within the Prime-Field of our proving system, which is a very hard thing to do (Since we must implement the Modulus (%) operation using mathematical constraints). But if the Prime-Field of the EdDSA curve is same as Prime-Field of the proving system, then there is no need to implement Mod operation in our circuit, because all numbers are by default mod-ed into the Prime-Field of the EdDSA curve.
+
+We mentioned that Zeeka uses Bls12-381 curve as the main curve in its proving system. There is a certain kind of Twisted Edwards curve available called [JubJub](https://z.cash/technology/jubjub/) which is defined on the Bls12-381's Scalar Field, allowing it to be easily integrated into a SNARK circuit. JubJub is a Twisted Edwards curve with following parameters.
+
+```
+A = -1
+D = -(10240/10241)
+```
+
+Zeeka's zero-Knowledge transactions are signed using EdDSA signatures that are built on JubJub elliptic curve.
 
 #### Verification of Sparse Merkle Trees proofs
 
