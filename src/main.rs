@@ -1,19 +1,14 @@
-#[macro_use]
-extern crate lazy_static;
-
 mod bank;
 mod circuits;
 mod config;
 mod core;
-mod gadgets;
 
-use dusk_plonk::prelude::*;
 use ff::Field;
-use rand_core::OsRng;
+//use rand_core::OsRng;
 use zeekit::{eddsa, mimc, Fr};
 
 fn main() {
-    let pp = if std::path::Path::new("params.dat").exists() {
+    /*let pp = if std::path::Path::new("params.dat").exists() {
         println!("Reading params...");
         unsafe { PublicParameters::from_slice_unchecked(&std::fs::read("params.dat").unwrap()) }
     } else {
@@ -22,12 +17,12 @@ fn main() {
         std::fs::write("params.dat", pp.to_raw_var_bytes()).unwrap();
         pp
     };
-    println!("Params are ready!");
+    println!("Params are ready!");*/
 
-    let rand1 = mimc::mimc(vec![Fr::one(), Fr::one()]);
-    let rand2 = mimc::mimc(vec![Fr::zero(), Fr::one()]);
+    let rand1 = mimc::double_mimc(Fr::one(), Fr::one());
+    let rand2 = mimc::double_mimc(Fr::zero(), Fr::one());
 
-    let mut b = bank::Bank::new(pp);
+    let mut b = bank::Bank::new(/*pp*/);
     let alice_keys = eddsa::generate_keys(rand1, rand2);
     let bob_keys = eddsa::generate_keys(rand2, rand1);
     let alice_index = b.add_account(alice_keys.0, 1000);
@@ -63,6 +58,6 @@ fn main() {
     };
     tx3.sign(bob_keys.1);
 
-    b.change_state(vec![tx1, tx2, tx3]).unwrap();
+    b.change_state(vec![tx1]).unwrap();
     println!("{:?}", b.balances());
 }

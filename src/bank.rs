@@ -1,5 +1,7 @@
 use crate::{circuits, core};
-use dusk_plonk::prelude::*;
+use bellman::groth16;
+use bls12_381::Bls12;
+use rand::rngs::OsRng;
 use zeekit::{eddsa, merkle};
 
 #[derive(Clone, Debug)]
@@ -11,8 +13,8 @@ pub enum BankError {
 }
 
 pub struct Bank {
-    params: PublicParameters,
-    update_circuit: (ProverKey, VerifierData),
+    //params: PublicParameters,
+    //update_circuit: (ProverKey, VerifierData),
     tree: merkle::SparseTree,
     accounts: Vec<core::Account>,
 }
@@ -25,16 +27,16 @@ impl Bank {
             .map(|(i, a)| (i as u64, a.balance))
             .collect()
     }
-    pub fn new(params: PublicParameters) -> Self {
-        let start = std::time::Instant::now();
+    pub fn new(/*params: PublicParameters*/) -> Self {
+        /*let start = std::time::Instant::now();
         let (update_pk, update_vd) = circuits::UpdateCircuit::default().compile(&params).unwrap();
         println!(
             "Compiling took: {}ms",
             (std::time::Instant::now() - start).as_millis()
-        );
+        );*/
         Self {
-            params,
-            update_circuit: (update_pk, update_vd),
+            //params,
+            //update_circuit: (update_pk, update_vd),
             tree: merkle::SparseTree::new(),
             accounts: Vec::new(),
         }
@@ -100,7 +102,35 @@ impl Bank {
 
         let next_state = self.tree.root();
 
+        let circuit = circuits::UpdateCircuit {
+            filled: true,
+            state,
+            next_state,
+            transitions: circuits::TransitionBatch::new(transitions),
+        };
+
+        let params = {
+            let c = circuits::UpdateCircuit::default();
+            groth16::generate_random_parameters::<Bls12, _, _>(c, &mut OsRng).unwrap()
+        };
+
+        let pvk = groth16::prepare_verifying_key(&params.vk);
+
         let start = std::time::Instant::now();
+        let proof = groth16::create_random_proof(circuit, &params, &mut OsRng).unwrap();
+        println!(
+            "Proving took: {}ms",
+            (std::time::Instant::now() - start).as_millis()
+        );
+
+        let inputs = vec![state.into(), next_state.into()];
+
+        println!(
+            "Verify: {}",
+            groth16::verify_proof(&pvk, &proof, &inputs).is_ok()
+        );
+
+        /*let start = std::time::Instant::now();
         let state_bls: BlsScalar = state.into();
         let next_state_bls: BlsScalar = next_state.into();
         let proof = {
@@ -126,7 +156,7 @@ impl Bank {
             &public_inputs,
             b"Test",
         )
-        .unwrap();
+        .unwrap();*/
 
         Ok(())
     }

@@ -10,12 +10,7 @@ pub struct Account {
 impl Account {
     pub fn hash(&self) -> Fr {
         let pnt = self.address.0.decompress();
-        mimc::mimc(vec![
-            Fr::from(self.nonce),
-            pnt.0,
-            pnt.1,
-            Fr::from(self.balance),
-        ])
+        mimc::mimc(&[Fr::from(self.nonce), pnt.0, pnt.1, Fr::from(self.balance)])
     }
 }
 
@@ -37,7 +32,7 @@ impl Transaction {
         self.sig = eddsa::sign(&sk, self.hash());
     }
     pub fn hash(&self) -> Fr {
-        mimc::mimc(vec![
+        mimc::mimc(&[
             Fr::from(self.nonce),
             Fr::from(self.src_index),
             Fr::from(self.dst_index),
