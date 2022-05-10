@@ -52,12 +52,12 @@ fn main() {
         nonce: 1,
         src_index: bob_index,
         dst_index: alice_index,
-        amount: 50,
-        fee: 1,
+        amount: 647,
+        fee: 2,
         sig: eddsa::Signature::default(),
     };
     tx3.sign(bob_keys.1);
 
-    b.change_state(vec![tx1]).unwrap();
+    b.change_state(vec![tx1, tx2, tx3]).unwrap();
     println!("{:?}", b.balances());
 }

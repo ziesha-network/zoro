@@ -16,7 +16,7 @@ rand_core = "0.6.3"
 lazy_static = "1.4.0"
 num-bigint = "0.4"
 num-integer = "0.1"
-zeekit = {version="0.4.1", features=["groth16"]}
+zeekit = {version="0.5.0", features=["groth16"]}
 ff = { version = "0.12", features = ["derive", "derive_bits"] }
 
 [features]

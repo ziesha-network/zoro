@@ -2,7 +2,7 @@ use bellman::gadgets::boolean::{AllocatedBit, Boolean};
 use bellman::gadgets::num::AllocatedNum;
 use bellman::{Circuit, ConstraintSystem, SynthesisError};
 use zeekit::eddsa::{groth16::AllocatedPoint, PointAffine};
-use zeekit::{eddsa, BellmanFr, Fr};
+use zeekit::{common, eddsa, BellmanFr, Fr};
 
 use super::*;
 
@@ -179,19 +179,16 @@ impl Circuit<BellmanFr> for UpdateCircuit {
                 state_wit.clone(),
             )?;
 
-            // Balance check:
-            /*let tx_balance_plus_fee = composer.gate_add(
-                Constraint::new()
-                    .left(1)
-                    .right(1)
-                    .output(1)
-                    .a(tx_amount_wit)
-                    .b(tx_fee_wit),
-            ); // WARN: MIGHT OVERFLOW!
-
-            let balance_enough =
-                gadgets::lte::<255>(composer, tx_balance_plus_fee, src_balance_wit);
-            composer.assert_equal_constant(balance_enough, BlsScalar::one(), None);*/
+            // WARN: MIGHT OVERFLOW!
+            let tx_balance_plus_fee =
+                alloc_num(&mut *cs, filled, Fr::from(trans.tx.amount + trans.tx.fee))?;
+            cs.enforce(
+                || "",
+                |lc| lc + tx_amount_wit.get_variable() + tx_fee_wit.get_variable(),
+                |lc| lc + CS::one(),
+                |lc| lc + tx_balance_plus_fee.get_variable(),
+            );
+            common::groth16::lte(&mut *cs, tx_balance_plus_fee, src_balance_wit)?;
 
             cs.enforce(
                 || "",
