@@ -1,7 +1,10 @@
 use crate::{circuits, core};
 use bellman::groth16;
+use bellman::groth16::Parameters;
 use bls12_381::Bls12;
 use rand::rngs::OsRng;
+use std::fs::File;
+use std::io::prelude::*;
 use zeekit::{eddsa, merkle};
 
 #[derive(Clone, Debug)]
@@ -106,12 +109,26 @@ impl Bank {
             filled: true,
             state,
             next_state,
-            transitions: circuits::TransitionBatch::new(transitions),
+            transitions: Box::new(circuits::TransitionBatch::new(transitions)),
         };
 
-        let params = {
+        let load_parameters = false;
+        let parameters_path = "parameters.dat";
+
+        // Create parameters for our circuit
+        let params = if load_parameters {
+            let param_file = File::open(parameters_path).expect("Unable to open parameters file!");
+            Parameters::<Bls12>::read(param_file, false /* false for better performance*/)
+                .expect("Unable to read parameters file!")
+        } else {
             let c = circuits::UpdateCircuit::default();
-            groth16::generate_random_parameters::<Bls12, _, _>(c, &mut OsRng).unwrap()
+
+            let p = groth16::generate_random_parameters::<Bls12, _, _>(c, &mut OsRng).unwrap();
+            let param_file =
+                File::create(parameters_path).expect("Unable to create parameters file!");
+            p.write(param_file)
+                .expect("Unable to write parameters file!");
+            p
         };
 
         let pvk = groth16::prepare_verifying_key(&params.vk);

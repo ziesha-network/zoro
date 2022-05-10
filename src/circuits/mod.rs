@@ -50,7 +50,7 @@ impl Default for TransitionBatch {
 #[derive(Debug, Default)]
 pub struct UpdateCircuit {
     pub filled: bool,
-    pub state: Fr,                    // Public
-    pub next_state: Fr,               // Public
-    pub transitions: TransitionBatch, // Secret :)
+    pub state: Fr,                         // Public
+    pub next_state: Fr,                    // Public
+    pub transitions: Box<TransitionBatch>, // Secret :)
 }
