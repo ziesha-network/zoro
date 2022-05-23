@@ -87,6 +87,95 @@ Now we make sure the bits are really the binary representation of `w_0` with thi
 
 `w_0 == 1*w_1 + 2*w_2 + 4*w_3 + 8*w_4 + ... + (2^254)*w_255`
 
+#### Ternary gadget (1+1 constraints)
+
+Let's say `s` is a selector bit, `a` and `b` are inputs, and we want `c == a` if `s == 0` and `c == b` if `s == 1`. (I.e `c == s ? a : b`)
+
+We first make sure `s` is a bit:
+
+(1 constraint)
+```
+s*(1-s)==0
+```
+
+Then:
+
+(1 constraint)
+```
+(a - b) * s == a - c
+```
+
+
+#### Conditionally swapping (1+2 constraints)
+
+Let's say `s` is a selector bit, `a` and `b` are inputs, and we want `x,y == a,b` if `s == 0` and `x,y == b,a` if `s == 1`.
+
+We first make sure `s` is a bit:
+
+(1 constraint)
+```
+s*(1-s)==0
+```
+
+Then we put these constraints:
+
+(2 constraints)
+```
+(a - b) * s == a - x
+(b - a) * s == b - y
+```
+
+Now if `s` is 0 it equations become:
+
+```
+0 == a - x
+0 == b - y
+```
+
+And if `s` is 1 it equations become:
+
+```
+a - b == a - x
+b - a == b - y
+```
+
+#### Arity-4 merkle-proof placement (2+8 constraints)
+
+We have a value `v` and 3 proof values `p0, p1, p2`. We have two selector bits `s0` and `s1`.
+In case of different `s0 | s1` values we want to change the permutation of values. Outputs are `v0`, `v1`, `v2` and `v3`.
+
+```
+ s     v0    v1    v2    v3
+ 00    v     p0    p1    p2
+ 01    p0    v     p1    p2
+ 10    p0    p1    v     p2
+ 11    p0    p1    p2    v
+```
+
+We first check if `s0` and `s1` are boolean:
+
+(2 constraints)
+```
+s0*(1-s0)==0
+s1*(1-s1)==0
+```
+
+And then calculate outputs according to the table:
+
+
+(8 contraints)
+```
+s0_and_s1 == s0 * s1
+s0_or_s1 == s0 + s1 - s0*s1
+
+v0 == s0_or_s1 ? p0 : v
+v1p == s0 ? v : p0
+v1 == s1 ? p1 : v1p
+v2p == s0 ? p2 : v
+v2 == s1 ? v2p : p1
+v3 == s0_and_s1 ? v : p2
+```
+
 #### Check if a number is less-than or equal with another number
 
 We want to make sure: `w_0 <= w_1`
