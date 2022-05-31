@@ -53,6 +53,20 @@ We want to make sure `w_0` is either `0` or `1` and nothing else. We can use wha
 
 This can only happen when `w_0` is really a binary number. The constraint is not satisfied if `w_0` is not binary.
 
+#### Check if a number is zero (2 constraints)
+
+We have a number `a`, we want to make sure `is_zero` is 1 if `a == 0` and `is_zero` is 0 if `a != 0`.
+
+We define an auxiliary witness `a_inv` and put these constraints:
+
+```
+is_zero == -a_inv * a + 1
+is_zero * a == 0
+```
+
+Now, if `a` is not zero, then `is_zero` has no choice but to be zero in order to satisfy the second constraint. If `is_zero` is 0, then `a_inv` should be set to inverse of a in order to satisfy the first constraint. inverse of `a` exists, since `a` is not zero.
+If `a` is zero, the first constraint is reduces to `is_zero == 1`.
+
 #### Logical operations
 
 Assuming `w_0` and `w_1` are binary with these constraints:
@@ -70,22 +84,50 @@ OR: `w_0 + w_1 - w_0 * w_1 == w_2`
 
 NOT: `1 - w_0 == w_2`
 
-#### Converting a number to binary form
+#### Converting a k-bit integer to binary form (k+1 constraints)
 
-Let's say `w_0` is a 255-bit number and we want to convert it to its binary form and store the bits in `[w_1, w_2, ..., w_255]`.
+Let's say `w_0` is a k-bit number and we want to convert it to its binary form and store the bits in `[w_1, w_2, ..., w_k]`.
 
-This can be done using 256 constraints. We first make sure all `[w_1, w_2, ..., w_255]` variable are binary using this contraint:
+This can be done using k+1 constraints. We first make sure all `[w_1, w_2, ..., w_k]` variable are binary using these k constraints:
 
 ```
 w_1*(1-w_1)==0
 w_2*(1-w_2)==0
 ...
-w_255*(1-w_255)==0
+w_k*(1-w_k)==0
 ```
 
-Now we make sure the bits are really the binary representation of `w_0` with this equation:
+Now we make sure the bits are really the binary representation of `w_0` with a single constraint:
 
-`w_0 == 1*w_1 + 2*w_2 + 4*w_3 + 8*w_4 + ... + (2^254)*w_255`
+`w_0 == [1, 2, 4, 8, ..., 2^(k-1)].[w_1, w_2, w_3, ..., w_k]`
+
+**Note: These constraints also make sure the number is a k-bit number, i.e if the number has more than k-bits, the verification fails**
+
+#### Negate and converting a k-bit signed integer to its two's complement binary form (k+3 constraints)
+
+Let's say `w_0` is a k-bit signed integer and we want to negate then convert it to its binary form and store the bits in `[w_1, w_2, ..., w_k]`.
+
+This can be done using k+3 constraints. We first make sure all `[w_1, w_2, ..., w_k]` variable are binary using these k constraints:
+
+```
+w_1*(1-w_1)==0
+w_2*(1-w_2)==0
+...
+w_k*(1-w_k)==0
+```
+
+Now we make sure the bits are really the binary representation of negate of `w_0` with a single constraint:
+
+`2^k - w_0 == [1, 2, 4, 8, ..., 2^(k-1)].[w_1, w_2, w_3, ..., w_k]`
+
+You might notice that this constraint does not hold when `w_0` is zero. So what's the solution?
+
+We use these constraints instead:
+
+```
+w_0_is_zero == is_zero(w_0) // 2 constraints
+2^k - w_0 == [1, 2, 4, 8, ..., 2^(k-1), 2^k].[w_1, w_2, w_3, ..., w_k, w_0_is_zero] // 1 constraint
+```
 
 #### Ternary gadget (1+1 constraints)
 
@@ -176,15 +218,19 @@ v2 == s1 ? v2p : p1
 v3 == s0_and_s1 ? v : p2
 ```
 
-#### Check if a number is less-than or equal with another number
+#### Check if a k-bit number is greater-than or equal with another k-bit number (3k+6 constraints)
 
-We want to make sure: `w_0 <= w_1`
+We want to make sure: `lte == w_0 <= w_1`
 
-If you have taken a **Digital Circuits Design** course in university, or you are familiar with hardware implementation of comparison, you probably know that this can be done using logical constraints.
+We do the following:
 
-[TODO: Add details]
-
-We use this constraint to check if the user who is sending someone money has enough funds.
+```
+a_bits = to_k_bits(w_0) // k+1 constraints
+b_bits_neg = to_k_bits_neg(w_1) // k+3 constraints
+a_sub_b = sum_bits(a_bits, b_bits_neg) // 1 constraint
+a_sub_b_bits = to_[k+1]_bits(a_sub_b) // k+2 constraint
+gte == a_sub_b_bits[k-1] // 1 constraint
+```
 
 #### Hash pieces of data into a number
 
