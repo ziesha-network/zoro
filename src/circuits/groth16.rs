@@ -238,3 +238,104 @@ impl Circuit<BellmanFr> for UpdateCircuit {
         Ok(())
     }
 }
+
+impl Circuit<BellmanFr> for DepositWithdrawCircuit {
+    fn synthesize<CS: ConstraintSystem<BellmanFr>>(
+        self,
+        cs: &mut CS,
+    ) -> Result<(), SynthesisError> {
+        let filled = self.filled;
+
+        let mut state_wit = alloc_num(&mut *cs, filled, self.state)?;
+        state_wit.inputize(&mut *cs)?;
+
+        for trans in self.transitions.0.iter() {
+            let enabled_wit = AllocatedBit::alloc(&mut *cs, filled.then(|| trans.enabled))?;
+
+            let src_nonce_wit = alloc_num(&mut *cs, filled, Fr::from(trans.before.nonce))?;
+            let src_addr_wit = alloc_point(&mut *cs, filled, trans.before.address.0.decompress())?;
+            let src_balance_wit = alloc_num(&mut *cs, filled, Fr::from(trans.before.balance))?;
+            let src_hash_wit = mimc::groth16::mimc(
+                &mut *cs,
+                &[
+                    src_nonce_wit.clone(),
+                    src_addr_wit.x.clone(),
+                    src_addr_wit.y.clone(),
+                    src_balance_wit.clone(),
+                ],
+            )?;
+
+            let mut proof_wits = Vec::new();
+            for b in trans.proof.0.clone() {
+                proof_wits.push(alloc_num(&mut *cs, filled, b)?);
+            }
+
+            let _tx_nonce_wit = alloc_num(&mut *cs, filled, Fr::from(trans.tx.nonce))?;
+            let tx_index_wit = alloc_num(&mut *cs, filled, Fr::from(trans.tx.index))?;
+            //let tx_pub_key_wit = alloc_point(&mut *cs, filled, trans.tx.pub_key.0.decompress())?;
+            let tx_amount_wit = alloc_num(&mut *cs, filled, Fr::from(trans.tx.amount))?;
+            let _tx_withdraw_wit =
+                AllocatedBit::alloc(&mut *cs, filled.then(|| trans.tx.withdraw))?;
+
+            merkle::groth16::check_proof(
+                &mut *cs,
+                enabled_wit.clone(),
+                tx_index_wit.clone(),
+                src_hash_wit,
+                proof_wits.clone(),
+                state_wit.clone(),
+            )?;
+
+            let new_nonce_wit = alloc_num(&mut *cs, filled, Fr::from(trans.before.nonce + 1))?;
+            cs.enforce(
+                || "",
+                |lc| lc + src_nonce_wit.get_variable() + CS::one(),
+                |lc| lc + CS::one(),
+                |lc| lc + new_nonce_wit.get_variable(),
+            );
+            let new_balance_wit = alloc_num(
+                &mut *cs,
+                filled,
+                Fr::from(trans.before.balance - trans.tx.amount),
+            )?;
+            cs.enforce(
+                || "",
+                |lc| lc + src_balance_wit.get_variable() - tx_amount_wit.get_variable(),
+                |lc| lc + CS::one(),
+                |lc| lc + new_balance_wit.get_variable(),
+            );
+            let new_hash_wit = mimc::groth16::mimc(
+                &mut *cs,
+                &[
+                    new_nonce_wit,
+                    src_addr_wit.x.clone(),
+                    src_addr_wit.y.clone(),
+                    new_balance_wit,
+                ],
+            )?;
+
+            let next_state_wit =
+                merkle::groth16::calc_root(&mut *cs, tx_index_wit, new_hash_wit, proof_wits)?;
+
+            state_wit = AllocatedNum::conditionally_reverse(
+                &mut *cs,
+                &state_wit,
+                &next_state_wit,
+                &Boolean::Is(enabled_wit),
+            )?
+            .0;
+        }
+
+        let claimed_next_state_wit = alloc_num(&mut *cs, filled, self.next_state)?;
+        claimed_next_state_wit.inputize(&mut *cs)?;
+
+        cs.enforce(
+            || "",
+            |lc| lc + state_wit.get_variable(),
+            |lc| lc + CS::one(),
+            |lc| lc + claimed_next_state_wit.get_variable(),
+        );
+
+        Ok(())
+    }
+}

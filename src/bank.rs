@@ -35,10 +35,12 @@ impl Bank {
             "Compiling took: {}ms",
             (std::time::Instant::now() - start).as_millis()
         );*/
+        let mut tree = merkle::SparseTree::new();
+        tree.set(0u64, Default::default());
         Self {
             //params,
             //update_circuit: (update_pk, update_vd),
-            tree: merkle::SparseTree::new(),
+            tree,
             accounts: HashMap::new(),
         }
     }
@@ -46,6 +48,8 @@ impl Bank {
         self.accounts.get(&index).cloned().unwrap_or_default()
     }
     pub fn deposit_withdraw(&mut self, txs: Vec<core::DepositWithdraw>) -> Result<(), BankError> {
+        let mut transitions = Vec::new();
+        let state = self.tree.root();
         for tx in txs.iter() {
             let acc = self.get_account(tx.index);
             if acc.address != Default::default() && tx.pub_key != acc.address {
@@ -66,8 +70,60 @@ impl Bank {
                 };
                 self.tree.set(tx.index as u64, updated_acc.hash());
                 self.accounts.insert(tx.index, updated_acc);
+
+                let proof = self.tree.prove(tx.index);
+
+                transitions.push(circuits::DepositWithdrawTransition {
+                    enabled: true,
+                    tx: tx.clone(),
+                    before: acc,
+                    proof,
+                });
             }
         }
+        let next_state = self.tree.root();
+
+        let circuit = circuits::DepositWithdrawCircuit {
+            filled: true,
+            state,
+            next_state,
+            transitions: Box::new(circuits::DepositWithdrawTransitionBatch::new(transitions)),
+        };
+
+        let load_parameters = false;
+        let parameters_path = "parameters_dw.dat";
+
+        // Create parameters for our circuit
+        let params = if load_parameters {
+            let param_file = File::open(parameters_path).expect("Unable to open parameters file!");
+            Parameters::<Bls12>::read(param_file, false /* false for better performance*/)
+                .expect("Unable to read parameters file!")
+        } else {
+            let c = circuits::DepositWithdrawCircuit::default();
+
+            let p = groth16::generate_random_parameters::<Bls12, _, _>(c, &mut OsRng).unwrap();
+            let param_file =
+                File::create(parameters_path).expect("Unable to create parameters file!");
+            p.write(param_file)
+                .expect("Unable to write parameters file!");
+            p
+        };
+
+        let pvk = groth16::prepare_verifying_key(&params.vk);
+
+        let start = std::time::Instant::now();
+        let proof = groth16::create_random_proof(circuit, &params, &mut OsRng).unwrap();
+        println!(
+            "Proving took: {}ms",
+            (std::time::Instant::now() - start).as_millis()
+        );
+
+        let inputs = vec![state.into(), next_state.into()];
+
+        println!(
+            "Verify: {}",
+            groth16::verify_proof(&pvk, &proof, &inputs).is_ok()
+        );
 
         Ok(())
     }
