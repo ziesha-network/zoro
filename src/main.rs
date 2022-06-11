@@ -25,11 +25,31 @@ fn main() {
     let mut b = bank::Bank::new(/*pp*/);
     let alice_keys = eddsa::generate_keys(rand1, rand2);
     let bob_keys = eddsa::generate_keys(rand2, rand1);
-    let alice_index = b.add_account(alice_keys.0, 1000);
-    let bob_index = b.add_account(bob_keys.0, 500);
+    let alice_index = 0; //b.add_account(alice_keys.0, 1000);
+    let bob_index = 1; //b.add_account(bob_keys.0, 500);
+
+    b.deposit_withdraw(vec![
+        core::DepositWithdraw {
+            nonce: 0,
+            index: alice_index,
+            pub_key: alice_keys.0,
+            amount: 1000,
+            withdraw: false,
+        },
+        core::DepositWithdraw {
+            nonce: 0,
+            index: bob_index,
+            pub_key: bob_keys.0,
+            amount: 500,
+            withdraw: false,
+        },
+    ])
+    .unwrap();
+
+    println!("{:?}", b.balances());
 
     let mut tx1 = core::Transaction {
-        nonce: 0,
+        nonce: 1,
         src_index: alice_index,
         dst_index: bob_index,
         amount: 200,
@@ -39,7 +59,7 @@ fn main() {
     tx1.sign(alice_keys.1);
 
     let mut tx2 = core::Transaction {
-        nonce: 0,
+        nonce: 1,
         src_index: bob_index,
         dst_index: alice_index,
         amount: 50,
@@ -49,7 +69,7 @@ fn main() {
     tx2.sign(bob_keys.1.clone());
 
     let mut tx3 = core::Transaction {
-        nonce: 1,
+        nonce: 2,
         src_index: bob_index,
         dst_index: alice_index,
         amount: 647,

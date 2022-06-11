@@ -4,8 +4,9 @@ use bellman::groth16::Parameters;
 use bls12_381::Bls12;
 use rand::rngs::OsRng;
 use std::fs::File;
-use std::io::prelude::*;
-use zeekit::{eddsa, merkle};
+use zeekit::merkle;
+
+use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
 pub enum BankError {
@@ -13,22 +14,19 @@ pub enum BankError {
     BalanceInsufficient,
     InvalidNonce,
     InvalidSignature,
+    InvalidPublicKey,
 }
 
 pub struct Bank {
     //params: PublicParameters,
     //update_circuit: (ProverKey, VerifierData),
     tree: merkle::SparseTree,
-    accounts: Vec<core::Account>,
+    accounts: HashMap<u64, core::Account>,
 }
 
 impl Bank {
     pub fn balances(&self) -> Vec<(u64, u64)> {
-        self.accounts
-            .iter()
-            .enumerate()
-            .map(|(i, a)| (i as u64, a.balance))
-            .collect()
+        self.accounts.iter().map(|(i, a)| (*i, a.balance)).collect()
     }
     pub fn new(/*params: PublicParameters*/) -> Self {
         /*let start = std::time::Instant::now();
@@ -41,25 +39,37 @@ impl Bank {
             //params,
             //update_circuit: (update_pk, update_vd),
             tree: merkle::SparseTree::new(),
-            accounts: Vec::new(),
+            accounts: HashMap::new(),
         }
     }
-    pub fn get_account(&self, index: u64) -> Result<core::Account, BankError> {
-        self.accounts
-            .get(index as usize)
-            .cloned()
-            .ok_or(BankError::AddressNotFound)
+    pub fn get_account(&self, index: u64) -> core::Account {
+        self.accounts.get(&index).cloned().unwrap_or_default()
     }
-    pub fn add_account(&mut self, address: eddsa::PublicKey, balance: u64) -> u64 {
-        let acc = core::Account {
-            address,
-            balance,
-            nonce: 0,
-        };
-        let ind = self.accounts.len();
-        self.tree.set(ind as u64, acc.hash());
-        self.accounts.push(acc);
-        ind as u64
+    pub fn deposit_withdraw(&mut self, txs: Vec<core::DepositWithdraw>) -> Result<(), BankError> {
+        for tx in txs.iter() {
+            let acc = self.get_account(tx.index);
+            if acc.address != Default::default() && tx.pub_key != acc.address {
+                return Err(BankError::InvalidPublicKey);
+            } else if tx.nonce != acc.nonce {
+                return Err(BankError::InvalidNonce);
+            } else if tx.withdraw && acc.balance < tx.amount {
+                return Err(BankError::BalanceInsufficient);
+            } else {
+                let updated_acc = core::Account {
+                    address: tx.pub_key.clone(),
+                    balance: if tx.withdraw {
+                        acc.balance - tx.amount
+                    } else {
+                        acc.balance + tx.amount
+                    },
+                    nonce: acc.nonce + 1,
+                };
+                self.tree.set(tx.index as u64, updated_acc.hash());
+                self.accounts.insert(tx.index, updated_acc);
+            }
+        }
+
+        Ok(())
     }
     pub fn change_state(&mut self, txs: Vec<core::Transaction>) -> Result<(), BankError> {
         let mut transitions = Vec::new();
@@ -67,7 +77,7 @@ impl Bank {
         let state = self.tree.root();
 
         for tx in txs.iter() {
-            let src_acc = self.accounts[tx.src_index as usize].clone();
+            let src_acc = self.accounts[&tx.src_index].clone();
             if tx.nonce != src_acc.nonce {
                 return Err(BankError::InvalidNonce);
             } else if !tx.verify(src_acc.address) {
@@ -75,22 +85,18 @@ impl Bank {
             } else if src_acc.balance < tx.fee + tx.amount {
                 return Err(BankError::BalanceInsufficient);
             } else {
-                let src_before = self.get_account(tx.src_index)?;
+                let src_before = self.get_account(tx.src_index);
                 let src_proof = self.tree.prove(tx.src_index);
-                self.accounts[tx.src_index as usize].nonce += 1;
-                self.accounts[tx.src_index as usize].balance -= tx.fee + tx.amount;
-                self.tree.set(
-                    tx.src_index as u64,
-                    self.accounts[tx.src_index as usize].hash(),
-                );
+                self.accounts.get_mut(&tx.src_index).unwrap().nonce += 1;
+                self.accounts.get_mut(&tx.src_index).unwrap().balance -= tx.fee + tx.amount;
+                self.tree
+                    .set(tx.src_index as u64, self.accounts[&tx.src_index].hash());
 
-                let dst_before = self.get_account(tx.dst_index)?;
+                let dst_before = self.get_account(tx.dst_index);
                 let dst_proof = self.tree.prove(tx.dst_index);
-                self.accounts[tx.dst_index as usize].balance += tx.amount;
-                self.tree.set(
-                    tx.dst_index as u64,
-                    self.accounts[tx.dst_index as usize].hash(),
-                );
+                self.accounts.get_mut(&tx.dst_index).unwrap().balance += tx.amount;
+                self.tree
+                    .set(tx.dst_index as u64, self.accounts[&tx.dst_index].hash());
 
                 transitions.push(circuits::Transition {
                     enabled: true,
