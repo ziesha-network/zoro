@@ -270,12 +270,11 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
                 proof_wits.push(alloc_num(&mut *cs, filled, b)?);
             }
 
-            let _tx_nonce_wit = alloc_num(&mut *cs, filled, Fr::from(trans.tx.nonce))?;
+            //let tx_nonce_wit = alloc_num(&mut *cs, filled, Fr::from(trans.tx.nonce))?;
             let tx_index_wit = alloc_num(&mut *cs, filled, Fr::from(trans.tx.index))?;
-            //let tx_pub_key_wit = alloc_point(&mut *cs, filled, trans.tx.pub_key.0.decompress())?;
+            let tx_pub_key_wit = alloc_point(&mut *cs, filled, trans.tx.pub_key.0.decompress())?;
             let tx_amount_wit = alloc_num(&mut *cs, filled, Fr::from(trans.tx.amount))?;
-            let _tx_withdraw_wit =
-                AllocatedBit::alloc(&mut *cs, filled.then(|| trans.tx.withdraw))?;
+            //let tx_withdraw_wit = AllocatedBit::alloc(&mut *cs, filled.then(|| trans.tx.withdraw))?;
 
             merkle::groth16::check_proof(
                 &mut *cs,
@@ -296,11 +295,11 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
             let new_balance_wit = alloc_num(
                 &mut *cs,
                 filled,
-                Fr::from(trans.before.balance - trans.tx.amount),
+                Fr::from(trans.before.balance + trans.tx.amount),
             )?;
             cs.enforce(
                 || "",
-                |lc| lc + src_balance_wit.get_variable() - tx_amount_wit.get_variable(),
+                |lc| lc + src_balance_wit.get_variable() + tx_amount_wit.get_variable(),
                 |lc| lc + CS::one(),
                 |lc| lc + new_balance_wit.get_variable(),
             );
@@ -308,8 +307,8 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
                 &mut *cs,
                 &[
                     new_nonce_wit,
-                    src_addr_wit.x.clone(),
-                    src_addr_wit.y.clone(),
+                    tx_pub_key_wit.x.clone(),
+                    tx_pub_key_wit.y.clone(),
                     new_balance_wit,
                 ],
             )?;
