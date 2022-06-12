@@ -270,7 +270,6 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
                 proof_wits.push(alloc_num(&mut *cs, filled, b)?);
             }
 
-            //let tx_nonce_wit = alloc_num(&mut *cs, filled, Fr::from(trans.tx.nonce))?;
             let tx_index_wit = alloc_num(&mut *cs, filled, Fr::from(trans.tx.index))?;
             let tx_pub_key_wit = alloc_point(&mut *cs, filled, trans.tx.pub_key.0.decompress())?;
             let tx_amount_wit = alloc_num(&mut *cs, filled, Fr::from(trans.tx.amount))?;

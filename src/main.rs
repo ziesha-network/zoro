@@ -30,14 +30,12 @@ fn main() {
 
     b.deposit_withdraw(vec![
         core::DepositWithdraw {
-            nonce: 0,
             index: alice_index,
             pub_key: alice_keys.0,
             amount: 1000,
             withdraw: false,
         },
         core::DepositWithdraw {
-            nonce: 0,
             index: bob_index,
             pub_key: bob_keys.0,
             amount: 500,

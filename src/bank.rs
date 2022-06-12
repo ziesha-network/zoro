@@ -34,12 +34,10 @@ impl Bank {
             "Compiling took: {}ms",
             (std::time::Instant::now() - start).as_millis()
         );*/
-        let mut tree = merkle::SparseTree::new(core::Account::default().hash);
-        tree.set(0u64, Default::default());
         Self {
             //params,
             //update_circuit: (update_pk, update_vd),
-            tree,
+            tree: merkle::SparseTree::new(core::Account::default().hash()),
             accounts: HashMap::new(),
         }
     }
@@ -53,8 +51,6 @@ impl Bank {
             let acc = self.get_account(tx.index);
             if acc.address != Default::default() && tx.pub_key != acc.address {
                 return Err(BankError::InvalidPublicKey);
-            } else if tx.nonce != acc.nonce {
-                return Err(BankError::InvalidNonce);
             } else if tx.withdraw && acc.balance < tx.amount {
                 return Err(BankError::BalanceInsufficient);
             } else {

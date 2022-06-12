@@ -44,7 +44,6 @@ impl Transaction {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DepositWithdraw {
-    pub nonce: u64,
     pub index: u64,
     pub pub_key: eddsa::PublicKey,
     pub amount: u64,
