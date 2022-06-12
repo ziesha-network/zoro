@@ -4,6 +4,8 @@ use bellman::{Circuit, ConstraintSystem, SynthesisError};
 use zeekit::eddsa::{groth16::AllocatedPoint, PointAffine};
 use zeekit::{common, eddsa, BellmanFr, Fr};
 
+use std::ops::Neg;
+
 use super::*;
 
 fn alloc_num<CS: ConstraintSystem<BellmanFr>>(
@@ -273,7 +275,8 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
             let tx_index_wit = alloc_num(&mut *cs, filled, Fr::from(trans.tx.index))?;
             let tx_pub_key_wit = alloc_point(&mut *cs, filled, trans.tx.pub_key.0.decompress())?;
             let tx_amount_wit = alloc_num(&mut *cs, filled, Fr::from(trans.tx.amount))?;
-            //let tx_withdraw_wit = AllocatedBit::alloc(&mut *cs, filled.then(|| trans.tx.withdraw))?;
+            let tx_withdraw_wit = AllocatedBit::alloc(&mut *cs, filled.then(|| trans.tx.withdraw))?;
+            tx_withdraw_wit.get_variable();
 
             merkle::groth16::check_proof(
                 &mut *cs,
@@ -294,14 +297,27 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
             let new_balance_wit = alloc_num(
                 &mut *cs,
                 filled,
-                Fr::from(trans.before.balance + trans.tx.amount),
+                Fr::from(if trans.tx.withdraw {
+                    trans.before.balance - trans.tx.amount
+                } else {
+                    trans.before.balance + trans.tx.amount
+                }),
             )?;
+
+            // -2.amount.withdraw == new_balance - balance - amount
+            // if withdraw == 0 then new_balance = balance + amount
+            // else new_balance = balance - amount
             cs.enforce(
                 || "",
-                |lc| lc + src_balance_wit.get_variable() + tx_amount_wit.get_variable(),
-                |lc| lc + CS::one(),
-                |lc| lc + new_balance_wit.get_variable(),
+                |lc| lc + (BellmanFr::from(2).neg(), tx_amount_wit.get_variable()),
+                |lc| lc + tx_withdraw_wit.get_variable(),
+                |lc| {
+                    lc + new_balance_wit.get_variable()
+                        - src_balance_wit.get_variable()
+                        - tx_amount_wit.get_variable()
+                },
             );
+
             let new_hash_wit = mimc::groth16::mimc(
                 &mut *cs,
                 &[

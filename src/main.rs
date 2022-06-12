@@ -31,7 +31,7 @@ fn main() {
     b.deposit_withdraw(vec![
         core::DepositWithdraw {
             index: alice_index,
-            pub_key: alice_keys.0,
+            pub_key: alice_keys.0.clone(),
             amount: 1000,
             withdraw: false,
         },
@@ -40,6 +40,12 @@ fn main() {
             pub_key: bob_keys.0,
             amount: 500,
             withdraw: false,
+        },
+        core::DepositWithdraw {
+            index: alice_index,
+            pub_key: alice_keys.0,
+            amount: 200,
+            withdraw: true,
         },
     ])
     .unwrap();
