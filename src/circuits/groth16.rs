@@ -1,10 +1,9 @@
 use bellman::gadgets::boolean::{AllocatedBit, Boolean};
 use bellman::gadgets::num::AllocatedNum;
 use bellman::{Circuit, ConstraintSystem, SynthesisError};
+use std::ops::Neg;
 use zeekit::eddsa::{groth16::AllocatedPoint, PointAffine};
 use zeekit::{common, eddsa, BellmanFr, Fr};
-
-use std::ops::Neg;
 
 use super::*;
 
@@ -277,6 +276,20 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
             let tx_amount_wit = alloc_num(&mut *cs, filled, Fr::from(trans.tx.amount))?;
             let tx_withdraw_wit = AllocatedBit::alloc(&mut *cs, filled.then(|| trans.tx.withdraw))?;
             tx_withdraw_wit.get_variable();
+
+            // enforce src_addr_wit == tx_pub_key_wit or zero!
+            cs.enforce(
+                || "",
+                |lc| lc + src_addr_wit.x.get_variable(),
+                |lc| lc + src_addr_wit.x.get_variable() - tx_pub_key_wit.x.get_variable(),
+                |lc| lc,
+            );
+            cs.enforce(
+                || "",
+                |lc| lc + src_addr_wit.y.get_variable() + CS::one(),
+                |lc| lc + src_addr_wit.y.get_variable() - tx_pub_key_wit.y.get_variable(),
+                |lc| lc,
+            );
 
             merkle::groth16::check_proof(
                 &mut *cs,

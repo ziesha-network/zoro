@@ -37,7 +37,7 @@ fn main() {
         },
         core::DepositWithdraw {
             index: bob_index,
-            pub_key: bob_keys.0,
+            pub_key: bob_keys.0.clone(),
             amount: 500,
             withdraw: false,
         },
