@@ -10,7 +10,6 @@ use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
 pub enum BankError {
-    AddressNotFound,
     BalanceInsufficient,
     InvalidNonce,
     InvalidSignature,
@@ -35,7 +34,7 @@ impl Bank {
             "Compiling took: {}ms",
             (std::time::Instant::now() - start).as_millis()
         );*/
-        let mut tree = merkle::SparseTree::new();
+        let mut tree = merkle::SparseTree::new(core::Account::default().hash);
         tree.set(0u64, Default::default());
         Self {
             //params,

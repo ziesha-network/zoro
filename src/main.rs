@@ -78,6 +78,6 @@ fn main() {
     };
     tx3.sign(bob_keys.1);
 
-    b.change_state(vec![tx1, tx2, tx3]).unwrap();
+    b.change_state(vec![tx1]).unwrap();
     println!("{:?}", b.balances());
 }
