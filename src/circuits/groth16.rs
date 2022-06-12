@@ -68,6 +68,8 @@ impl Circuit<BellmanFr> for UpdateCircuit {
             let tx_nonce_wit = alloc_num(&mut *cs, filled, Fr::from(trans.tx.nonce))?;
             let tx_src_index_wit = alloc_num(&mut *cs, filled, Fr::from(trans.tx.src_index))?;
             let tx_dst_index_wit = alloc_num(&mut *cs, filled, Fr::from(trans.tx.dst_index))?;
+            let tx_dst_addr_wit =
+                alloc_point(&mut *cs, filled, trans.tx.dst_pub_key.0.decompress())?;
             let tx_amount_wit = alloc_num(&mut *cs, filled, Fr::from(trans.tx.amount))?;
             let tx_fee_wit = alloc_num(&mut *cs, filled, Fr::from(trans.tx.fee))?;
             let tx_hash_wit = mimc::groth16::mimc(
@@ -153,12 +155,26 @@ impl Circuit<BellmanFr> for UpdateCircuit {
                 |lc| lc + new_dst_balance_wit.get_variable(),
             );
 
+            // enforce dst_addr_wit == tx_dst_addr_wit or zero!
+            cs.enforce(
+                || "",
+                |lc| lc + dst_addr_wit.x.get_variable(),
+                |lc| lc + dst_addr_wit.x.get_variable() - tx_dst_addr_wit.x.get_variable(),
+                |lc| lc,
+            );
+            cs.enforce(
+                || "",
+                |lc| lc + dst_addr_wit.y.get_variable() + CS::one(),
+                |lc| lc + dst_addr_wit.y.get_variable() - tx_dst_addr_wit.y.get_variable(),
+                |lc| lc,
+            );
+
             let new_dst_hash_wit = mimc::groth16::mimc(
                 &mut *cs,
                 &[
                     dst_nonce_wit,
-                    dst_addr_wit.x,
-                    dst_addr_wit.y,
+                    tx_dst_addr_wit.x,
+                    tx_dst_addr_wit.y,
                     new_dst_balance_wit,
                 ],
             )?;
@@ -300,13 +316,6 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
                 state_wit.clone(),
             )?;
 
-            let new_nonce_wit = alloc_num(&mut *cs, filled, Fr::from(trans.before.nonce + 1))?;
-            cs.enforce(
-                || "",
-                |lc| lc + src_nonce_wit.get_variable() + CS::one(),
-                |lc| lc + CS::one(),
-                |lc| lc + new_nonce_wit.get_variable(),
-            );
             let new_balance_wit = alloc_num(
                 &mut *cs,
                 filled,
@@ -334,7 +343,7 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
             let new_hash_wit = mimc::groth16::mimc(
                 &mut *cs,
                 &[
-                    new_nonce_wit,
+                    src_nonce_wit,
                     tx_pub_key_wit.x.clone(),
                     tx_pub_key_wit.y.clone(),
                     new_balance_wit,

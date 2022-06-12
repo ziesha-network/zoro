@@ -61,7 +61,7 @@ impl Bank {
                     } else {
                         acc.balance + tx.amount
                     },
-                    nonce: acc.nonce + 1,
+                    nonce: acc.nonce,
                 };
                 self.tree.set(tx.index as u64, updated_acc.hash());
                 self.accounts.insert(tx.index, updated_acc);
@@ -143,8 +143,10 @@ impl Bank {
                 self.tree
                     .set(tx.src_index as u64, self.accounts[&tx.src_index].hash());
 
+                self.accounts.entry(tx.dst_index).or_default();
                 let dst_before = self.get_account(tx.dst_index);
                 let dst_proof = self.tree.prove(tx.dst_index);
+                self.accounts.get_mut(&tx.dst_index).unwrap().address = tx.dst_pub_key.clone();
                 self.accounts.get_mut(&tx.dst_index).unwrap().balance += tx.amount;
                 self.tree
                     .set(tx.dst_index as u64, self.accounts[&tx.dst_index].hash());

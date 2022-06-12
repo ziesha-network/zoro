@@ -19,6 +19,7 @@ pub struct Transaction {
     pub nonce: u64,
     pub src_index: u64,
     pub dst_index: u64,
+    pub dst_pub_key: eddsa::PublicKey,
     pub amount: u64,
     pub fee: u64,
     pub sig: eddsa::Signature,

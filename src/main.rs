@@ -25,8 +25,10 @@ fn main() {
     let mut b = bank::Bank::new(/*pp*/);
     let alice_keys = eddsa::generate_keys(rand1, rand2);
     let bob_keys = eddsa::generate_keys(rand2, rand1);
-    let alice_index = 0; //b.add_account(alice_keys.0, 1000);
-    let bob_index = 1; //b.add_account(bob_keys.0, 500);
+    let charlie_keys = eddsa::generate_keys(rand2, rand2);
+    let alice_index = 0;
+    let bob_index = 1;
+    let charlie_index = 2;
 
     b.deposit_withdraw(vec![
         core::DepositWithdraw {
@@ -43,7 +45,7 @@ fn main() {
         },
         core::DepositWithdraw {
             index: alice_index,
-            pub_key: alice_keys.0,
+            pub_key: alice_keys.0.clone(),
             amount: 200,
             withdraw: true,
         },
@@ -53,19 +55,21 @@ fn main() {
     println!("{:?}", b.balances());
 
     let mut tx1 = core::Transaction {
-        nonce: 1,
+        nonce: 0,
         src_index: alice_index,
         dst_index: bob_index,
+        dst_pub_key: bob_keys.0.clone(),
         amount: 200,
         fee: 1,
         sig: eddsa::Signature::default(),
     };
-    tx1.sign(alice_keys.1);
+    tx1.sign(alice_keys.1.clone());
 
     let mut tx2 = core::Transaction {
-        nonce: 1,
+        nonce: 0,
         src_index: bob_index,
         dst_index: alice_index,
+        dst_pub_key: alice_keys.0.clone(),
         amount: 50,
         fee: 1,
         sig: eddsa::Signature::default(),
@@ -73,15 +77,27 @@ fn main() {
     tx2.sign(bob_keys.1.clone());
 
     let mut tx3 = core::Transaction {
-        nonce: 2,
+        nonce: 1,
         src_index: bob_index,
         dst_index: alice_index,
+        dst_pub_key: alice_keys.0.clone(),
         amount: 647,
         fee: 2,
         sig: eddsa::Signature::default(),
     };
     tx3.sign(bob_keys.1);
 
-    b.change_state(vec![tx1]).unwrap();
+    let mut tx4 = core::Transaction {
+        nonce: 1,
+        src_index: alice_index,
+        dst_index: charlie_index,
+        dst_pub_key: charlie_keys.0.clone(),
+        amount: 197,
+        fee: 2,
+        sig: eddsa::Signature::default(),
+    };
+    tx4.sign(alice_keys.1);
+
+    b.change_state(vec![tx1, tx2, tx3, tx4]).unwrap();
     println!("{:?}", b.balances());
 }
