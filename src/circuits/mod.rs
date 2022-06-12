@@ -1,5 +1,3 @@
-//mod plonk;
-//pub use plonk::*;
 mod groth16;
 
 use crate::config::BATCH_SIZE;
@@ -53,4 +51,42 @@ pub struct UpdateCircuit {
     pub state: Fr,                         // Public
     pub next_state: Fr,                    // Public
     pub transitions: Box<TransitionBatch>, // Secret :)
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct DepositWithdrawTransition {
+    pub enabled: bool,
+    pub tx: core::DepositWithdraw,
+    pub before: core::Account,
+    pub proof: merkle::Proof,
+}
+
+#[derive(Debug, Clone)]
+pub struct DepositWithdrawTransitionBatch(pub [DepositWithdrawTransition; BATCH_SIZE]);
+impl DepositWithdrawTransitionBatch {
+    pub fn new(mut ts: Vec<DepositWithdrawTransition>) -> Self {
+        while ts.len() < BATCH_SIZE {
+            ts.push(DepositWithdrawTransition::default());
+        }
+        Self(ts.try_into().unwrap())
+    }
+}
+impl Default for DepositWithdrawTransitionBatch {
+    fn default() -> Self {
+        Self(
+            (0..BATCH_SIZE)
+                .map(|_| DepositWithdrawTransition::default())
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap(),
+        )
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct DepositWithdrawCircuit {
+    pub filled: bool,
+    pub state: Fr,                                        // Public
+    pub transitions: Box<DepositWithdrawTransitionBatch>, // Secret :)
+    pub next_state: Fr,                                   // Public
 }
