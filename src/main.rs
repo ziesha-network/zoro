@@ -3,26 +3,44 @@ mod circuits;
 mod config;
 mod core;
 
+use bellman::{groth16, Circuit};
+use bls12_381::Bls12;
 use ff::Field;
-//use rand_core::OsRng;
-use zeekit::{eddsa, mimc, Fr};
+use rand_core::OsRng;
+use std::fs::File;
+use zeekit::{eddsa, mimc, BellmanFr, Fr};
+
+fn load_params<C: Circuit<BellmanFr> + Default>(
+    path: &str,
+    use_cache: bool,
+) -> groth16::Parameters<Bls12> {
+    if use_cache {
+        let param_file = File::open(path).expect("Unable to open parameters file!");
+        groth16::Parameters::<Bls12>::read(param_file, false /* false for better performance*/)
+            .expect("Unable to read parameters file!")
+    } else {
+        let c = C::default();
+
+        let p = groth16::generate_random_parameters::<Bls12, _, _>(c, &mut OsRng).unwrap();
+        let param_file = File::create(path).expect("Unable to create parameters file!");
+        p.write(param_file)
+            .expect("Unable to write parameters file!");
+        p
+    }
+}
 
 fn main() {
-    /*let pp = if std::path::Path::new("params.dat").exists() {
-        println!("Reading params...");
-        unsafe { PublicParameters::from_slice_unchecked(&std::fs::read("params.dat").unwrap()) }
-    } else {
-        println!("Generating params...");
-        let pp = PublicParameters::setup(1 << 19, &mut OsRng).unwrap();
-        std::fs::write("params.dat", pp.to_raw_var_bytes()).unwrap();
-        pp
-    };
-    println!("Params are ready!");*/
+    let use_cache = false;
+    let update_params = load_params::<circuits::UpdateCircuit>("groth16_mpn_update.dat", use_cache);
+    let deposit_withdraw_params = load_params::<circuits::DepositWithdrawCircuit>(
+        "groth16_mpn_deposit_withdraw.dat",
+        use_cache,
+    );
 
     let rand1 = mimc::double_mimc(Fr::one(), Fr::one());
     let rand2 = mimc::double_mimc(Fr::zero(), Fr::one());
 
-    let mut b = bank::Bank::new(/*pp*/);
+    let mut b = bank::Bank::new(update_params, deposit_withdraw_params);
     let alice_keys = eddsa::generate_keys(rand1, rand2);
     let bob_keys = eddsa::generate_keys(rand2, rand1);
     let charlie_keys = eddsa::generate_keys(rand2, rand2);

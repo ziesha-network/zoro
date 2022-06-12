@@ -1,5 +1,3 @@
-//mod plonk;
-//pub use plonk::*;
 mod groth16;
 
 use crate::config::BATCH_SIZE;
