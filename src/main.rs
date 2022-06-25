@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate lazy_static;
+
 mod bank;
 mod circuits;
 mod config;
@@ -40,7 +43,11 @@ fn main() {
     let rand1 = mimc::double_mimc(Fr::one(), Fr::one());
     let rand2 = mimc::double_mimc(Fr::zero(), Fr::one());
 
-    let mut b = bank::Bank::new(update_params, deposit_withdraw_params);
+    let mut b = bank::Bank::new(
+        update_params,
+        deposit_withdraw_params,
+        bazuka::db::RamKvStore::new(),
+    );
     let alice_keys = eddsa::generate_keys(rand1, rand2);
     let bob_keys = eddsa::generate_keys(rand2, rand1);
     let charlie_keys = eddsa::generate_keys(rand2, rand2);

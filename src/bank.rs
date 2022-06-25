@@ -1,11 +1,35 @@
 use crate::{circuits, core};
+use bazuka::{core::ContractId, db::KvStore, zk::ZkStateModel};
 use bellman::groth16;
 use bellman::groth16::Parameters;
 use bls12_381::Bls12;
 use rand::rngs::OsRng;
+use std::str::FromStr;
 use zeekit::merkle;
 
 use std::collections::HashMap;
+
+lazy_static! {
+    pub static ref STATE_MODEL: ZkStateModel = {
+        ZkStateModel::List {
+            log4_size: 5,
+            item_type: Box::new(ZkStateModel::Struct {
+                field_types: vec![
+                    ZkStateModel::Scalar, // Nonce
+                    ZkStateModel::Scalar, // Pub-key X
+                    ZkStateModel::Scalar, // Pub-key Y
+                    ZkStateModel::Scalar, // Balance
+                ],
+            }),
+        }
+    };
+    pub static ref CONTRACT_ID: ContractId = {
+        ContractId::from_str(
+            "0000000000000000000000000000000000000000000000000000000000000000"
+        )
+        .unwrap()
+    };
+}
 
 #[derive(Clone, Debug)]
 pub enum BankError {
@@ -15,26 +39,29 @@ pub enum BankError {
     InvalidPublicKey,
 }
 
-pub struct Bank {
+pub struct Bank<K: KvStore> {
     update_params: Parameters<Bls12>,
     deposit_withdraw_params: Parameters<Bls12>,
     tree: merkle::SparseTree,
     accounts: HashMap<u64, core::Account>,
+    database: K,
 }
 
-impl Bank {
+impl<K: KvStore> Bank<K> {
     pub fn balances(&self) -> Vec<(u64, u64)> {
         self.accounts.iter().map(|(i, a)| (*i, a.balance)).collect()
     }
     pub fn new(
         update_params: Parameters<Bls12>,
         deposit_withdraw_params: Parameters<Bls12>,
+        database: K,
     ) -> Self {
         Self {
             update_params,
             deposit_withdraw_params,
             tree: merkle::SparseTree::new(core::Account::default().hash()),
             accounts: HashMap::new(),
+            database,
         }
     }
     pub fn get_account(&self, index: u64) -> core::Account {
