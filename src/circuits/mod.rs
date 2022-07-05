@@ -2,7 +2,8 @@ mod groth16;
 
 use crate::config::BATCH_SIZE;
 use crate::core;
-use zeekit::{merkle, mimc, Fr};
+use bazuka::zk::ZkScalar;
+use zeekit::merkle;
 
 // Validation:
 // 0. Check verify_sig(tx)
@@ -48,8 +49,8 @@ impl Default for TransitionBatch {
 #[derive(Debug, Default)]
 pub struct UpdateCircuit {
     pub filled: bool,
-    pub state: Fr,                         // Public
-    pub next_state: Fr,                    // Public
+    pub state: ZkScalar,                   // Public
+    pub next_state: ZkScalar,              // Public
     pub transitions: Box<TransitionBatch>, // Secret :)
 }
 
@@ -86,7 +87,7 @@ impl Default for DepositWithdrawTransitionBatch {
 #[derive(Debug, Default)]
 pub struct DepositWithdrawCircuit {
     pub filled: bool,
-    pub state: Fr,                                        // Public
+    pub state: ZkScalar,                                  // Public
     pub transitions: Box<DepositWithdrawTransitionBatch>, // Secret :)
-    pub next_state: Fr,                                   // Public
+    pub next_state: ZkScalar,                             // Public
 }

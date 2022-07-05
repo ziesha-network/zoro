@@ -1,5 +1,9 @@
 use crate::{circuits, core};
-use bazuka::{core::ContractId, db::KvStore, zk::ZkStateModel};
+use bazuka::{
+    core::{ContractId, ZkHasher},
+    db::KvStore,
+    zk::{KvStoreStateManager, ZkDataLocator, ZkStateModel},
+};
 use bellman::groth16;
 use bellman::groth16::Parameters;
 use bls12_381::Bls12;
@@ -42,14 +46,12 @@ pub enum BankError {
 pub struct Bank<K: KvStore> {
     update_params: Parameters<Bls12>,
     deposit_withdraw_params: Parameters<Bls12>,
-    tree: merkle::SparseTree,
-    accounts: HashMap<u64, core::Account>,
     database: K,
 }
 
 impl<K: KvStore> Bank<K> {
     pub fn balances(&self) -> Vec<(u64, u64)> {
-        self.accounts.iter().map(|(i, a)| (*i, a.balance)).collect()
+        unimplemented!();
     }
     pub fn new(
         update_params: Parameters<Bls12>,
@@ -59,17 +61,47 @@ impl<K: KvStore> Bank<K> {
         Self {
             update_params,
             deposit_withdraw_params,
-            tree: merkle::SparseTree::new(core::Account::default().hash()),
-            accounts: HashMap::new(),
             database,
         }
     }
     pub fn get_account(&self, index: u64) -> core::Account {
-        self.accounts.get(&index).cloned().unwrap_or_default()
+        let nonce = KvStoreStateManager::<ZkHasher>::get(
+            &self.database,
+            CONTRACT_ID,
+            ZkDataLocator(vec![index, 0]),
+        )
+        .unwrap();
+        let pub_x = KvStoreStateManager::<ZkHasher>::get(
+            &self.database,
+            CONTRACT_ID,
+            ZkDataLocator(vec![index, 1]),
+        )
+        .unwrap();
+        let pub_y = KvStoreStateManager::<ZkHasher>::get(
+            &self.database,
+            CONTRACT_ID,
+            ZkDataLocator(vec![index, 2]),
+        )
+        .unwrap();
+        let balance = KvStoreStateManager::<ZkHasher>::get(
+            &self.database,
+            CONTRACT_ID,
+            ZkDataLocator(vec![index, 3]),
+        )
+        .unwrap();
+        unimplemented!();
     }
+
     pub fn deposit_withdraw(&mut self, txs: Vec<core::DepositWithdraw>) -> Result<(), BankError> {
+        let mut mirror = self.database.mirror();
+
         let mut transitions = Vec::new();
-        let state = self.tree.root();
+        let state = KvStoreStateManager::<ZkHasher>::get(
+            &self.database,
+            CONTRACT_ID,
+            ZkDataLocator(vec![]),
+        )
+        .unwrap();
         for tx in txs.iter() {
             let acc = self.get_account(tx.index);
             if acc.address != Default::default() && tx.pub_key != acc.address {
@@ -99,7 +131,9 @@ impl<K: KvStore> Bank<K> {
                 });
             }
         }
-        let next_state = self.tree.root();
+        let next_state =
+            KvStoreStateManager::<ZkHasher>::get(&mirror, CONTRACT_ID, ZkDataLocator(vec![]))
+                .unwrap();
 
         let circuit = circuits::DepositWithdrawCircuit {
             filled: true,
@@ -131,7 +165,14 @@ impl<K: KvStore> Bank<K> {
     pub fn change_state(&mut self, txs: Vec<core::Transaction>) -> Result<(), BankError> {
         let mut transitions = Vec::new();
 
-        let state = self.tree.root();
+        let state = KvStoreStateManager::<ZkHasher>::get(
+            &self.database,
+            CONTRACT_ID,
+            ZkDataLocator(vec![]),
+        )
+        .unwrap();
+
+        let mut mirror = self.database.mirror();
 
         for tx in txs.iter() {
             let src_acc = self.accounts[&tx.src_index].clone();
@@ -168,7 +209,9 @@ impl<K: KvStore> Bank<K> {
             }
         }
 
-        let next_state = self.tree.root();
+        let next_state =
+            KvStoreStateManager::<ZkHasher>::get(&mirror, CONTRACT_ID, ZkDataLocator(vec![]))
+                .unwrap();
 
         let circuit = circuits::UpdateCircuit {
             filled: true,

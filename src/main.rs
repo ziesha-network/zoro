@@ -6,12 +6,14 @@ mod circuits;
 mod config;
 mod core;
 
+use bazuka::core::ZkHasher;
+use bazuka::crypto::{jubjub, ZkSignatureScheme};
 use bellman::{groth16, Circuit};
 use bls12_381::Bls12;
 use ff::Field;
 use rand_core::OsRng;
 use std::fs::File;
-use zeekit::{eddsa, mimc, BellmanFr, Fr};
+use zeekit::BellmanFr;
 
 fn load_params<C: Circuit<BellmanFr> + Default>(
     path: &str,
@@ -40,17 +42,14 @@ fn main() {
         use_cache,
     );
 
-    let rand1 = mimc::double_mimc(Fr::one(), Fr::one());
-    let rand2 = mimc::double_mimc(Fr::zero(), Fr::one());
-
     let mut b = bank::Bank::new(
         update_params,
         deposit_withdraw_params,
         bazuka::db::RamKvStore::new(),
     );
-    let alice_keys = eddsa::generate_keys(rand1, rand2);
-    let bob_keys = eddsa::generate_keys(rand2, rand1);
-    let charlie_keys = eddsa::generate_keys(rand2, rand2);
+    let alice_keys = jubjub::JubJub::<ZkHasher>::generate_keys(b"alice");
+    let bob_keys = jubjub::JubJub::<ZkHasher>::generate_keys(b"bob");
+    let charlie_keys = jubjub::JubJub::<ZkHasher>::generate_keys(b"charlie");
     let alice_index = 0;
     let bob_index = 1;
     let charlie_index = 2;
@@ -86,7 +85,7 @@ fn main() {
         dst_pub_key: bob_keys.0.clone(),
         amount: 200,
         fee: 1,
-        sig: eddsa::Signature::default(),
+        sig: jubjub::Signature::default(),
     };
     tx1.sign(alice_keys.1.clone());
 
@@ -97,7 +96,7 @@ fn main() {
         dst_pub_key: alice_keys.0.clone(),
         amount: 50,
         fee: 1,
-        sig: eddsa::Signature::default(),
+        sig: jubjub::Signature::default(),
     };
     tx2.sign(bob_keys.1.clone());
 
@@ -108,7 +107,7 @@ fn main() {
         dst_pub_key: alice_keys.0.clone(),
         amount: 647,
         fee: 2,
-        sig: eddsa::Signature::default(),
+        sig: jubjub::Signature::default(),
     };
     tx3.sign(bob_keys.1);
 
@@ -119,7 +118,7 @@ fn main() {
         dst_pub_key: charlie_keys.0.clone(),
         amount: 197,
         fee: 2,
-        sig: eddsa::Signature::default(),
+        sig: jubjub::Signature::default(),
     };
     tx4.sign(alice_keys.1);
 
