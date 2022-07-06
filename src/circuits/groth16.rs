@@ -74,8 +74,10 @@ impl Circuit<BellmanFr> for UpdateCircuit {
             }
 
             let tx_nonce_wit = alloc_num(&mut *cs, filled, ZkScalar::from(trans.tx.nonce))?;
-            let tx_src_index_wit = alloc_num(&mut *cs, filled, ZkScalar::from(trans.tx.src_index as u64))?;
-            let tx_dst_index_wit = alloc_num(&mut *cs, filled, ZkScalar::from(trans.tx.dst_index as u64))?;
+            let tx_src_index_wit =
+                alloc_num(&mut *cs, filled, ZkScalar::from(trans.tx.src_index as u64))?;
+            let tx_dst_index_wit =
+                alloc_num(&mut *cs, filled, ZkScalar::from(trans.tx.dst_index as u64))?;
             let tx_dst_addr_wit =
                 alloc_point(&mut *cs, filled, trans.tx.dst_pub_key.0.decompress())?;
             let tx_amount_wit = alloc_num(&mut *cs, filled, ZkScalar::from(trans.tx.amount))?;
@@ -302,7 +304,11 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
 
             let mut proof_wits = Vec::new();
             for b in trans.proof.0.clone() {
-                proof_wits.push([alloc_num(&mut *cs, filled, b[0])?,alloc_num(&mut *cs, filled, b[1])?,alloc_num(&mut *cs, filled, b[2])?]);
+                proof_wits.push([
+                    alloc_num(&mut *cs, filled, b[0])?,
+                    alloc_num(&mut *cs, filled, b[1])?,
+                    alloc_num(&mut *cs, filled, b[2])?,
+                ]);
             }
 
             let tx_index_wit = alloc_num(&mut *cs, filled, ZkScalar::from(trans.tx.index as u64))?;

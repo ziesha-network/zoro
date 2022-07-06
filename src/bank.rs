@@ -107,8 +107,16 @@ pub struct Bank<K: KvStore> {
 }
 
 impl<K: KvStore> Bank<K> {
-    pub fn balances(&self) -> Vec<(u64, u64)> {
-        unimplemented!();
+    pub fn balances(&self) -> Vec<(u32, u64)> {
+        let state =
+            KvStoreStateManager::<ZkHasher>::get_full_state(&self.database, *CONTRACT_ID).unwrap();
+        let mut result = Vec::new();
+        for (loc, val) in state.data.0 {
+            if loc.0[1] == 3 {
+                result.push((loc.0[0], val.try_into().unwrap()));
+            }
+        }
+        result
     }
     pub fn new(
         update_params: Parameters<Bls12>,
@@ -199,6 +207,8 @@ impl<K: KvStore> Bank<K> {
             "Verify: {}",
             groth16::verify_proof(&pvk, &proof, &inputs).is_ok()
         );
+
+        self.database.update(&mirror.to_ops()).unwrap();
 
         Ok(())
     }
@@ -297,6 +307,8 @@ impl<K: KvStore> Bank<K> {
             "Verify: {}",
             groth16::verify_proof(&pvk, &proof, &inputs).is_ok()
         );
+
+        self.database.update(&mirror.to_ops()).unwrap();
 
         Ok(())
     }

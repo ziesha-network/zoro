@@ -6,8 +6,9 @@ mod circuits;
 mod config;
 mod core;
 
-use bazuka::core::ZkHasher;
+use bazuka::core::{ContractId, ZkHasher};
 use bazuka::crypto::{jubjub, ZkSignatureScheme};
+use bazuka::db::KvStore;
 use bellman::{groth16, Circuit};
 use bls12_381::Bls12;
 use ff::Field;
@@ -42,11 +43,25 @@ fn main() {
         use_cache,
     );
 
-    let mut b = bank::Bank::new(
-        update_params,
-        deposit_withdraw_params,
-        bazuka::db::RamKvStore::new(),
-    );
+    let mut db = bazuka::db::RamKvStore::new();
+
+    db.update(&[bazuka::db::WriteOp::Put(
+        format!("contract_{}", bank::CONTRACT_ID.clone()).into(),
+        bazuka::zk::ZkContract {
+            initial_state: bazuka::zk::ZkCompressedState::empty::<ZkHasher>(
+                bank::STATE_MODEL.clone(),
+            )
+            .into(),
+            state_model: bank::STATE_MODEL.clone(),
+            log4_deposit_withdraw_capacity: 0,
+            deposit_withdraw_function: bazuka::zk::ZkVerifierKey::Dummy,
+            functions: vec![],
+        }
+        .into(),
+    )])
+    .unwrap();
+
+    let mut b = bank::Bank::new(update_params, deposit_withdraw_params, db);
     let alice_keys = jubjub::JubJub::<ZkHasher>::generate_keys(b"alice");
     let bob_keys = jubjub::JubJub::<ZkHasher>::generate_keys(b"bob");
     let charlie_keys = jubjub::JubJub::<ZkHasher>::generate_keys(b"charlie");
