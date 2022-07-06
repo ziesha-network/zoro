@@ -5,6 +5,8 @@ use crate::core;
 use bazuka::zk::ZkScalar;
 use zeekit::merkle;
 
+const LOG4_TREE_SIZE: usize = 2;
+
 // Validation:
 // 0. Check verify_sig(tx)
 // 1. Check verify_proof(curr_root, src_before, src_proof)
@@ -19,9 +21,9 @@ pub struct Transition {
     pub enabled: bool,
     pub tx: core::Transaction,
     pub src_before: core::Account, // src_after can be derived
-    pub src_proof: merkle::Proof,
+    pub src_proof: merkle::Proof<LOG4_TREE_SIZE>,
     pub dst_before: core::Account, // dst_after can be derived
-    pub dst_proof: merkle::Proof,
+    pub dst_proof: merkle::Proof<LOG4_TREE_SIZE>,
 }
 
 #[derive(Debug, Clone)]
@@ -59,7 +61,7 @@ pub struct DepositWithdrawTransition {
     pub enabled: bool,
     pub tx: core::DepositWithdraw,
     pub before: core::Account,
-    pub proof: merkle::Proof,
+    pub proof: merkle::Proof<LOG4_TREE_SIZE>,
 }
 
 #[derive(Debug, Clone)]

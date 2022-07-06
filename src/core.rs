@@ -24,8 +24,8 @@ impl Account {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Transaction {
     pub nonce: u64,
-    pub src_index: u64,
-    pub dst_index: u64,
+    pub src_index: u32,
+    pub dst_index: u32,
     pub dst_pub_key: jubjub::PublicKey,
     pub amount: u64,
     pub fee: u64,
@@ -42,8 +42,8 @@ impl Transaction {
     pub fn hash(&self) -> ZkScalar {
         ZkMainHasher::hash(&[
             ZkScalar::from(self.nonce),
-            ZkScalar::from(self.src_index),
-            ZkScalar::from(self.dst_index),
+            ZkScalar::from(self.src_index as u64),
+            ZkScalar::from(self.dst_index as u64),
             ZkScalar::from(self.amount),
             ZkScalar::from(self.fee),
         ])
@@ -52,7 +52,7 @@ impl Transaction {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DepositWithdraw {
-    pub index: u64,
+    pub index: u32,
     pub pub_key: jubjub::PublicKey,
     pub amount: u64,
     pub withdraw: bool,

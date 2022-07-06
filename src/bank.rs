@@ -1,6 +1,8 @@
 use crate::{circuits, core};
+use bazuka::zk::ZkScalar;
 use bazuka::{
     core::{ContractId, ZkHasher},
+    crypto::jubjub::{PointAffine, PublicKey},
     db::KvStore,
     zk::{KvStoreStateManager, ZkDataLocator, ZkStateModel},
 };
@@ -35,6 +37,61 @@ lazy_static! {
     };
 }
 
+pub fn get_account<K: KvStore>(db: &K, index: u32) -> core::Account {
+    let nonce: u64 =
+        KvStoreStateManager::<ZkHasher>::get_data(db, *CONTRACT_ID, &ZkDataLocator(vec![index, 0]))
+            .unwrap()
+            .try_into()
+            .unwrap();
+    let pub_x =
+        KvStoreStateManager::<ZkHasher>::get_data(db, *CONTRACT_ID, &ZkDataLocator(vec![index, 1]))
+            .unwrap();
+    let pub_y =
+        KvStoreStateManager::<ZkHasher>::get_data(db, *CONTRACT_ID, &ZkDataLocator(vec![index, 2]))
+            .unwrap();
+    let balance: u64 =
+        KvStoreStateManager::<ZkHasher>::get_data(db, *CONTRACT_ID, &ZkDataLocator(vec![index, 3]))
+            .unwrap()
+            .try_into()
+            .unwrap();
+    core::Account {
+        nonce,
+        balance,
+        address: PublicKey(PointAffine(pub_x, pub_y).compress()),
+    }
+}
+
+pub fn set_account<K: KvStore>(db: &mut K, index: u32, acc: core::Account) {
+    KvStoreStateManager::<ZkHasher>::set_data(
+        db,
+        *CONTRACT_ID,
+        ZkDataLocator(vec![index, 0]),
+        ZkScalar::from(acc.nonce),
+    )
+    .unwrap();
+    KvStoreStateManager::<ZkHasher>::set_data(
+        db,
+        *CONTRACT_ID,
+        ZkDataLocator(vec![index, 1]),
+        acc.address.0.decompress().0,
+    )
+    .unwrap();
+    KvStoreStateManager::<ZkHasher>::set_data(
+        db,
+        *CONTRACT_ID,
+        ZkDataLocator(vec![index, 2]),
+        acc.address.0.decompress().1,
+    )
+    .unwrap();
+    KvStoreStateManager::<ZkHasher>::set_data(
+        db,
+        *CONTRACT_ID,
+        ZkDataLocator(vec![index, 3]),
+        ZkScalar::from(acc.balance),
+    )
+    .unwrap();
+}
+
 #[derive(Clone, Debug)]
 pub enum BankError {
     BalanceInsufficient,
@@ -64,46 +121,19 @@ impl<K: KvStore> Bank<K> {
             database,
         }
     }
-    pub fn get_account(&self, index: u64) -> core::Account {
-        let nonce = KvStoreStateManager::<ZkHasher>::get(
-            &self.database,
-            CONTRACT_ID,
-            ZkDataLocator(vec![index, 0]),
-        )
-        .unwrap();
-        let pub_x = KvStoreStateManager::<ZkHasher>::get(
-            &self.database,
-            CONTRACT_ID,
-            ZkDataLocator(vec![index, 1]),
-        )
-        .unwrap();
-        let pub_y = KvStoreStateManager::<ZkHasher>::get(
-            &self.database,
-            CONTRACT_ID,
-            ZkDataLocator(vec![index, 2]),
-        )
-        .unwrap();
-        let balance = KvStoreStateManager::<ZkHasher>::get(
-            &self.database,
-            CONTRACT_ID,
-            ZkDataLocator(vec![index, 3]),
-        )
-        .unwrap();
-        unimplemented!();
-    }
 
     pub fn deposit_withdraw(&mut self, txs: Vec<core::DepositWithdraw>) -> Result<(), BankError> {
         let mut mirror = self.database.mirror();
 
         let mut transitions = Vec::new();
-        let state = KvStoreStateManager::<ZkHasher>::get(
+        let state = KvStoreStateManager::<ZkHasher>::get_data(
             &self.database,
-            CONTRACT_ID,
-            ZkDataLocator(vec![]),
+            *CONTRACT_ID,
+            &ZkDataLocator(vec![]),
         )
         .unwrap();
         for tx in txs.iter() {
-            let acc = self.get_account(tx.index);
+            let acc = get_account(&mirror, tx.index);
             if acc.address != Default::default() && tx.pub_key != acc.address {
                 return Err(BankError::InvalidPublicKey);
             } else if tx.withdraw && acc.balance < tx.amount {
@@ -118,10 +148,17 @@ impl<K: KvStore> Bank<K> {
                     },
                     nonce: acc.nonce,
                 };
-                self.tree.set(tx.index as u64, updated_acc.hash());
-                self.accounts.insert(tx.index, updated_acc);
+                set_account(&mut mirror, tx.index, updated_acc);
 
-                let proof = self.tree.prove(tx.index);
+                let proof = zeekit::merkle::Proof::<2>(
+                    KvStoreStateManager::<ZkHasher>::prove(
+                        &mirror,
+                        *CONTRACT_ID,
+                        ZkDataLocator(vec![]),
+                        tx.index,
+                    )
+                    .unwrap(),
+                );
 
                 transitions.push(circuits::DepositWithdrawTransition {
                     enabled: true,
@@ -131,9 +168,12 @@ impl<K: KvStore> Bank<K> {
                 });
             }
         }
-        let next_state =
-            KvStoreStateManager::<ZkHasher>::get(&mirror, CONTRACT_ID, ZkDataLocator(vec![]))
-                .unwrap();
+        let next_state = KvStoreStateManager::<ZkHasher>::get_data(
+            &mirror,
+            *CONTRACT_ID,
+            &ZkDataLocator(vec![]),
+        )
+        .unwrap();
 
         let circuit = circuits::DepositWithdrawCircuit {
             filled: true,
@@ -165,38 +205,57 @@ impl<K: KvStore> Bank<K> {
     pub fn change_state(&mut self, txs: Vec<core::Transaction>) -> Result<(), BankError> {
         let mut transitions = Vec::new();
 
-        let state = KvStoreStateManager::<ZkHasher>::get(
+        let state = KvStoreStateManager::<ZkHasher>::get_data(
             &self.database,
-            CONTRACT_ID,
-            ZkDataLocator(vec![]),
+            *CONTRACT_ID,
+            &ZkDataLocator(vec![]),
         )
         .unwrap();
 
         let mut mirror = self.database.mirror();
 
         for tx in txs.iter() {
-            let src_acc = self.accounts[&tx.src_index].clone();
-            if tx.nonce != src_acc.nonce {
+            let src_before = get_account(&mirror, tx.src_index);
+            if tx.nonce != src_before.nonce {
                 return Err(BankError::InvalidNonce);
-            } else if !tx.verify(src_acc.address) {
+            } else if !tx.verify(src_before.address.clone()) {
                 return Err(BankError::InvalidSignature);
-            } else if src_acc.balance < tx.fee + tx.amount {
+            } else if src_before.balance < tx.fee + tx.amount {
                 return Err(BankError::BalanceInsufficient);
             } else {
-                let src_before = self.get_account(tx.src_index);
-                let src_proof = self.tree.prove(tx.src_index);
-                self.accounts.get_mut(&tx.src_index).unwrap().nonce += 1;
-                self.accounts.get_mut(&tx.src_index).unwrap().balance -= tx.fee + tx.amount;
-                self.tree
-                    .set(tx.src_index as u64, self.accounts[&tx.src_index].hash());
+                let src_proof = zeekit::merkle::Proof::<2>(
+                    KvStoreStateManager::<ZkHasher>::prove(
+                        &mirror,
+                        *CONTRACT_ID,
+                        ZkDataLocator(vec![]),
+                        tx.src_index,
+                    )
+                    .unwrap(),
+                );
+                let src_after = core::Account {
+                    address: src_before.address.clone(),
+                    balance: src_before.balance - tx.fee + tx.amount,
+                    nonce: src_before.nonce + 1,
+                };
+                set_account(&mut mirror, tx.src_index, src_after);
 
-                self.accounts.entry(tx.dst_index).or_default();
-                let dst_before = self.get_account(tx.dst_index);
-                let dst_proof = self.tree.prove(tx.dst_index);
-                self.accounts.get_mut(&tx.dst_index).unwrap().address = tx.dst_pub_key.clone();
-                self.accounts.get_mut(&tx.dst_index).unwrap().balance += tx.amount;
-                self.tree
-                    .set(tx.dst_index as u64, self.accounts[&tx.dst_index].hash());
+                let dst_before = get_account(&mirror, tx.dst_index);
+                let dst_proof = zeekit::merkle::Proof::<2>(
+                    KvStoreStateManager::<ZkHasher>::prove(
+                        &mirror,
+                        *CONTRACT_ID,
+                        ZkDataLocator(vec![]),
+                        tx.dst_index,
+                    )
+                    .unwrap(),
+                );
+
+                let dst_after = core::Account {
+                    address: tx.dst_pub_key.clone(),
+                    balance: dst_before.balance + tx.amount,
+                    nonce: dst_before.nonce,
+                };
+                set_account(&mut mirror, tx.dst_index, dst_after);
 
                 transitions.push(circuits::Transition {
                     enabled: true,
@@ -209,9 +268,12 @@ impl<K: KvStore> Bank<K> {
             }
         }
 
-        let next_state =
-            KvStoreStateManager::<ZkHasher>::get(&mirror, CONTRACT_ID, ZkDataLocator(vec![]))
-                .unwrap();
+        let next_state = KvStoreStateManager::<ZkHasher>::get_data(
+            &mirror,
+            *CONTRACT_ID,
+            &ZkDataLocator(vec![]),
+        )
+        .unwrap();
 
         let circuit = circuits::UpdateCircuit {
             filled: true,
