@@ -5,17 +5,16 @@ use bazuka::zk::{ZkHasher, ZkScalar};
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Account {
     pub nonce: u64,
-    pub address: jubjub::PublicKey,
+    pub address: jubjub::PointAffine,
     pub balance: u64,
 }
 
 impl Account {
     pub fn hash(&self) -> ZkScalar {
-        let pnt = self.address.0.decompress();
         ZkMainHasher::hash(&[
             ZkScalar::from(self.nonce),
-            pnt.0,
-            pnt.1,
+            self.address.0,
+            self.address.1,
             ZkScalar::from(self.balance),
         ])
     }

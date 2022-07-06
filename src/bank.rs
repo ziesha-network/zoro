@@ -57,7 +57,7 @@ pub fn get_account<K: KvStore>(db: &K, index: u32) -> core::Account {
     core::Account {
         nonce,
         balance,
-        address: PublicKey(PointAffine(pub_x, pub_y).compress()),
+        address: PointAffine(pub_x, pub_y),
     }
 }
 
@@ -73,14 +73,14 @@ pub fn set_account<K: KvStore>(db: &mut K, index: u32, acc: core::Account) {
         db,
         *CONTRACT_ID,
         ZkDataLocator(vec![index, 1]),
-        acc.address.0.decompress().0,
+        acc.address.0,
     )
     .unwrap();
     KvStoreStateManager::<ZkHasher>::set_data(
         db,
         *CONTRACT_ID,
         ZkDataLocator(vec![index, 2]),
-        acc.address.0.decompress().1,
+        acc.address.1,
     )
     .unwrap();
     KvStoreStateManager::<ZkHasher>::set_data(
@@ -142,13 +142,13 @@ impl<K: KvStore> Bank<K> {
         .unwrap();
         for tx in txs.iter() {
             let acc = get_account(&mirror, tx.index);
-            if acc.address != Default::default() && tx.pub_key != acc.address {
+            if acc.address != Default::default() && tx.pub_key.0.decompress() != acc.address {
                 return Err(BankError::InvalidPublicKey);
             } else if tx.withdraw && acc.balance < tx.amount {
                 return Err(BankError::BalanceInsufficient);
             } else {
                 let updated_acc = core::Account {
-                    address: tx.pub_key.clone(),
+                    address: tx.pub_key.0.decompress(),
                     balance: if tx.withdraw {
                         acc.balance - tx.amount
                     } else {
@@ -156,7 +156,6 @@ impl<K: KvStore> Bank<K> {
                     },
                     nonce: acc.nonce,
                 };
-                set_account(&mut mirror, tx.index, updated_acc);
 
                 let proof = zeekit::merkle::Proof::<2>(
                     KvStoreStateManager::<ZkHasher>::prove(
@@ -167,6 +166,9 @@ impl<K: KvStore> Bank<K> {
                     )
                     .unwrap(),
                 );
+                println!("{:?}", proof);
+
+                set_account(&mut mirror, tx.index, updated_acc);
 
                 transitions.push(circuits::DepositWithdrawTransition {
                     enabled: true,
@@ -228,7 +230,7 @@ impl<K: KvStore> Bank<K> {
             let src_before = get_account(&mirror, tx.src_index);
             if tx.nonce != src_before.nonce {
                 return Err(BankError::InvalidNonce);
-            } else if !tx.verify(src_before.address.clone()) {
+            } else if !tx.verify(PublicKey(src_before.address.compress())) {
                 return Err(BankError::InvalidSignature);
             } else if src_before.balance < tx.fee + tx.amount {
                 return Err(BankError::BalanceInsufficient);
@@ -261,7 +263,7 @@ impl<K: KvStore> Bank<K> {
                 );
 
                 let dst_after = core::Account {
-                    address: tx.dst_pub_key.clone(),
+                    address: tx.dst_pub_key.0.decompress(),
                     balance: dst_before.balance + tx.amount,
                     nonce: dst_before.nonce,
                 };

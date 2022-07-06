@@ -51,8 +51,7 @@ impl Circuit<BellmanFr> for UpdateCircuit {
 
             let src_nonce_wit =
                 alloc_num(&mut *cs, filled, ZkScalar::from(trans.src_before.nonce))?;
-            let src_addr_wit =
-                alloc_point(&mut *cs, filled, trans.src_before.address.0.decompress())?;
+            let src_addr_wit = alloc_point(&mut *cs, filled, trans.src_before.address)?;
             let src_balance_wit =
                 alloc_num(&mut *cs, filled, ZkScalar::from(trans.src_before.balance))?;
             let src_hash_wit = poseidon::groth16::poseidon(
@@ -137,8 +136,7 @@ impl Circuit<BellmanFr> for UpdateCircuit {
 
             let dst_nonce_wit =
                 alloc_num(&mut *cs, filled, ZkScalar::from(trans.dst_before.nonce))?;
-            let dst_addr_wit =
-                alloc_point(&mut *cs, filled, trans.dst_before.address.0.decompress())?;
+            let dst_addr_wit = alloc_point(&mut *cs, filled, trans.dst_before.address)?;
             let dst_balance_wit =
                 alloc_num(&mut *cs, filled, ZkScalar::from(trans.dst_before.balance))?;
             let dst_hash_wit = poseidon::groth16::poseidon(
@@ -180,7 +178,7 @@ impl Circuit<BellmanFr> for UpdateCircuit {
             );
             cs.enforce(
                 || "",
-                |lc| lc + dst_addr_wit.y.get_variable() + CS::one(),
+                |lc| lc + dst_addr_wit.y.get_variable(),
                 |lc| lc + dst_addr_wit.y.get_variable() - tx_dst_addr_wit.y.get_variable(),
                 |lc| lc,
             );
@@ -289,7 +287,7 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
             let enabled_wit = AllocatedBit::alloc(&mut *cs, filled.then(|| trans.enabled))?;
 
             let src_nonce_wit = alloc_num(&mut *cs, filled, ZkScalar::from(trans.before.nonce))?;
-            let src_addr_wit = alloc_point(&mut *cs, filled, trans.before.address.0.decompress())?;
+            let src_addr_wit = alloc_point(&mut *cs, filled, trans.before.address)?;
             let src_balance_wit =
                 alloc_num(&mut *cs, filled, ZkScalar::from(trans.before.balance))?;
             let src_hash_wit = poseidon::groth16::poseidon(
@@ -326,7 +324,7 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
             );
             cs.enforce(
                 || "",
-                |lc| lc + src_addr_wit.y.get_variable() + CS::one(),
+                |lc| lc + src_addr_wit.y.get_variable(),
                 |lc| lc + src_addr_wit.y.get_variable() - tx_pub_key_wit.y.get_variable(),
                 |lc| lc,
             );
