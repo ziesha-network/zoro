@@ -18,7 +18,7 @@ use std::collections::HashMap;
 lazy_static! {
     pub static ref STATE_MODEL: ZkStateModel = {
         ZkStateModel::List {
-            log4_size: 5,
+            log4_size: 2,
             item_type: Box::new(ZkStateModel::Struct {
                 field_types: vec![
                     ZkStateModel::Scalar, // Nonce
