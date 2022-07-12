@@ -1,11 +1,9 @@
 mod groth16;
 
-use crate::config::BATCH_SIZE;
+use crate::config::{BATCH_SIZE, LOG4_TREE_SIZE};
 use crate::core;
 use bazuka::zk::ZkScalar;
 use zeekit::merkle;
-
-const LOG4_TREE_SIZE: usize = 2;
 
 // Validation:
 // 0. Check verify_sig(tx)

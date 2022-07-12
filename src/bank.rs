@@ -1,3 +1,4 @@
+use crate::config;
 use crate::{circuits, core};
 use bazuka::zk::ZkScalar;
 use bazuka::{
@@ -15,7 +16,7 @@ use std::str::FromStr;
 lazy_static! {
     pub static ref STATE_MODEL: ZkStateModel = {
         ZkStateModel::List {
-            log4_size: 2,
+            log4_size: config::LOG4_TREE_SIZE,
             item_type: Box::new(ZkStateModel::Struct {
                 field_types: vec![
                     ZkStateModel::Scalar, // Nonce
@@ -155,7 +156,7 @@ impl<K: KvStore> Bank<K> {
                     nonce: acc.nonce,
                 };
 
-                let proof = zeekit::merkle::Proof::<2>(
+                let proof = zeekit::merkle::Proof::<{ config::LOG4_TREE_SIZE }>(
                     KvStoreStateManager::<ZkHasher>::prove(
                         &mirror,
                         *CONTRACT_ID,
@@ -229,7 +230,7 @@ impl<K: KvStore> Bank<K> {
             } else if src_before.balance < tx.fee + tx.amount {
                 return Err(BankError::BalanceInsufficient);
             } else {
-                let src_proof = zeekit::merkle::Proof::<2>(
+                let src_proof = zeekit::merkle::Proof::<{ config::LOG4_TREE_SIZE }>(
                     KvStoreStateManager::<ZkHasher>::prove(
                         &mirror,
                         *CONTRACT_ID,
@@ -246,7 +247,7 @@ impl<K: KvStore> Bank<K> {
                 set_account(&mut mirror, tx.src_index, src_after);
 
                 let dst_before = get_account(&mirror, tx.dst_index);
-                let dst_proof = zeekit::merkle::Proof::<2>(
+                let dst_proof = zeekit::merkle::Proof::<{ config::LOG4_TREE_SIZE }>(
                     KvStoreStateManager::<ZkHasher>::prove(
                         &mirror,
                         *CONTRACT_ID,
