@@ -1,6 +1,4 @@
-use bazuka::core::ZkHasher as ZkMainHasher;
-use bazuka::crypto::{jubjub, ZkSignatureScheme};
-use bazuka::zk::{ZkHasher, ZkScalar};
+use bazuka::crypto::jubjub;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Account {

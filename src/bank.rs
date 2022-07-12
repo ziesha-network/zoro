@@ -198,7 +198,8 @@ impl<K: KvStore> Bank<K> {
         );
 
         if groth16::verify_proof(&pvk, &proof, &[state.into(), next_state.into()]).is_ok() {
-            self.database.update(&mirror.to_ops()).unwrap();
+            let ops = mirror.to_ops();
+            self.database.update(&ops).unwrap();
         } else {
             return Err(BankError::CannotProve);
         }
@@ -295,7 +296,8 @@ impl<K: KvStore> Bank<K> {
         );
 
         if groth16::verify_proof(&pvk, &proof, &[state.into(), next_state.into()]).is_ok() {
-            self.database.update(&mirror.to_ops()).unwrap();
+            let ops = mirror.to_ops();
+            self.database.update(&ops).unwrap();
         } else {
             return Err(BankError::CannotProve);
         }

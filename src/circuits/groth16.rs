@@ -3,7 +3,6 @@ use bazuka::zk::ZkScalar;
 use bellman::gadgets::boolean::{AllocatedBit, Boolean};
 use bellman::gadgets::num::AllocatedNum;
 use bellman::{Circuit, ConstraintSystem, SynthesisError};
-use std::ops::Neg;
 use zeekit::eddsa::groth16::AllocatedPoint;
 use zeekit::{common, eddsa, poseidon, BellmanFr};
 
@@ -332,7 +331,8 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
 
             let balance_bits = common::groth16::to_bits(&mut *cs, src_balance_wit, 64)?;
             let amount_bits = common::groth16::to_bits(&mut *cs, tx_amount_wit, 64)?;
-            let balance_amount_sum = common::groth16::sum_u64(&mut *cs, balance_bits, amount_bits)?;
+            let balance_amount_sum =
+                common::groth16::sum_bits(&mut *cs, balance_bits, amount_bits)?;
             let balance_amount_sum_bits =
                 common::groth16::to_bits(&mut *cs, balance_amount_sum, 65)?;
             let new_balance_wit =
