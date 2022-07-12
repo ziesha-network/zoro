@@ -2,7 +2,7 @@ mod groth16;
 
 use crate::config::{BATCH_SIZE, LOG4_TREE_SIZE};
 use crate::core;
-use bazuka::zk::ZkScalar;
+use bazuka::zk::{ZeroTransaction, ZkScalar};
 use zeekit::merkle;
 
 // Validation:
@@ -17,7 +17,7 @@ use zeekit::merkle;
 #[derive(Debug, Clone, Default)]
 pub struct Transition {
     pub enabled: bool,
-    pub tx: core::Transaction,
+    pub tx: ZeroTransaction,
     pub src_before: core::Account, // src_after can be derived
     pub src_proof: merkle::Proof<LOG4_TREE_SIZE>,
     pub dst_before: core::Account, // dst_after can be derived

@@ -9,6 +9,7 @@ mod core;
 use bazuka::core::ZkHasher;
 use bazuka::crypto::{jubjub, ZkSignatureScheme};
 use bazuka::db::KvStore;
+use bazuka::zk::ZeroTransaction;
 use bellman::{groth16, Circuit};
 use bls12_381::Bls12;
 use rand_core::OsRng;
@@ -92,7 +93,7 @@ fn main() {
 
     println!("{:?}", b.balances());
 
-    let mut tx1 = core::Transaction {
+    let mut tx1 = ZeroTransaction {
         nonce: 0,
         src_index: alice_index,
         dst_index: bob_index,
@@ -103,7 +104,7 @@ fn main() {
     };
     tx1.sign(alice_keys.1.clone());
 
-    let mut tx2 = core::Transaction {
+    let mut tx2 = ZeroTransaction {
         nonce: 0,
         src_index: bob_index,
         dst_index: alice_index,
@@ -114,7 +115,7 @@ fn main() {
     };
     tx2.sign(bob_keys.1.clone());
 
-    let mut tx3 = core::Transaction {
+    let mut tx3 = ZeroTransaction {
         nonce: 1,
         src_index: bob_index,
         dst_index: alice_index,
@@ -125,7 +126,7 @@ fn main() {
     };
     tx3.sign(bob_keys.1);
 
-    let mut tx4 = core::Transaction {
+    let mut tx4 = ZeroTransaction {
         nonce: 1,
         src_index: alice_index,
         dst_index: charlie_index,

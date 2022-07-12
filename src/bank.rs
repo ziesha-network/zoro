@@ -5,7 +5,7 @@ use bazuka::{
     core::{ContractId, ZkHasher},
     crypto::jubjub::{PointAffine, PublicKey},
     db::KvStore,
-    zk::{KvStoreStateManager, ZkDataLocator, ZkStateModel},
+    zk::{KvStoreStateManager, ZeroTransaction, ZkDataLocator, ZkStateModel},
 };
 use bellman::groth16;
 use bellman::groth16::Parameters;
@@ -209,7 +209,7 @@ impl<K: KvStore> Bank<K> {
 
         Ok(())
     }
-    pub fn change_state(&mut self, txs: Vec<core::Transaction>) -> Result<(), BankError> {
+    pub fn change_state(&mut self, txs: Vec<ZeroTransaction>) -> Result<(), BankError> {
         let mut transitions = Vec::new();
 
         let state = KvStoreStateManager::<ZkHasher>::get_data(
