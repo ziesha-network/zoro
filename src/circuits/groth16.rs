@@ -227,14 +227,14 @@ impl Circuit<BellmanFr> for UpdateCircuit {
                 |lc| lc + src_nonce_wit.get_variable(),
             );
 
-            /*eddsa::groth16::verify_eddsa(
+            eddsa::groth16::verify_eddsa(
                 &mut *cs,
                 enabled_wit.clone(),
                 src_addr_wit,
                 tx_hash_wit,
                 tx_sig_r_wit,
                 tx_sig_s_wit,
-            )?;*/
+            )?;
 
             let next_state_wit = merkle::groth16::calc_root_poseidon4(
                 &mut *cs,

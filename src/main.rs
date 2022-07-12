@@ -6,12 +6,11 @@ mod circuits;
 mod config;
 mod core;
 
-use bazuka::core::{ContractId, ZkHasher};
+use bazuka::core::ZkHasher;
 use bazuka::crypto::{jubjub, ZkSignatureScheme};
 use bazuka::db::KvStore;
 use bellman::{groth16, Circuit};
 use bls12_381::Bls12;
-use ff::Field;
 use rand_core::OsRng;
 use std::fs::File;
 use zeekit::BellmanFr;

@@ -9,17 +9,6 @@ pub struct Account {
     pub balance: u64,
 }
 
-impl Account {
-    pub fn hash(&self) -> ZkScalar {
-        ZkMainHasher::hash(&[
-            ZkScalar::from(self.nonce),
-            self.address.0,
-            self.address.1,
-            ZkScalar::from(self.balance),
-        ])
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Transaction {
     pub nonce: u64,

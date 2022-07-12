@@ -11,9 +11,6 @@ use bellman::groth16::Parameters;
 use bls12_381::Bls12;
 use rand::rngs::OsRng;
 use std::str::FromStr;
-use zeekit::merkle;
-
-use std::collections::HashMap;
 
 lazy_static! {
     pub static ref STATE_MODEL: ZkStateModel = {
@@ -98,6 +95,7 @@ pub enum BankError {
     InvalidNonce,
     InvalidSignature,
     InvalidPublicKey,
+    CannotProve,
 }
 
 pub struct Bank<K: KvStore> {
@@ -166,7 +164,6 @@ impl<K: KvStore> Bank<K> {
                     )
                     .unwrap(),
                 );
-                println!("{:?}", proof);
 
                 set_account(&mut mirror, tx.index, updated_acc);
 
@@ -203,14 +200,11 @@ impl<K: KvStore> Bank<K> {
             (std::time::Instant::now() - start).as_millis()
         );
 
-        let inputs = vec![state.into(), next_state.into()];
-
-        println!(
-            "Verify: {}",
-            groth16::verify_proof(&pvk, &proof, &inputs).is_ok()
-        );
-
-        self.database.update(&mirror.to_ops()).unwrap();
+        if groth16::verify_proof(&pvk, &proof, &[state.into(), next_state.into()]).is_ok() {
+            self.database.update(&mirror.to_ops()).unwrap();
+        } else {
+            return Err(BankError::CannotProve);
+        }
 
         Ok(())
     }
@@ -303,14 +297,11 @@ impl<K: KvStore> Bank<K> {
             (std::time::Instant::now() - start).as_millis()
         );
 
-        let inputs = vec![state.into(), next_state.into()];
-
-        println!(
-            "Verify: {}",
-            groth16::verify_proof(&pvk, &proof, &inputs).is_ok()
-        );
-
-        self.database.update(&mirror.to_ops()).unwrap();
+        if groth16::verify_proof(&pvk, &proof, &[state.into(), next_state.into()]).is_ok() {
+            self.database.update(&mirror.to_ops()).unwrap();
+        } else {
+            return Err(BankError::CannotProve);
+        }
 
         Ok(())
     }
