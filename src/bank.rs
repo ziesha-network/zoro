@@ -246,7 +246,7 @@ impl<K: KvStore> Bank<K> {
                 );
                 let src_after = core::Account {
                     address: src_before.address.clone(),
-                    balance: src_before.balance - tx.fee + tx.amount,
+                    balance: src_before.balance - tx.fee - tx.amount,
                     nonce: src_before.nonce + 1,
                 };
                 set_account(&mut mirror, tx.src_index, src_after);

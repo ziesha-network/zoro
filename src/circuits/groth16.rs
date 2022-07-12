@@ -42,10 +42,6 @@ impl Circuit<BellmanFr> for UpdateCircuit {
         let mut state_wit = alloc_num(&mut *cs, filled, self.state)?;
         state_wit.inputize(&mut *cs)?;
 
-        let curve_a = alloc_num(&mut *cs, filled, bazuka::crypto::jubjub::A.clone())?;
-        let curve_d = alloc_num(&mut *cs, filled, bazuka::crypto::jubjub::D.clone())?;
-        let curve_base = alloc_point(&mut *cs, filled, bazuka::crypto::jubjub::BASE.clone())?;
-
         for trans in self.transitions.0.iter() {
             let enabled_wit = AllocatedBit::alloc(&mut *cs, filled.then(|| trans.enabled))?;
 
@@ -231,17 +227,14 @@ impl Circuit<BellmanFr> for UpdateCircuit {
                 |lc| lc + src_nonce_wit.get_variable(),
             );
 
-            eddsa::groth16::verify_eddsa(
+            /*eddsa::groth16::verify_eddsa(
                 &mut *cs,
                 enabled_wit.clone(),
-                curve_a.clone(),
-                curve_d.clone(),
-                curve_base.clone(),
                 src_addr_wit,
                 tx_hash_wit,
                 tx_sig_r_wit,
                 tx_sig_s_wit,
-            )?;
+            )?;*/
 
             let next_state_wit = merkle::groth16::calc_root_poseidon4(
                 &mut *cs,
