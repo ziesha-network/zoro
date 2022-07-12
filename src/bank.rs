@@ -5,7 +5,7 @@ use bazuka::{
     core::{ContractId, ZkHasher},
     crypto::jubjub::{PointAffine, PublicKey},
     db::KvStore,
-    zk::{KvStoreStateManager, ZeroTransaction, ZkDataLocator, ZkStateModel},
+    zk::{DepositWithdraw, KvStoreStateManager, ZeroTransaction, ZkDataLocator, ZkStateModel},
 };
 use bellman::groth16;
 use bellman::groth16::Parameters;
@@ -129,7 +129,7 @@ impl<K: KvStore> Bank<K> {
         }
     }
 
-    pub fn deposit_withdraw(&mut self, txs: Vec<core::DepositWithdraw>) -> Result<(), BankError> {
+    pub fn deposit_withdraw(&mut self, txs: Vec<DepositWithdraw>) -> Result<(), BankError> {
         let mut mirror = self.database.mirror();
 
         let mut transitions = Vec::new();

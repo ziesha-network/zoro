@@ -2,7 +2,7 @@ mod groth16;
 
 use crate::config::{BATCH_SIZE, LOG4_TREE_SIZE};
 use crate::core;
-use bazuka::zk::{ZeroTransaction, ZkScalar};
+use bazuka::zk::{DepositWithdraw, ZeroTransaction, ZkScalar};
 use zeekit::merkle;
 
 // Validation:
@@ -57,7 +57,7 @@ pub struct UpdateCircuit {
 #[derive(Debug, Clone, Default)]
 pub struct DepositWithdrawTransition {
     pub enabled: bool,
-    pub tx: core::DepositWithdraw,
+    pub tx: DepositWithdraw,
     pub before: core::Account,
     pub proof: merkle::Proof<LOG4_TREE_SIZE>,
 }

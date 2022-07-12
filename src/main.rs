@@ -9,7 +9,7 @@ mod core;
 use bazuka::core::ZkHasher;
 use bazuka::crypto::{jubjub, ZkSignatureScheme};
 use bazuka::db::KvStore;
-use bazuka::zk::ZeroTransaction;
+use bazuka::zk::{DepositWithdraw, ZeroTransaction};
 use bellman::{groth16, Circuit};
 use bls12_381::Bls12;
 use rand_core::OsRng;
@@ -70,17 +70,17 @@ fn main() {
     let charlie_index = 2;
 
     b.deposit_withdraw(vec![
-        core::DepositWithdraw {
+        DepositWithdraw {
             index: alice_index,
             pub_key: alice_keys.0.clone(),
             amount: 1000,
         },
-        core::DepositWithdraw {
+        DepositWithdraw {
             index: bob_index,
             pub_key: bob_keys.0.clone(),
             amount: 500,
         },
-        core::DepositWithdraw {
+        DepositWithdraw {
             index: alice_index,
             pub_key: alice_keys.0.clone(),
             amount: -200,
