@@ -1,16 +1,18 @@
+use bazuka::crypto::jubjub::PointAffine;
+use bazuka::zk::ZkScalar;
 use bellman::gadgets::boolean::{AllocatedBit, Boolean};
 use bellman::gadgets::num::AllocatedNum;
 use bellman::{Circuit, ConstraintSystem, SynthesisError};
 use std::ops::Neg;
-use zeekit::eddsa::{groth16::AllocatedPoint, PointAffine};
-use zeekit::{common, eddsa, BellmanFr, Fr};
+use zeekit::eddsa::groth16::AllocatedPoint;
+use zeekit::{common, eddsa, poseidon, BellmanFr};
 
 use super::*;
 
 fn alloc_num<CS: ConstraintSystem<BellmanFr>>(
     cs: &mut CS,
     filled: bool,
-    val: Fr,
+    val: ZkScalar,
 ) -> Result<AllocatedNum<BellmanFr>, SynthesisError> {
     AllocatedNum::alloc(&mut *cs, || {
         filled
@@ -40,18 +42,15 @@ impl Circuit<BellmanFr> for UpdateCircuit {
         let mut state_wit = alloc_num(&mut *cs, filled, self.state)?;
         state_wit.inputize(&mut *cs)?;
 
-        let curve_a = alloc_num(&mut *cs, filled, zeekit::eddsa::A.clone())?;
-        let curve_d = alloc_num(&mut *cs, filled, zeekit::eddsa::D.clone())?;
-        let curve_base = alloc_point(&mut *cs, filled, zeekit::eddsa::BASE.clone())?;
-
         for trans in self.transitions.0.iter() {
             let enabled_wit = AllocatedBit::alloc(&mut *cs, filled.then(|| trans.enabled))?;
 
-            let src_nonce_wit = alloc_num(&mut *cs, filled, Fr::from(trans.src_before.nonce))?;
-            let src_addr_wit =
-                alloc_point(&mut *cs, filled, trans.src_before.address.0.decompress())?;
-            let src_balance_wit = alloc_num(&mut *cs, filled, Fr::from(trans.src_before.balance))?;
-            let src_hash_wit = mimc::groth16::mimc(
+            let src_nonce_wit =
+                alloc_num(&mut *cs, filled, ZkScalar::from(trans.src_before.nonce))?;
+            let src_addr_wit = alloc_point(&mut *cs, filled, trans.src_before.address)?;
+            let src_balance_wit =
+                alloc_num(&mut *cs, filled, ZkScalar::from(trans.src_before.balance))?;
+            let src_hash_wit = poseidon::groth16::poseidon(
                 &mut *cs,
                 &[
                     src_nonce_wit.clone(),
@@ -62,17 +61,23 @@ impl Circuit<BellmanFr> for UpdateCircuit {
             )?;
             let mut src_proof_wits = Vec::new();
             for b in trans.src_proof.0.clone() {
-                src_proof_wits.push(alloc_num(&mut *cs, filled, b)?);
+                src_proof_wits.push([
+                    alloc_num(&mut *cs, filled, b[0])?,
+                    alloc_num(&mut *cs, filled, b[1])?,
+                    alloc_num(&mut *cs, filled, b[2])?,
+                ]);
             }
 
-            let tx_nonce_wit = alloc_num(&mut *cs, filled, Fr::from(trans.tx.nonce))?;
-            let tx_src_index_wit = alloc_num(&mut *cs, filled, Fr::from(trans.tx.src_index))?;
-            let tx_dst_index_wit = alloc_num(&mut *cs, filled, Fr::from(trans.tx.dst_index))?;
+            let tx_nonce_wit = alloc_num(&mut *cs, filled, ZkScalar::from(trans.tx.nonce))?;
+            let tx_src_index_wit =
+                alloc_num(&mut *cs, filled, ZkScalar::from(trans.tx.src_index as u64))?;
+            let tx_dst_index_wit =
+                alloc_num(&mut *cs, filled, ZkScalar::from(trans.tx.dst_index as u64))?;
             let tx_dst_addr_wit =
                 alloc_point(&mut *cs, filled, trans.tx.dst_pub_key.0.decompress())?;
-            let tx_amount_wit = alloc_num(&mut *cs, filled, Fr::from(trans.tx.amount))?;
-            let tx_fee_wit = alloc_num(&mut *cs, filled, Fr::from(trans.tx.fee))?;
-            let tx_hash_wit = mimc::groth16::mimc(
+            let tx_amount_wit = alloc_num(&mut *cs, filled, ZkScalar::from(trans.tx.amount))?;
+            let tx_fee_wit = alloc_num(&mut *cs, filled, ZkScalar::from(trans.tx.fee))?;
+            let tx_hash_wit = poseidon::groth16::poseidon(
                 &mut *cs,
                 &[
                     tx_nonce_wit.clone(),
@@ -86,7 +91,7 @@ impl Circuit<BellmanFr> for UpdateCircuit {
             let tx_sig_s_wit = alloc_num(&mut *cs, filled, trans.tx.sig.s)?;
 
             let new_src_nonce_wit =
-                alloc_num(&mut *cs, filled, Fr::from(trans.src_before.nonce + 1))?;
+                alloc_num(&mut *cs, filled, ZkScalar::from(trans.src_before.nonce + 1))?;
             cs.enforce(
                 || "",
                 |lc| lc + src_nonce_wit.get_variable() + CS::one(),
@@ -96,7 +101,7 @@ impl Circuit<BellmanFr> for UpdateCircuit {
             let new_src_balance_wit = alloc_num(
                 &mut *cs,
                 filled,
-                Fr::from(trans.src_before.balance - trans.tx.amount - trans.tx.fee),
+                ZkScalar::from(trans.src_before.balance - trans.tx.amount - trans.tx.fee),
             )?;
             cs.enforce(
                 || "",
@@ -108,7 +113,7 @@ impl Circuit<BellmanFr> for UpdateCircuit {
                 |lc| lc + CS::one(),
                 |lc| lc + new_src_balance_wit.get_variable(),
             );
-            let new_src_hash_wit = mimc::groth16::mimc(
+            let new_src_hash_wit = poseidon::groth16::poseidon(
                 &mut *cs,
                 &[
                     new_src_nonce_wit,
@@ -118,18 +123,19 @@ impl Circuit<BellmanFr> for UpdateCircuit {
                 ],
             )?;
 
-            let middle_root_wit = merkle::groth16::calc_root(
+            let middle_root_wit = merkle::groth16::calc_root_poseidon4(
                 &mut *cs,
                 tx_src_index_wit.clone(),
                 new_src_hash_wit,
                 src_proof_wits.clone(),
             )?;
 
-            let dst_nonce_wit = alloc_num(&mut *cs, filled, Fr::from(trans.dst_before.nonce))?;
-            let dst_addr_wit =
-                alloc_point(&mut *cs, filled, trans.dst_before.address.0.decompress())?;
-            let dst_balance_wit = alloc_num(&mut *cs, filled, Fr::from(trans.dst_before.balance))?;
-            let dst_hash_wit = mimc::groth16::mimc(
+            let dst_nonce_wit =
+                alloc_num(&mut *cs, filled, ZkScalar::from(trans.dst_before.nonce))?;
+            let dst_addr_wit = alloc_point(&mut *cs, filled, trans.dst_before.address)?;
+            let dst_balance_wit =
+                alloc_num(&mut *cs, filled, ZkScalar::from(trans.dst_before.balance))?;
+            let dst_hash_wit = poseidon::groth16::poseidon(
                 &mut *cs,
                 &[
                     dst_nonce_wit.clone(),
@@ -140,13 +146,17 @@ impl Circuit<BellmanFr> for UpdateCircuit {
             )?;
             let mut dst_proof_wits = Vec::new();
             for b in trans.dst_proof.0.clone() {
-                dst_proof_wits.push(alloc_num(&mut *cs, filled, b)?);
+                dst_proof_wits.push([
+                    alloc_num(&mut *cs, filled, b[0])?,
+                    alloc_num(&mut *cs, filled, b[1])?,
+                    alloc_num(&mut *cs, filled, b[2])?,
+                ]);
             }
 
             let new_dst_balance_wit = alloc_num(
                 &mut *cs,
                 filled,
-                Fr::from(trans.dst_before.balance + trans.tx.amount),
+                ZkScalar::from(trans.dst_before.balance + trans.tx.amount),
             )?;
             cs.enforce(
                 || "",
@@ -164,12 +174,12 @@ impl Circuit<BellmanFr> for UpdateCircuit {
             );
             cs.enforce(
                 || "",
-                |lc| lc + dst_addr_wit.y.get_variable() + CS::one(),
+                |lc| lc + dst_addr_wit.y.get_variable(),
                 |lc| lc + dst_addr_wit.y.get_variable() - tx_dst_addr_wit.y.get_variable(),
                 |lc| lc,
             );
 
-            let new_dst_hash_wit = mimc::groth16::mimc(
+            let new_dst_hash_wit = poseidon::groth16::poseidon(
                 &mut *cs,
                 &[
                     dst_nonce_wit,
@@ -179,7 +189,7 @@ impl Circuit<BellmanFr> for UpdateCircuit {
                 ],
             )?;
 
-            merkle::groth16::check_proof(
+            merkle::groth16::check_proof_poseidon4(
                 &mut *cs,
                 enabled_wit.clone(),
                 tx_dst_index_wit.clone(),
@@ -187,7 +197,7 @@ impl Circuit<BellmanFr> for UpdateCircuit {
                 dst_proof_wits.clone(),
                 middle_root_wit,
             )?;
-            merkle::groth16::check_proof(
+            merkle::groth16::check_proof_poseidon4(
                 &mut *cs,
                 enabled_wit.clone(),
                 tx_src_index_wit,
@@ -197,8 +207,11 @@ impl Circuit<BellmanFr> for UpdateCircuit {
             )?;
 
             // WARN: MIGHT OVERFLOW!
-            let tx_balance_plus_fee =
-                alloc_num(&mut *cs, filled, Fr::from(trans.tx.amount + trans.tx.fee))?;
+            let tx_balance_plus_fee = alloc_num(
+                &mut *cs,
+                filled,
+                ZkScalar::from(trans.tx.amount + trans.tx.fee),
+            )?;
             cs.enforce(
                 || "",
                 |lc| lc + tx_amount_wit.get_variable() + tx_fee_wit.get_variable(),
@@ -217,16 +230,13 @@ impl Circuit<BellmanFr> for UpdateCircuit {
             eddsa::groth16::verify_eddsa(
                 &mut *cs,
                 enabled_wit.clone(),
-                curve_a.clone(),
-                curve_d.clone(),
-                curve_base.clone(),
                 src_addr_wit,
                 tx_hash_wit,
                 tx_sig_r_wit,
                 tx_sig_s_wit,
             )?;
 
-            let next_state_wit = merkle::groth16::calc_root(
+            let next_state_wit = merkle::groth16::calc_root_poseidon4(
                 &mut *cs,
                 tx_dst_index_wit,
                 new_dst_hash_wit,
@@ -269,10 +279,11 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
         for trans in self.transitions.0.iter() {
             let enabled_wit = AllocatedBit::alloc(&mut *cs, filled.then(|| trans.enabled))?;
 
-            let src_nonce_wit = alloc_num(&mut *cs, filled, Fr::from(trans.before.nonce))?;
-            let src_addr_wit = alloc_point(&mut *cs, filled, trans.before.address.0.decompress())?;
-            let src_balance_wit = alloc_num(&mut *cs, filled, Fr::from(trans.before.balance))?;
-            let src_hash_wit = mimc::groth16::mimc(
+            let src_nonce_wit = alloc_num(&mut *cs, filled, ZkScalar::from(trans.before.nonce))?;
+            let src_addr_wit = alloc_point(&mut *cs, filled, trans.before.address)?;
+            let src_balance_wit =
+                alloc_num(&mut *cs, filled, ZkScalar::from(trans.before.balance))?;
+            let src_hash_wit = poseidon::groth16::poseidon(
                 &mut *cs,
                 &[
                     src_nonce_wit.clone(),
@@ -284,12 +295,16 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
 
             let mut proof_wits = Vec::new();
             for b in trans.proof.0.clone() {
-                proof_wits.push(alloc_num(&mut *cs, filled, b)?);
+                proof_wits.push([
+                    alloc_num(&mut *cs, filled, b[0])?,
+                    alloc_num(&mut *cs, filled, b[1])?,
+                    alloc_num(&mut *cs, filled, b[2])?,
+                ]);
             }
 
-            let tx_index_wit = alloc_num(&mut *cs, filled, Fr::from(trans.tx.index))?;
+            let tx_index_wit = alloc_num(&mut *cs, filled, ZkScalar::from(trans.tx.index as u64))?;
             let tx_pub_key_wit = alloc_point(&mut *cs, filled, trans.tx.pub_key.0.decompress())?;
-            let tx_amount_wit = alloc_num(&mut *cs, filled, Fr::from(trans.tx.amount))?;
+            let tx_amount_wit = alloc_num(&mut *cs, filled, ZkScalar::from(trans.tx.amount))?;
             let tx_withdraw_wit = AllocatedBit::alloc(&mut *cs, filled.then(|| trans.tx.withdraw))?;
             tx_withdraw_wit.get_variable();
 
@@ -302,12 +317,12 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
             );
             cs.enforce(
                 || "",
-                |lc| lc + src_addr_wit.y.get_variable() + CS::one(),
+                |lc| lc + src_addr_wit.y.get_variable(),
                 |lc| lc + src_addr_wit.y.get_variable() - tx_pub_key_wit.y.get_variable(),
                 |lc| lc,
             );
 
-            merkle::groth16::check_proof(
+            merkle::groth16::check_proof_poseidon4(
                 &mut *cs,
                 enabled_wit.clone(),
                 tx_index_wit.clone(),
@@ -319,7 +334,7 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
             let new_balance_wit = alloc_num(
                 &mut *cs,
                 filled,
-                Fr::from(if trans.tx.withdraw {
+                ZkScalar::from(if trans.tx.withdraw {
                     trans.before.balance - trans.tx.amount
                 } else {
                     trans.before.balance + trans.tx.amount
@@ -340,7 +355,7 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
                 },
             );
 
-            let new_hash_wit = mimc::groth16::mimc(
+            let new_hash_wit = poseidon::groth16::poseidon(
                 &mut *cs,
                 &[
                     src_nonce_wit,
@@ -350,8 +365,12 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
                 ],
             )?;
 
-            let next_state_wit =
-                merkle::groth16::calc_root(&mut *cs, tx_index_wit, new_hash_wit, proof_wits)?;
+            let next_state_wit = merkle::groth16::calc_root_poseidon4(
+                &mut *cs,
+                tx_index_wit,
+                new_hash_wit,
+                proof_wits,
+            )?;
 
             state_wit = AllocatedNum::conditionally_reverse(
                 &mut *cs,

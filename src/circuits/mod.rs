@@ -2,7 +2,10 @@ mod groth16;
 
 use crate::config::BATCH_SIZE;
 use crate::core;
-use zeekit::{merkle, mimc, Fr};
+use bazuka::zk::ZkScalar;
+use zeekit::merkle;
+
+const LOG4_TREE_SIZE: usize = 2;
 
 // Validation:
 // 0. Check verify_sig(tx)
@@ -18,9 +21,9 @@ pub struct Transition {
     pub enabled: bool,
     pub tx: core::Transaction,
     pub src_before: core::Account, // src_after can be derived
-    pub src_proof: merkle::Proof,
+    pub src_proof: merkle::Proof<LOG4_TREE_SIZE>,
     pub dst_before: core::Account, // dst_after can be derived
-    pub dst_proof: merkle::Proof,
+    pub dst_proof: merkle::Proof<LOG4_TREE_SIZE>,
 }
 
 #[derive(Debug, Clone)]
@@ -48,8 +51,8 @@ impl Default for TransitionBatch {
 #[derive(Debug, Default)]
 pub struct UpdateCircuit {
     pub filled: bool,
-    pub state: Fr,                         // Public
-    pub next_state: Fr,                    // Public
+    pub state: ZkScalar,                   // Public
+    pub next_state: ZkScalar,              // Public
     pub transitions: Box<TransitionBatch>, // Secret :)
 }
 
@@ -58,7 +61,7 @@ pub struct DepositWithdrawTransition {
     pub enabled: bool,
     pub tx: core::DepositWithdraw,
     pub before: core::Account,
-    pub proof: merkle::Proof,
+    pub proof: merkle::Proof<LOG4_TREE_SIZE>,
 }
 
 #[derive(Debug, Clone)]
@@ -86,7 +89,7 @@ impl Default for DepositWithdrawTransitionBatch {
 #[derive(Debug, Default)]
 pub struct DepositWithdrawCircuit {
     pub filled: bool,
-    pub state: Fr,                                        // Public
+    pub state: ZkScalar,                                  // Public
     pub transitions: Box<DepositWithdrawTransitionBatch>, // Secret :)
-    pub next_state: Fr,                                   // Public
+    pub next_state: ZkScalar,                             // Public
 }
