@@ -304,9 +304,8 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
 
             let tx_index_wit = alloc_num(&mut *cs, filled, ZkScalar::from(trans.tx.index as u64))?;
             let tx_pub_key_wit = alloc_point(&mut *cs, filled, trans.tx.pub_key.0.decompress())?;
-            let tx_amount_wit = alloc_num(&mut *cs, filled, ZkScalar::from(trans.tx.amount))?;
-            let tx_withdraw_wit = AllocatedBit::alloc(&mut *cs, filled.then(|| trans.tx.withdraw))?;
-            tx_withdraw_wit.get_variable();
+            let tx_amount_wit =
+                alloc_num(&mut *cs, filled, ZkScalar::from(trans.tx.amount as u64))?;
 
             // enforce src_addr_wit == tx_pub_key_wit or zero!
             cs.enforce(
@@ -331,29 +330,13 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
                 state_wit.clone(),
             )?;
 
-            let new_balance_wit = alloc_num(
-                &mut *cs,
-                filled,
-                ZkScalar::from(if trans.tx.withdraw {
-                    trans.before.balance - trans.tx.amount
-                } else {
-                    trans.before.balance + trans.tx.amount
-                }),
-            )?;
-
-            // -2.amount.withdraw == new_balance - balance - amount
-            // if withdraw == 0 then new_balance = balance + amount
-            // else new_balance = balance - amount
-            cs.enforce(
-                || "",
-                |lc| lc + (BellmanFr::from(2).neg(), tx_amount_wit.get_variable()),
-                |lc| lc + tx_withdraw_wit.get_variable(),
-                |lc| {
-                    lc + new_balance_wit.get_variable()
-                        - src_balance_wit.get_variable()
-                        - tx_amount_wit.get_variable()
-                },
-            );
+            let balance_bits = common::groth16::to_bits(&mut *cs, src_balance_wit, 64)?;
+            let amount_bits = common::groth16::to_bits(&mut *cs, tx_amount_wit, 64)?;
+            let balance_amount_sum = common::groth16::sum_u64(&mut *cs, balance_bits, amount_bits)?;
+            let balance_amount_sum_bits =
+                common::groth16::to_bits(&mut *cs, balance_amount_sum, 65)?;
+            let new_balance_wit =
+                common::groth16::from_bits(&mut *cs, balance_amount_sum_bits[..64].to_vec())?;
 
             let new_hash_wit = poseidon::groth16::poseidon(
                 &mut *cs,

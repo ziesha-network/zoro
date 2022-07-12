@@ -13,6 +13,5 @@ pub struct Account {
 pub struct DepositWithdraw {
     pub index: u32,
     pub pub_key: jubjub::PublicKey,
-    pub amount: u64,
-    pub withdraw: bool,
+    pub amount: i64,
 }

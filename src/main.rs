@@ -74,19 +74,16 @@ fn main() {
             index: alice_index,
             pub_key: alice_keys.0.clone(),
             amount: 1000,
-            withdraw: false,
         },
         core::DepositWithdraw {
             index: bob_index,
             pub_key: bob_keys.0.clone(),
             amount: 500,
-            withdraw: false,
         },
         core::DepositWithdraw {
             index: alice_index,
             pub_key: alice_keys.0.clone(),
-            amount: 200,
-            withdraw: true,
+            amount: -200,
         },
     ])
     .unwrap();

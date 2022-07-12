@@ -143,16 +143,12 @@ impl<K: KvStore> Bank<K> {
             let acc = get_account(&mirror, tx.index);
             if acc.address != Default::default() && tx.pub_key.0.decompress() != acc.address {
                 return Err(BankError::InvalidPublicKey);
-            } else if tx.withdraw && acc.balance < tx.amount {
+            } else if tx.amount < 0 && acc.balance as i64 + tx.amount < 0 {
                 return Err(BankError::BalanceInsufficient);
             } else {
                 let updated_acc = core::Account {
                     address: tx.pub_key.0.decompress(),
-                    balance: if tx.withdraw {
-                        acc.balance - tx.amount
-                    } else {
-                        acc.balance + tx.amount
-                    },
+                    balance: (acc.balance as i64 + tx.amount) as u64,
                     nonce: acc.nonce,
                 };
 
