@@ -129,7 +129,10 @@ impl<K: KvStore> Bank<K> {
         }
     }
 
-    pub fn deposit_withdraw(&mut self, txs: Vec<DepositWithdraw>) -> Result<(), BankError> {
+    pub fn deposit_withdraw(
+        &mut self,
+        txs: Vec<DepositWithdraw>,
+    ) -> Result<bazuka::zk::groth16::Groth16Proof, BankError> {
         let mut mirror = self.database.mirror();
 
         let mut transitions = Vec::new();
@@ -213,9 +216,12 @@ impl<K: KvStore> Bank<K> {
             return Err(BankError::CannotProve);
         }
 
-        Ok(())
+        Ok(proof)
     }
-    pub fn change_state(&mut self, txs: Vec<ZeroTransaction>) -> Result<(), BankError> {
+    pub fn change_state(
+        &mut self,
+        txs: Vec<ZeroTransaction>,
+    ) -> Result<bazuka::zk::groth16::Groth16Proof, BankError> {
         let mut transitions = Vec::new();
 
         let state = KvStoreStateManager::<ZkHasher>::get_data(
@@ -321,6 +327,6 @@ impl<K: KvStore> Bank<K> {
             return Err(BankError::CannotProve);
         }
 
-        Ok(())
+        Ok(proof)
     }
 }
