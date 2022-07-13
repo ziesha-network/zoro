@@ -35,12 +35,30 @@ fn load_params<C: Circuit<BellmanFr> + Default>(
     }
 }
 
+fn vk_to_hex(vk: &bellman::groth16::VerifyingKey<Bls12>) -> String {
+    hex::encode(
+        &bincode::serialize(&unsafe {
+            std::mem::transmute::<
+                bellman::groth16::VerifyingKey<Bls12>,
+                bazuka::zk::groth16::Groth16VerifyingKey,
+            >(vk.clone())
+        })
+        .unwrap(),
+    )
+}
+
 fn main() {
     let use_cache = false;
     let update_params = load_params::<circuits::UpdateCircuit>("groth16_mpn_update.dat", use_cache);
     let deposit_withdraw_params = load_params::<circuits::DepositWithdrawCircuit>(
         "groth16_mpn_deposit_withdraw.dat",
         use_cache,
+    );
+
+    println!("Update: {}", vk_to_hex(&update_params.vk));
+    println!(
+        "Deposit/Withdraw: {}",
+        vk_to_hex(&deposit_withdraw_params.vk)
     );
 
     let mut db = bazuka::db::RamKvStore::new();
