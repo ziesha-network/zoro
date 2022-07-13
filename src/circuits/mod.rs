@@ -50,6 +50,7 @@ impl Default for TransitionBatch {
 pub struct UpdateCircuit {
     pub filled: bool,
     pub state: ZkScalar,                   // Public
+    pub aux_data: ZkScalar,                // Public
     pub next_state: ZkScalar,              // Public
     pub transitions: Box<TransitionBatch>, // Secret :)
 }
@@ -88,6 +89,7 @@ impl Default for DepositWithdrawTransitionBatch {
 pub struct DepositWithdrawCircuit {
     pub filled: bool,
     pub state: ZkScalar,                                  // Public
-    pub transitions: Box<DepositWithdrawTransitionBatch>, // Secret :)
+    pub aux_data: ZkScalar,                               // Public
     pub next_state: ZkScalar,                             // Public
+    pub transitions: Box<DepositWithdrawTransitionBatch>, // Secret :)
 }

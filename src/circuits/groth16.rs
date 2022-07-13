@@ -41,6 +41,15 @@ impl Circuit<BellmanFr> for UpdateCircuit {
         let mut state_wit = alloc_num(&mut *cs, filled, self.state)?;
         state_wit.inputize(&mut *cs)?;
 
+        let aux_wit = alloc_num(&mut *cs, filled, self.aux_data)?;
+        aux_wit.inputize(&mut *cs)?;
+        cs.enforce(
+            || "",
+            |lc| lc + aux_wit.get_variable(),
+            |lc| lc + CS::one(),
+            |lc| lc + aux_wit.get_variable(),
+        );
+
         for trans in self.transitions.0.iter() {
             let enabled_wit = AllocatedBit::alloc(&mut *cs, filled.then(|| trans.enabled))?;
 
@@ -274,6 +283,15 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
 
         let mut state_wit = alloc_num(&mut *cs, filled, self.state)?;
         state_wit.inputize(&mut *cs)?;
+
+        let aux_wit = alloc_num(&mut *cs, filled, self.aux_data)?;
+        aux_wit.inputize(&mut *cs)?;
+        cs.enforce(
+            || "",
+            |lc| lc + aux_wit.get_variable(),
+            |lc| lc + CS::one(),
+            |lc| lc + aux_wit.get_variable(),
+        );
 
         for trans in self.transitions.0.iter() {
             let enabled_wit = AllocatedBit::alloc(&mut *cs, filled.then(|| trans.enabled))?;

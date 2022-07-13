@@ -178,10 +178,12 @@ impl<K: KvStore> Bank<K> {
             &ZkDataLocator(vec![]),
         )
         .unwrap();
+        let aux_data = ZkScalar::from(0);
 
         let circuit = circuits::DepositWithdrawCircuit {
             filled: true,
             state,
+            aux_data,
             next_state,
             transitions: Box::new(circuits::DepositWithdrawTransitionBatch::new(transitions)),
         };
@@ -197,7 +199,13 @@ impl<K: KvStore> Bank<K> {
             (std::time::Instant::now() - start).as_millis()
         );
 
-        if groth16::verify_proof(&pvk, &proof, &[state.into(), next_state.into()]).is_ok() {
+        if groth16::verify_proof(
+            &pvk,
+            &proof,
+            &[state.into(), aux_data.into(), next_state.into()],
+        )
+        .is_ok()
+        {
             let ops = mirror.to_ops();
             self.database.update(&ops).unwrap();
         } else {
@@ -278,10 +286,12 @@ impl<K: KvStore> Bank<K> {
             &ZkDataLocator(vec![]),
         )
         .unwrap();
+        let aux_data = ZkScalar::from(0);
 
         let circuit = circuits::UpdateCircuit {
             filled: true,
             state,
+            aux_data,
             next_state,
             transitions: Box::new(circuits::TransitionBatch::new(transitions)),
         };
@@ -295,7 +305,13 @@ impl<K: KvStore> Bank<K> {
             (std::time::Instant::now() - start).as_millis()
         );
 
-        if groth16::verify_proof(&pvk, &proof, &[state.into(), next_state.into()]).is_ok() {
+        if groth16::verify_proof(
+            &pvk,
+            &proof,
+            &[state.into(), aux_data.into(), next_state.into()],
+        )
+        .is_ok()
+        {
             let ops = mirror.to_ops();
             self.database.update(&ops).unwrap();
         } else {
