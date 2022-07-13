@@ -48,7 +48,7 @@ fn vk_to_hex(vk: &bellman::groth16::VerifyingKey<Bls12>) -> String {
 }
 
 fn main() {
-    let use_cache = false;
+    let use_cache = true;
     let update_params = load_params::<circuits::UpdateCircuit>("groth16_mpn_update.dat", use_cache);
     let deposit_withdraw_params = load_params::<circuits::DepositWithdrawCircuit>(
         "groth16_mpn_deposit_withdraw.dat",

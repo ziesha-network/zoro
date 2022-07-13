@@ -188,24 +188,25 @@ impl<K: KvStore> Bank<K> {
             transitions: Box::new(circuits::DepositWithdrawTransitionBatch::new(transitions)),
         };
 
-        let pvk = groth16::prepare_verifying_key(&self.deposit_withdraw_params.vk);
-
         let start = std::time::Instant::now();
-        let proof =
-            groth16::create_random_proof(circuit, &self.deposit_withdraw_params, &mut OsRng)
-                .unwrap();
+        let proof = unsafe {
+            std::mem::transmute::<bellman::groth16::Proof<Bls12>, bazuka::zk::groth16::Groth16Proof>(
+                groth16::create_random_proof(circuit, &self.deposit_withdraw_params, &mut OsRng)
+                    .unwrap(),
+            )
+        };
         println!(
             "Proving took: {}ms",
             (std::time::Instant::now() - start).as_millis()
         );
 
-        if groth16::verify_proof(
-            &pvk,
+        if bazuka::zk::groth16::groth16_verify(
+            &bazuka::config::blockchain::MPN_DEPOSIT_WITHDRAW_VK,
+            state,
+            aux_data,
+            next_state,
             &proof,
-            &[state.into(), aux_data.into(), next_state.into()],
-        )
-        .is_ok()
-        {
+        ) {
             let ops = mirror.to_ops();
             self.database.update(&ops).unwrap();
         } else {
@@ -296,22 +297,24 @@ impl<K: KvStore> Bank<K> {
             transitions: Box::new(circuits::TransitionBatch::new(transitions)),
         };
 
-        let pvk = groth16::prepare_verifying_key(&self.update_params.vk);
-
         let start = std::time::Instant::now();
-        let proof = groth16::create_random_proof(circuit, &self.update_params, &mut OsRng).unwrap();
+        let proof = unsafe {
+            std::mem::transmute::<bellman::groth16::Proof<Bls12>, bazuka::zk::groth16::Groth16Proof>(
+                groth16::create_random_proof(circuit, &self.update_params, &mut OsRng).unwrap(),
+            )
+        };
         println!(
             "Proving took: {}ms",
             (std::time::Instant::now() - start).as_millis()
         );
 
-        if groth16::verify_proof(
-            &pvk,
+        if bazuka::zk::groth16::groth16_verify(
+            &bazuka::config::blockchain::MPN_UPDATE_VK,
+            state,
+            aux_data,
+            next_state,
             &proof,
-            &[state.into(), aux_data.into(), next_state.into()],
-        )
-        .is_ok()
-        {
+        ) {
             let ops = mirror.to_ops();
             self.database.update(&ops).unwrap();
         } else {
