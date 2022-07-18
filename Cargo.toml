@@ -7,15 +7,25 @@ edition = "2021"
 bellman = { version = "0.13.0", optional = true }
 bls12_381 = { version = "0.7.0", optional = true }
 
+tokio = { version = "1", features = ["rt"]}
+
 rand = "0.8.5"
 rand_core = "0.6.3"
 lazy_static = "1.4.0"
 num-bigint = "0.4"
 num-integer = "0.1"
-zeekit = {version="0.7.0", features=["groth16"]}
+serde = { version = "1.0" }
+
+# Serialization of VKs
+hex = "0.4.3"
+
+bincode = "1.3.3"
+ureq = { version = "2.4.0", features = ["json"], default-features = false }
+
 ff = { version = "0.12", features = ["derive", "derive_bits"] }
-bazuka = { git = "https://github.com/zeeka-network/bazuka", version = "0.1.0", default-features = false }
+zeekit = { git = "https://github.com/zeeka-network/zeekit"}
+bazuka = { git = "https://github.com/zeeka-network/bazuka", default-features = false, features = ["client", "db"] }
 
 [features]
 default = ["groth16"]
-groth16 = ["bellman", "bls12_381"]
+groth16 = ["bellman", "bls12_381", "zeekit/groth16"]

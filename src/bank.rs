@@ -2,7 +2,8 @@ use crate::config;
 use crate::{circuits, core};
 use bazuka::zk::ZkScalar;
 use bazuka::{
-    core::{ContractId, ZkHasher},
+    config::blockchain::MPN_CONTRACT_ID,
+    core::ZkHasher,
     crypto::jubjub::{PointAffine, PublicKey},
     db::KvStore,
     zk::{DepositWithdraw, KvStoreStateManager, ZeroTransaction, ZkDataLocator, ZkStateModel},
@@ -11,7 +12,6 @@ use bellman::groth16;
 use bellman::groth16::Parameters;
 use bls12_381::Bls12;
 use rand::rngs::OsRng;
-use std::str::FromStr;
 
 lazy_static! {
     pub static ref STATE_MODEL: ZkStateModel = {
@@ -27,31 +27,37 @@ lazy_static! {
             }),
         }
     };
-    pub static ref CONTRACT_ID: ContractId = {
-        ContractId::from_str(
-            "0000000000000000000000000000000000000000000000000000000000000000"
-        )
-        .unwrap()
-    };
 }
 
 pub fn get_account<K: KvStore>(db: &K, index: u32) -> core::Account {
-    let nonce: u64 =
-        KvStoreStateManager::<ZkHasher>::get_data(db, *CONTRACT_ID, &ZkDataLocator(vec![index, 0]))
-            .unwrap()
-            .try_into()
-            .unwrap();
-    let pub_x =
-        KvStoreStateManager::<ZkHasher>::get_data(db, *CONTRACT_ID, &ZkDataLocator(vec![index, 1]))
-            .unwrap();
-    let pub_y =
-        KvStoreStateManager::<ZkHasher>::get_data(db, *CONTRACT_ID, &ZkDataLocator(vec![index, 2]))
-            .unwrap();
-    let balance: u64 =
-        KvStoreStateManager::<ZkHasher>::get_data(db, *CONTRACT_ID, &ZkDataLocator(vec![index, 3]))
-            .unwrap()
-            .try_into()
-            .unwrap();
+    let nonce: u64 = KvStoreStateManager::<ZkHasher>::get_data(
+        db,
+        *MPN_CONTRACT_ID,
+        &ZkDataLocator(vec![index, 0]),
+    )
+    .unwrap()
+    .try_into()
+    .unwrap();
+    let pub_x = KvStoreStateManager::<ZkHasher>::get_data(
+        db,
+        *MPN_CONTRACT_ID,
+        &ZkDataLocator(vec![index, 1]),
+    )
+    .unwrap();
+    let pub_y = KvStoreStateManager::<ZkHasher>::get_data(
+        db,
+        *MPN_CONTRACT_ID,
+        &ZkDataLocator(vec![index, 2]),
+    )
+    .unwrap();
+    let balance: u64 = KvStoreStateManager::<ZkHasher>::get_data(
+        db,
+        *MPN_CONTRACT_ID,
+        &ZkDataLocator(vec![index, 3]),
+    )
+    .unwrap()
+    .try_into()
+    .unwrap();
     core::Account {
         nonce,
         balance,
@@ -62,28 +68,28 @@ pub fn get_account<K: KvStore>(db: &K, index: u32) -> core::Account {
 pub fn set_account<K: KvStore>(db: &mut K, index: u32, acc: core::Account) {
     KvStoreStateManager::<ZkHasher>::set_data(
         db,
-        *CONTRACT_ID,
+        *MPN_CONTRACT_ID,
         ZkDataLocator(vec![index, 0]),
         ZkScalar::from(acc.nonce),
     )
     .unwrap();
     KvStoreStateManager::<ZkHasher>::set_data(
         db,
-        *CONTRACT_ID,
+        *MPN_CONTRACT_ID,
         ZkDataLocator(vec![index, 1]),
         acc.address.0,
     )
     .unwrap();
     KvStoreStateManager::<ZkHasher>::set_data(
         db,
-        *CONTRACT_ID,
+        *MPN_CONTRACT_ID,
         ZkDataLocator(vec![index, 2]),
         acc.address.1,
     )
     .unwrap();
     KvStoreStateManager::<ZkHasher>::set_data(
         db,
-        *CONTRACT_ID,
+        *MPN_CONTRACT_ID,
         ZkDataLocator(vec![index, 3]),
         ZkScalar::from(acc.balance),
     )
@@ -108,7 +114,8 @@ pub struct Bank<K: KvStore> {
 impl<K: KvStore> Bank<K> {
     pub fn balances(&self) -> Vec<(u32, u64)> {
         let state =
-            KvStoreStateManager::<ZkHasher>::get_full_state(&self.database, *CONTRACT_ID).unwrap();
+            KvStoreStateManager::<ZkHasher>::get_full_state(&self.database, *MPN_CONTRACT_ID)
+                .unwrap();
         let mut result = Vec::new();
         for (loc, val) in state.data.0 {
             if loc.0[1] == 3 {
@@ -138,7 +145,7 @@ impl<K: KvStore> Bank<K> {
         let mut transitions = Vec::new();
         let state = KvStoreStateManager::<ZkHasher>::get_data(
             &self.database,
-            *CONTRACT_ID,
+            *MPN_CONTRACT_ID,
             &ZkDataLocator(vec![]),
         )
         .unwrap();
@@ -158,7 +165,7 @@ impl<K: KvStore> Bank<K> {
                 let proof = zeekit::merkle::Proof::<{ config::LOG4_TREE_SIZE }>(
                     KvStoreStateManager::<ZkHasher>::prove(
                         &mirror,
-                        *CONTRACT_ID,
+                        *MPN_CONTRACT_ID,
                         ZkDataLocator(vec![]),
                         tx.index,
                     )
@@ -177,7 +184,7 @@ impl<K: KvStore> Bank<K> {
         }
         let next_state = KvStoreStateManager::<ZkHasher>::get_data(
             &mirror,
-            *CONTRACT_ID,
+            *MPN_CONTRACT_ID,
             &ZkDataLocator(vec![]),
         )
         .unwrap();
@@ -226,7 +233,7 @@ impl<K: KvStore> Bank<K> {
 
         let state = KvStoreStateManager::<ZkHasher>::get_data(
             &self.database,
-            *CONTRACT_ID,
+            *MPN_CONTRACT_ID,
             &ZkDataLocator(vec![]),
         )
         .unwrap();
@@ -245,7 +252,7 @@ impl<K: KvStore> Bank<K> {
                 let src_proof = zeekit::merkle::Proof::<{ config::LOG4_TREE_SIZE }>(
                     KvStoreStateManager::<ZkHasher>::prove(
                         &mirror,
-                        *CONTRACT_ID,
+                        *MPN_CONTRACT_ID,
                         ZkDataLocator(vec![]),
                         tx.src_index,
                     )
@@ -262,7 +269,7 @@ impl<K: KvStore> Bank<K> {
                 let dst_proof = zeekit::merkle::Proof::<{ config::LOG4_TREE_SIZE }>(
                     KvStoreStateManager::<ZkHasher>::prove(
                         &mirror,
-                        *CONTRACT_ID,
+                        *MPN_CONTRACT_ID,
                         ZkDataLocator(vec![]),
                         tx.dst_index,
                     )
@@ -289,7 +296,7 @@ impl<K: KvStore> Bank<K> {
 
         let next_state = KvStoreStateManager::<ZkHasher>::get_data(
             &mirror,
-            *CONTRACT_ID,
+            *MPN_CONTRACT_ID,
             &ZkDataLocator(vec![]),
         )
         .unwrap();

@@ -6,9 +6,10 @@ mod circuits;
 mod config;
 mod core;
 
+use bazuka::config::blockchain::MPN_CONTRACT_ID;
 use bazuka::core::ZkHasher;
 use bazuka::crypto::{jubjub, ZkSignatureScheme};
-use bazuka::db::KvStore;
+use bazuka::db::{KvStore, ReadOnlyLevelDbKvStore};
 use bazuka::zk::{DepositWithdraw, ZeroTransaction};
 use bellman::{groth16, Circuit};
 use bls12_381::Bls12;
@@ -47,6 +48,35 @@ fn vk_to_hex(vk: &bellman::groth16::VerifyingKey<Bls12>) -> String {
     )
 }
 
+fn db_shutter() -> ReadOnlyLevelDbKvStore {
+    ReadOnlyLevelDbKvStore::read_only(std::path::Path::new("/home/keyvan/.bazuka"), 64).unwrap()
+}
+
+fn get_zero_mempool() {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            let sk =
+                <bazuka::core::Signer as bazuka::crypto::SignatureScheme>::generate_keys(b"dummy")
+                    .1;
+            let (lp, client) = bazuka::client::BazukaClient::connect(
+                sk,
+                bazuka::client::PeerAddress("127.0.0.1:3030".parse().unwrap()),
+            );
+
+            let (res, _) = tokio::join!(
+                async { Ok::<_, bazuka::client::NodeError>(client.get_zero_mempool().await) },
+                lp
+            );
+
+            res
+        })
+        .unwrap()
+        .unwrap();
+}
+
 fn main() {
     let use_cache = true;
     let update_params = load_params::<circuits::UpdateCircuit>("groth16_mpn_update.dat", use_cache);
@@ -64,7 +94,7 @@ fn main() {
     let mut db = bazuka::db::RamKvStore::new();
 
     db.update(&[bazuka::db::WriteOp::Put(
-        format!("contract_{}", bank::CONTRACT_ID.clone()).into(),
+        format!("contract_{}", MPN_CONTRACT_ID.clone()).into(),
         bazuka::zk::ZkContract {
             initial_state: bazuka::zk::ZkCompressedState::empty::<ZkHasher>(
                 bank::STATE_MODEL.clone(),
