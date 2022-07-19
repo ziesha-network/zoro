@@ -15,6 +15,7 @@ lazy_static = "1.4.0"
 num-bigint = "0.4"
 num-integer = "0.1"
 serde = { version = "1.0" }
+thiserror = "1.0"
 
 # Serialization of VKs
 hex = "0.4.3"

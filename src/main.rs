@@ -52,32 +52,46 @@ fn db_shutter() -> ReadOnlyLevelDbKvStore {
     ReadOnlyLevelDbKvStore::read_only(std::path::Path::new("/home/keyvan/.bazuka"), 64).unwrap()
 }
 
-fn get_zero_mempool() {
-    tokio::runtime::Builder::new_multi_thread()
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum ZoroError {
+    #[error("io error: {0}")]
+    IoError(#[from] std::io::Error),
+    #[error("node error: {0}")]
+    NodeError(#[from] bazuka::client::NodeError),
+}
+
+fn get_zero_mempool(
+    node: bazuka::client::PeerAddress,
+) -> Result<bazuka::client::messages::GetZeroMempoolResponse, ZoroError> {
+    Ok(tokio::runtime::Builder::new_multi_thread()
         .enable_all()
-        .build()
-        .unwrap()
+        .build()?
         .block_on(async {
             let sk =
                 <bazuka::core::Signer as bazuka::crypto::SignatureScheme>::generate_keys(b"dummy")
                     .1;
-            let (lp, client) = bazuka::client::BazukaClient::connect(
-                sk,
-                bazuka::client::PeerAddress("127.0.0.1:3030".parse().unwrap()),
-            );
+            let (lp, client) = bazuka::client::BazukaClient::connect(sk, node);
 
             let (res, _) = tokio::join!(
-                async { Ok::<_, bazuka::client::NodeError>(client.get_zero_mempool().await) },
+                async move { Ok::<_, bazuka::client::NodeError>(client.get_zero_mempool().await) },
                 lp
             );
 
             res
-        })
-        .unwrap()
-        .unwrap();
+        })??)
 }
 
 fn main() {
+    println!(
+        "{:?}",
+        get_zero_mempool(bazuka::client::PeerAddress(
+            "127.0.0.1:3030".parse().unwrap()
+        ))
+        .unwrap()
+    );
+
     let use_cache = true;
     let update_params = load_params::<circuits::UpdateCircuit>("groth16_mpn_update.dat", use_cache);
     let deposit_withdraw_params = load_params::<circuits::DepositWithdrawCircuit>(
