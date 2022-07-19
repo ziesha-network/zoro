@@ -105,17 +105,39 @@ pub enum BankError {
     CannotProve,
 }
 
-pub struct Bank<K: KvStore> {
+pub struct Bank {
     update_params: Parameters<Bls12>,
     deposit_withdraw_params: Parameters<Bls12>,
-    database: K,
 }
 
-impl<K: KvStore> Bank<K> {
-    pub fn balances(&self) -> Vec<(u32, u64)> {
-        let state =
-            KvStoreStateManager::<ZkHasher>::get_full_state(&self.database, *MPN_CONTRACT_ID)
-                .unwrap();
+pub fn extract_delta(ops: Vec<bazuka::db::WriteOp>) -> bazuka::zk::ZkDeltaPairs {
+    let mut pairs = bazuka::zk::ZkDeltaPairs([].into());
+    for op in ops {
+        match op {
+            bazuka::db::WriteOp::Put(k, v) => {
+                let mut it = k.0.split("_s_");
+                it.next();
+                if let Some(loc) = it.next() {
+                    pairs
+                        .0
+                        .insert(loc.parse().unwrap(), Some(v.try_into().unwrap()));
+                }
+            }
+            bazuka::db::WriteOp::Remove(k) => {
+                let mut it = k.0.split("_s_");
+                it.next();
+                if let Some(loc) = it.next() {
+                    pairs.0.insert(loc.parse().unwrap(), None);
+                }
+            }
+        }
+    }
+    pairs
+}
+
+impl Bank {
+    pub fn balances<K: KvStore>(&self, db: &K) -> Vec<(u32, u64)> {
+        let state = KvStoreStateManager::<ZkHasher>::get_full_state(db, *MPN_CONTRACT_ID).unwrap();
         let mut result = Vec::new();
         for (loc, val) in state.data.0 {
             if loc.0[1] == 3 {
@@ -127,28 +149,31 @@ impl<K: KvStore> Bank<K> {
     pub fn new(
         update_params: Parameters<Bls12>,
         deposit_withdraw_params: Parameters<Bls12>,
-        database: K,
     ) -> Self {
         Self {
             update_params,
             deposit_withdraw_params,
-            database,
         }
     }
 
-    pub fn deposit_withdraw(
+    pub fn deposit_withdraw<K: KvStore>(
         &mut self,
+        db: &K,
         txs: Vec<DepositWithdraw>,
-    ) -> Result<bazuka::zk::groth16::Groth16Proof, BankError> {
-        let mut mirror = self.database.mirror();
+    ) -> Result<
+        (
+            bazuka::zk::ZkDeltaPairs,
+            bazuka::zk::ZkCompressedState,
+            bazuka::zk::groth16::Groth16Proof,
+        ),
+        BankError,
+    > {
+        let mut mirror = db.mirror();
 
         let mut transitions = Vec::new();
-        let state = KvStoreStateManager::<ZkHasher>::get_data(
-            &self.database,
-            *MPN_CONTRACT_ID,
-            &ZkDataLocator(vec![]),
-        )
-        .unwrap();
+        let state =
+            KvStoreStateManager::<ZkHasher>::get_data(db, *MPN_CONTRACT_ID, &ZkDataLocator(vec![]))
+                .unwrap();
         for tx in txs.iter() {
             let acc = get_account(&mirror, tx.index);
             if acc.address != Default::default() && tx.pub_key.0.decompress() != acc.address {
@@ -217,28 +242,37 @@ impl<K: KvStore> Bank<K> {
             next_state,
             &proof,
         ) {
-            let ops = mirror.to_ops();
-            self.database.update(&ops).unwrap();
+            Ok((
+                extract_delta(mirror.to_ops()),
+                bazuka::zk::ZkCompressedState {
+                    state_hash: next_state,
+                    state_size: 0,
+                },
+                proof,
+            ))
         } else {
-            return Err(BankError::CannotProve);
+            Err(BankError::CannotProve)
         }
-
-        Ok(proof)
     }
-    pub fn change_state(
+    pub fn change_state<K: KvStore>(
         &mut self,
+        db: &K,
         txs: Vec<ZeroTransaction>,
-    ) -> Result<bazuka::zk::groth16::Groth16Proof, BankError> {
+    ) -> Result<
+        (
+            bazuka::zk::ZkDeltaPairs,
+            bazuka::zk::ZkCompressedState,
+            bazuka::zk::groth16::Groth16Proof,
+        ),
+        BankError,
+    > {
         let mut transitions = Vec::new();
 
-        let state = KvStoreStateManager::<ZkHasher>::get_data(
-            &self.database,
-            *MPN_CONTRACT_ID,
-            &ZkDataLocator(vec![]),
-        )
-        .unwrap();
+        let state =
+            KvStoreStateManager::<ZkHasher>::get_data(db, *MPN_CONTRACT_ID, &ZkDataLocator(vec![]))
+                .unwrap();
 
-        let mut mirror = self.database.mirror();
+        let mut mirror = db.mirror();
 
         for tx in txs.iter() {
             let src_before = get_account(&mirror, tx.src_index);
@@ -328,12 +362,16 @@ impl<K: KvStore> Bank<K> {
             next_state,
             &proof,
         ) {
-            let ops = mirror.to_ops();
-            self.database.update(&ops).unwrap();
+            Ok((
+                extract_delta(mirror.to_ops()),
+                bazuka::zk::ZkCompressedState {
+                    state_hash: next_state,
+                    state_size: 0,
+                },
+                proof,
+            ))
         } else {
-            return Err(BankError::CannotProve);
+            Err(BankError::CannotProve)
         }
-
-        Ok(proof)
     }
 }

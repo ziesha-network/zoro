@@ -9,7 +9,7 @@ mod core;
 use bazuka::config::blockchain::MPN_CONTRACT_ID;
 use bazuka::core::ZkHasher;
 use bazuka::crypto::{jubjub, ZkSignatureScheme};
-use bazuka::db::{KvStore, ReadOnlyLevelDbKvStore};
+use bazuka::db::ReadOnlyLevelDbKvStore;
 use bazuka::zk::{DepositWithdraw, ZeroTransaction};
 use bellman::{groth16, Circuit};
 use bls12_381::Bls12;
@@ -99,31 +99,16 @@ fn main() {
         use_cache,
     );
 
-    println!("Update: {}", vk_to_hex(&update_params.vk));
+    /*println!("Update: {}", vk_to_hex(&update_params.vk));
     println!(
         "Deposit/Withdraw: {}",
         vk_to_hex(&deposit_withdraw_params.vk)
-    );
+    );*/
 
-    let mut db = bazuka::db::RamKvStore::new();
+    let db_shutter = db_shutter();
+    let db = db_shutter.snapshot();
 
-    db.update(&[bazuka::db::WriteOp::Put(
-        format!("contract_{}", MPN_CONTRACT_ID.clone()).into(),
-        bazuka::zk::ZkContract {
-            initial_state: bazuka::zk::ZkCompressedState::empty::<ZkHasher>(
-                bank::STATE_MODEL.clone(),
-            )
-            .into(),
-            state_model: bank::STATE_MODEL.clone(),
-            log4_deposit_withdraw_capacity: 0,
-            deposit_withdraw_function: bazuka::zk::ZkVerifierKey::Dummy,
-            functions: vec![],
-        }
-        .into(),
-    )])
-    .unwrap();
-
-    let mut b = bank::Bank::new(update_params, deposit_withdraw_params, db);
+    let mut b = bank::Bank::new(update_params, deposit_withdraw_params);
     let alice_keys = jubjub::JubJub::<ZkHasher>::generate_keys(b"alice");
     let bob_keys = jubjub::JubJub::<ZkHasher>::generate_keys(b"bob");
     let charlie_keys = jubjub::JubJub::<ZkHasher>::generate_keys(b"charlie");
@@ -131,26 +116,32 @@ fn main() {
     let bob_index = 1;
     let charlie_index = 2;
 
-    b.deposit_withdraw(vec![
-        DepositWithdraw {
-            index: alice_index,
-            pub_key: alice_keys.0.clone(),
-            amount: 1000,
-        },
-        DepositWithdraw {
-            index: bob_index,
-            pub_key: bob_keys.0.clone(),
-            amount: 500,
-        },
-        DepositWithdraw {
-            index: alice_index,
-            pub_key: alice_keys.0.clone(),
-            amount: -200,
-        },
-    ])
-    .unwrap();
+    let (delta, new_root, proof) = b
+        .deposit_withdraw(
+            &db,
+            vec![
+                DepositWithdraw {
+                    index: alice_index,
+                    pub_key: alice_keys.0.clone(),
+                    amount: 1000,
+                },
+                DepositWithdraw {
+                    index: bob_index,
+                    pub_key: bob_keys.0.clone(),
+                    amount: 500,
+                },
+                DepositWithdraw {
+                    index: alice_index,
+                    pub_key: alice_keys.0.clone(),
+                    amount: -200,
+                },
+            ],
+        )
+        .unwrap();
 
-    println!("{:?}", b.balances());
+    println!("{:?}", delta);
+
+    /*println!("{:?}", b.balances(&db));
 
     let mut tx1 = ZeroTransaction {
         nonce: 0,
@@ -196,6 +187,6 @@ fn main() {
     };
     tx4.sign(alice_keys.1);
 
-    b.change_state(vec![tx1, tx2, tx3, tx4]).unwrap();
-    println!("{:?}", b.balances());
+    b.change_state(&db, vec![tx1, tx2, tx3, tx4]).unwrap();
+    println!("{:?}", b.balances(&db));*/
 }
