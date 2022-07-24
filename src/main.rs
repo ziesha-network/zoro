@@ -84,13 +84,17 @@ fn get_zero_mempool(
 }
 
 fn main() {
-    println!(
-        "{:?}",
-        get_zero_mempool(bazuka::client::PeerAddress(
-            "127.0.0.1:3030".parse().unwrap()
-        ))
-        .unwrap()
-    );
+    let mempool = get_zero_mempool(bazuka::client::PeerAddress(
+        "127.0.0.1:3030".parse().unwrap(),
+    ))
+    .unwrap();
+
+    let deposit_withdraws = mempool
+        .deposit_withdraws
+        .iter()
+        .filter(|dw| dw.contract_id == *MPN_CONTRACT_ID)
+        .collect::<Vec<_>>();
+    println!("{:?}", deposit_withdraws);
 
     let use_cache = true;
     let update_params = load_params::<circuits::UpdateCircuit>("groth16_mpn_update.dat", use_cache);
@@ -108,7 +112,7 @@ fn main() {
     let db_shutter = db_shutter();
     let db = db_shutter.snapshot();
 
-    let mut b = bank::Bank::new(update_params, deposit_withdraw_params);
+    let b = bank::Bank::new(update_params, deposit_withdraw_params);
     let alice_keys = jubjub::JubJub::<ZkHasher>::generate_keys(b"alice");
     let bob_keys = jubjub::JubJub::<ZkHasher>::generate_keys(b"bob");
     let charlie_keys = jubjub::JubJub::<ZkHasher>::generate_keys(b"charlie");

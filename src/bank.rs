@@ -157,7 +157,7 @@ impl Bank {
     }
 
     pub fn deposit_withdraw<K: KvStore>(
-        &mut self,
+        &self,
         db: &K,
         txs: Vec<DepositWithdraw>,
     ) -> Result<
@@ -255,7 +255,7 @@ impl Bank {
         }
     }
     pub fn change_state<K: KvStore>(
-        &mut self,
+        &self,
         db: &K,
         txs: Vec<ZeroTransaction>,
     ) -> Result<
