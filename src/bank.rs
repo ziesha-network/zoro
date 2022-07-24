@@ -254,6 +254,9 @@ impl Bank {
             Err(BankError::CannotProve)
         }
     }
+    pub fn root<K: KvStore>(&self, db: &K) -> bazuka::zk::ZkCompressedState {
+        KvStoreStateManager::<ZkHasher>::root(db, *MPN_CONTRACT_ID).unwrap()
+    }
     pub fn change_state<K: KvStore>(
         &self,
         db: &K,

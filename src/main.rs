@@ -84,7 +84,27 @@ fn get_zero_mempool(
 }
 
 fn main() {
+    let use_cache = true;
+    let update_params = load_params::<circuits::UpdateCircuit>("groth16_mpn_update.dat", use_cache);
+    let deposit_withdraw_params = load_params::<circuits::DepositWithdrawCircuit>(
+        "groth16_mpn_deposit_withdraw.dat",
+        use_cache,
+    );
+    let b = bank::Bank::new(update_params, deposit_withdraw_params);
+
+    let mut latest_processed = None;
+    let db_shutter = db_shutter();
     loop {
+        let db = db_shutter.snapshot();
+
+        if latest_processed == Some(b.root(&db)) {
+            println!("Block is already processed!");
+            std::thread::sleep(std::time::Duration::from_millis(1000));
+            continue;
+        }
+
+        latest_processed = Some(b.root(&db));
+
         let mempool = get_zero_mempool(bazuka::client::PeerAddress(
             "127.0.0.1:3030".parse().unwrap(),
         ))
@@ -111,24 +131,12 @@ fn main() {
             continue;
         }
 
-        let use_cache = true;
-        let update_params =
-            load_params::<circuits::UpdateCircuit>("groth16_mpn_update.dat", use_cache);
-        let deposit_withdraw_params = load_params::<circuits::DepositWithdrawCircuit>(
-            "groth16_mpn_deposit_withdraw.dat",
-            use_cache,
-        );
-
         /*println!("Update: {}", vk_to_hex(&update_params.vk));
         println!(
             "Deposit/Withdraw: {}",
             vk_to_hex(&deposit_withdraw_params.vk)
         );*/
 
-        let db_shutter = db_shutter();
-        let db = db_shutter.snapshot();
-
-        let b = bank::Bank::new(update_params, deposit_withdraw_params);
         let alice_keys = jubjub::JubJub::<ZkHasher>::generate_keys(b"alice");
         let bob_keys = jubjub::JubJub::<ZkHasher>::generate_keys(b"bob");
         let charlie_keys = jubjub::JubJub::<ZkHasher>::generate_keys(b"charlie");
