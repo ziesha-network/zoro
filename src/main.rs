@@ -7,7 +7,7 @@ mod config;
 mod core;
 
 use bazuka::config::blockchain::MPN_CONTRACT_ID;
-use bazuka::core::ZkHasher;
+use bazuka::core::{PaymentDirection, ZkHasher};
 use bazuka::crypto::{jubjub, ZkSignatureScheme};
 use bazuka::db::ReadOnlyLevelDbKvStore;
 use bazuka::zk::{DepositWithdraw, ZeroTransaction};
@@ -84,66 +84,62 @@ fn get_zero_mempool(
 }
 
 fn main() {
-    let mempool = get_zero_mempool(bazuka::client::PeerAddress(
-        "127.0.0.1:3030".parse().unwrap(),
-    ))
-    .unwrap();
-
-    let deposit_withdraws = mempool
-        .deposit_withdraws
-        .iter()
-        .filter(|dw| dw.contract_id == *MPN_CONTRACT_ID)
-        .collect::<Vec<_>>();
-    println!("{:?}", deposit_withdraws);
-
-    let use_cache = true;
-    let update_params = load_params::<circuits::UpdateCircuit>("groth16_mpn_update.dat", use_cache);
-    let deposit_withdraw_params = load_params::<circuits::DepositWithdrawCircuit>(
-        "groth16_mpn_deposit_withdraw.dat",
-        use_cache,
-    );
-
-    /*println!("Update: {}", vk_to_hex(&update_params.vk));
-    println!(
-        "Deposit/Withdraw: {}",
-        vk_to_hex(&deposit_withdraw_params.vk)
-    );*/
-
-    let db_shutter = db_shutter();
-    let db = db_shutter.snapshot();
-
-    let b = bank::Bank::new(update_params, deposit_withdraw_params);
-    let alice_keys = jubjub::JubJub::<ZkHasher>::generate_keys(b"alice");
-    let bob_keys = jubjub::JubJub::<ZkHasher>::generate_keys(b"bob");
-    let charlie_keys = jubjub::JubJub::<ZkHasher>::generate_keys(b"charlie");
-    let alice_index = 0;
-    let bob_index = 1;
-    let charlie_index = 2;
-
-    let (delta, new_root, proof) = b
-        .deposit_withdraw(
-            &db,
-            vec![
-                DepositWithdraw {
-                    index: alice_index,
-                    pub_key: alice_keys.0.clone(),
-                    amount: 1000,
-                },
-                DepositWithdraw {
-                    index: bob_index,
-                    pub_key: bob_keys.0.clone(),
-                    amount: 500,
-                },
-                DepositWithdraw {
-                    index: alice_index,
-                    pub_key: alice_keys.0.clone(),
-                    amount: -200,
-                },
-            ],
-        )
+    loop {
+        let mempool = get_zero_mempool(bazuka::client::PeerAddress(
+            "127.0.0.1:3030".parse().unwrap(),
+        ))
         .unwrap();
 
-    println!("{:?}", delta);
+        let deposit_withdraws = mempool
+            .deposit_withdraws
+            .iter()
+            .filter(|dw| dw.contract_id == *MPN_CONTRACT_ID)
+            .map(|dw| DepositWithdraw {
+                index: dw.zk_address_index,
+                pub_key: dw.zk_address.clone(),
+                amount: match dw.direction {
+                    PaymentDirection::Deposit(_) => dw.amount as i64,
+                    PaymentDirection::Withdraw(_) => -(dw.amount as i64),
+                },
+            })
+            .collect::<Vec<_>>();
+        println!("{:?}", deposit_withdraws);
+
+        if deposit_withdraws.is_empty() {
+            println!("No deposit/withdraws!");
+            std::thread::sleep(std::time::Duration::from_millis(1000));
+            continue;
+        }
+
+        let use_cache = true;
+        let update_params =
+            load_params::<circuits::UpdateCircuit>("groth16_mpn_update.dat", use_cache);
+        let deposit_withdraw_params = load_params::<circuits::DepositWithdrawCircuit>(
+            "groth16_mpn_deposit_withdraw.dat",
+            use_cache,
+        );
+
+        /*println!("Update: {}", vk_to_hex(&update_params.vk));
+        println!(
+            "Deposit/Withdraw: {}",
+            vk_to_hex(&deposit_withdraw_params.vk)
+        );*/
+
+        let db_shutter = db_shutter();
+        let db = db_shutter.snapshot();
+
+        let b = bank::Bank::new(update_params, deposit_withdraw_params);
+        let alice_keys = jubjub::JubJub::<ZkHasher>::generate_keys(b"alice");
+        let bob_keys = jubjub::JubJub::<ZkHasher>::generate_keys(b"bob");
+        let charlie_keys = jubjub::JubJub::<ZkHasher>::generate_keys(b"charlie");
+        let alice_index = 0;
+        let bob_index = 1;
+        let charlie_index = 2;
+
+        let (delta, new_root, proof) = b.deposit_withdraw(&db, deposit_withdraws).unwrap();
+
+        println!("{:?}", delta);
+    }
 
     /*println!("{:?}", b.balances(&db));
 
