@@ -62,6 +62,28 @@ pub enum ZoroError {
     NodeError(#[from] bazuka::client::NodeError),
 }
 
+fn transact(
+    node: bazuka::client::PeerAddress,
+    tx: bazuka::core::TransactionAndDelta,
+) -> Result<bazuka::client::messages::TransactResponse, ZoroError> {
+    Ok(tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(async {
+            let sk =
+                <bazuka::core::Signer as bazuka::crypto::SignatureScheme>::generate_keys(b"dummy")
+                    .1;
+            let (lp, client) = bazuka::client::BazukaClient::connect(sk, node);
+
+            let (res, _) = tokio::join!(
+                async move { Ok::<_, bazuka::client::NodeError>(client.transact(tx).await) },
+                lp
+            );
+
+            res
+        })??)
+}
+
 fn get_zero_mempool(
     node: bazuka::client::PeerAddress,
 ) -> Result<bazuka::client::messages::GetZeroMempoolResponse, ZoroError> {
@@ -84,12 +106,22 @@ fn get_zero_mempool(
 }
 
 fn main() {
+    let exec_wallet = bazuka::wallet::Wallet::new(b"Executor".to_vec());
     let use_cache = true;
     let update_params = load_params::<circuits::UpdateCircuit>("groth16_mpn_update.dat", use_cache);
     let deposit_withdraw_params = load_params::<circuits::DepositWithdrawCircuit>(
         "groth16_mpn_deposit_withdraw.dat",
         use_cache,
     );
+
+    let node_addr = bazuka::client::PeerAddress("127.0.0.1:3030".parse().unwrap());
+
+    /*println!("Update: {}", vk_to_hex(&update_params.vk));
+    println!(
+        "Deposit/Withdraw: {}",
+        vk_to_hex(&deposit_withdraw_params.vk)
+    );*/
+
     let b = bank::Bank::new(update_params, deposit_withdraw_params);
 
     let mut latest_processed = None;
@@ -105,15 +137,17 @@ fn main() {
 
         latest_processed = Some(b.root(&db));
 
-        let mempool = get_zero_mempool(bazuka::client::PeerAddress(
-            "127.0.0.1:3030".parse().unwrap(),
-        ))
-        .unwrap();
+        let mempool = get_zero_mempool(node_addr).unwrap();
 
-        let deposit_withdraws = mempool
+        let contract_payments = mempool
             .deposit_withdraws
             .iter()
             .filter(|dw| dw.contract_id == *MPN_CONTRACT_ID)
+            .cloned()
+            .collect::<Vec<_>>();
+
+        let deposit_withdraws = contract_payments
+            .iter()
             .map(|dw| DepositWithdraw {
                 index: dw.zk_address_index,
                 pub_key: dw.zk_address.clone(),
@@ -131,12 +165,6 @@ fn main() {
             continue;
         }
 
-        /*println!("Update: {}", vk_to_hex(&update_params.vk));
-        println!(
-            "Deposit/Withdraw: {}",
-            vk_to_hex(&deposit_withdraw_params.vk)
-        );*/
-
         let alice_keys = jubjub::JubJub::<ZkHasher>::generate_keys(b"alice");
         let bob_keys = jubjub::JubJub::<ZkHasher>::generate_keys(b"bob");
         let charlie_keys = jubjub::JubJub::<ZkHasher>::generate_keys(b"charlie");
@@ -146,7 +174,28 @@ fn main() {
 
         let (delta, new_root, proof) = b.deposit_withdraw(&db, deposit_withdraws).unwrap();
 
-        println!("{:?}", delta);
+        let mut update = bazuka::core::Transaction {
+            src: exec_wallet.get_address(),
+            nonce: 1,
+            fee: 0,
+            data: bazuka::core::TransactionData::UpdateContract {
+                contract_id: *MPN_CONTRACT_ID,
+                updates: vec![bazuka::core::ContractUpdate::DepositWithdraw {
+                    deposit_withdraws: contract_payments,
+                    next_state: new_root,
+                    proof: bazuka::zk::ZkProof::Groth16(Box::new(proof)),
+                }],
+            },
+            sig: bazuka::core::Signature::Unsigned,
+        };
+        exec_wallet.sign(&mut update);
+
+        let tx_delta = bazuka::core::TransactionAndDelta {
+            tx: update,
+            state_delta: Some(delta),
+        };
+
+        transact(node_addr, tx_delta).unwrap();
     }
 
     /*println!("{:?}", b.balances(&db));
