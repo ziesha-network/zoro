@@ -84,6 +84,28 @@ fn transact(
         })??)
 }
 
+fn get_account(
+    node: bazuka::client::PeerAddress,
+    address: bazuka::core::Address,
+) -> Result<bazuka::client::messages::GetAccountResponse, ZoroError> {
+    Ok(tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(async {
+            let sk =
+                <bazuka::core::Signer as bazuka::crypto::SignatureScheme>::generate_keys(b"dummy")
+                    .1;
+            let (lp, client) = bazuka::client::BazukaClient::connect(sk, node);
+
+            let (res, _) = tokio::join!(
+                async move { Ok::<_, bazuka::client::NodeError>(client.get_account(address).await) },
+                lp
+            );
+
+            res
+        })??)
+}
+
 fn get_zero_mempool(
     node: bazuka::client::PeerAddress,
 ) -> Result<bazuka::client::messages::GetZeroMempoolResponse, ZoroError> {
@@ -106,7 +128,8 @@ fn get_zero_mempool(
 }
 
 fn main() {
-    let exec_wallet = bazuka::wallet::Wallet::new(b"Executor".to_vec());
+    let exec_wallet = bazuka::wallet::Wallet::new(b"ABC".to_vec());
+
     let use_cache = true;
     let update_params = load_params::<circuits::UpdateCircuit>("groth16_mpn_update.dat", use_cache);
     let deposit_withdraw_params = load_params::<circuits::DepositWithdrawCircuit>(
@@ -128,12 +151,16 @@ fn main() {
     let db_shutter = db_shutter();
     loop {
         let db = db_shutter.snapshot();
+        let acc = get_account(node_addr, exec_wallet.get_address())
+            .unwrap()
+            .account;
 
         if latest_processed == Some(b.root(&db)) {
-            println!("Block is already processed!");
             std::thread::sleep(std::time::Duration::from_millis(1000));
             continue;
         }
+
+        println!("Processing block...");
 
         latest_processed = Some(b.root(&db));
 
@@ -157,13 +184,11 @@ fn main() {
                 },
             })
             .collect::<Vec<_>>();
-        println!("{:?}", deposit_withdraws);
-
-        if deposit_withdraws.is_empty() {
-            println!("No deposit/withdraws!");
-            std::thread::sleep(std::time::Duration::from_millis(1000));
-            continue;
-        }
+        println!(
+            "Got {}/{} transactions...",
+            deposit_withdraws.len(),
+            config::BATCH_SIZE
+        );
 
         let alice_keys = jubjub::JubJub::<ZkHasher>::generate_keys(b"alice");
         let bob_keys = jubjub::JubJub::<ZkHasher>::generate_keys(b"bob");
@@ -176,7 +201,7 @@ fn main() {
 
         let mut update = bazuka::core::Transaction {
             src: exec_wallet.get_address(),
-            nonce: 1,
+            nonce: acc.nonce + 1,
             fee: 0,
             data: bazuka::core::TransactionData::UpdateContract {
                 contract_id: *MPN_CONTRACT_ID,
