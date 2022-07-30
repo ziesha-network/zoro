@@ -190,14 +190,13 @@ fn main() {
             config::BATCH_SIZE
         );
 
-        let alice_keys = jubjub::JubJub::<ZkHasher>::generate_keys(b"alice");
-        let bob_keys = jubjub::JubJub::<ZkHasher>::generate_keys(b"bob");
-        let charlie_keys = jubjub::JubJub::<ZkHasher>::generate_keys(b"charlie");
-        let alice_index = 0;
-        let bob_index = 1;
-        let charlie_index = 2;
-
         let (delta, new_root, proof) = b.deposit_withdraw(&db, deposit_withdraws).unwrap();
+
+        let dw = bazuka::core::ContractUpdate::DepositWithdraw {
+            deposit_withdraws: contract_payments,
+            next_state: new_root,
+            proof: bazuka::zk::ZkProof::Groth16(Box::new(proof)),
+        };
 
         let mut update = bazuka::core::Transaction {
             src: exec_wallet.get_address(),
@@ -205,11 +204,7 @@ fn main() {
             fee: 0,
             data: bazuka::core::TransactionData::UpdateContract {
                 contract_id: *MPN_CONTRACT_ID,
-                updates: vec![bazuka::core::ContractUpdate::DepositWithdraw {
-                    deposit_withdraws: contract_payments,
-                    next_state: new_root,
-                    proof: bazuka::zk::ZkProof::Groth16(Box::new(proof)),
-                }],
+                updates: vec![dw],
             },
             sig: bazuka::core::Signature::Unsigned,
         };
