@@ -180,6 +180,7 @@ fn main() {
             .iter()
             .filter(|dw| dw.contract_id == *MPN_CONTRACT_ID)
             .cloned()
+            .take(config::BATCH_SIZE)
             .collect::<Vec<_>>();
 
         let deposit_withdraws = contract_payments
