@@ -127,6 +127,14 @@ fn get_zero_mempool(
         })??)
 }
 
+fn chain_height<K: bazuka::db::KvStore>(db: &K) -> u64 {
+    if let Some(v) = db.get("height".into()).unwrap() {
+        v.try_into().unwrap()
+    } else {
+        0
+    }
+}
+
 fn main() {
     let exec_wallet = bazuka::wallet::Wallet::new(b"ABC".to_vec());
 
@@ -148,21 +156,22 @@ fn main() {
     let b = bank::Bank::new(update_params, deposit_withdraw_params);
 
     let mut latest_processed = None;
-    let db_shutter = db_shutter();
     loop {
+        let db_shutter = db_shutter();
         let db = db_shutter.snapshot();
+
         let acc = get_account(node_addr, exec_wallet.get_address())
             .unwrap()
             .account;
 
-        if latest_processed == Some(b.root(&db)) {
+        if latest_processed == Some(chain_height(&db)) {
             std::thread::sleep(std::time::Duration::from_millis(1000));
             continue;
         }
 
         println!("Processing block...");
 
-        latest_processed = Some(b.root(&db));
+        latest_processed = Some(chain_height(&db));
 
         let mempool = get_zero_mempool(node_addr).unwrap();
 
