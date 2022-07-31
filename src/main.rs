@@ -147,13 +147,13 @@ fn main() {
         use_cache,
     );
 
-    let node_addr = bazuka::client::PeerAddress("127.0.0.1:3030".parse().unwrap());
-
-    /*println!("Update: {}", vk_to_hex(&update_params.vk));
+    println!("Update: {}", vk_to_hex(&update_params.vk));
     println!(
         "Deposit/Withdraw: {}",
         vk_to_hex(&deposit_withdraw_params.vk)
-    );*/
+    );
+
+    let node_addr = bazuka::client::PeerAddress("127.0.0.1:3030".parse().unwrap());
 
     let b = bank::Bank::new(update_params, deposit_withdraw_params);
 
@@ -189,7 +189,7 @@ fn main() {
             .iter()
             .map(|dw| DepositWithdraw {
                 index: dw.zk_address_index,
-                pub_key: dw.zk_address.clone(),
+                pub_key: dw.zk_address.0.decompress(),
                 amount: match dw.direction {
                     PaymentDirection::Deposit(_) => dw.amount as i64,
                     PaymentDirection::Withdraw(_) => -(dw.amount as i64),

@@ -1,6 +1,6 @@
 mod groth16;
 
-use crate::config::{BATCH_SIZE, LOG4_TREE_SIZE};
+use crate::config::{BATCH_SIZE, LOG4_BATCH_SIZE, LOG4_TREE_SIZE};
 use crate::core;
 use bazuka::crypto::jubjub;
 use bazuka::zk::{ZeroTransaction, ZkScalar};
@@ -50,7 +50,7 @@ impl Default for TransitionBatch {
 #[derive(Debug, Clone, Default)]
 pub struct DepositWithdraw {
     pub index: u32,
-    pub pub_key: jubjub::PublicKey,
+    pub pub_key: jubjub::PointAffine,
     pub amount: i64,
 }
 

@@ -177,13 +177,13 @@ impl Bank {
                 .unwrap();
         for tx in txs.iter() {
             let acc = get_account(&mirror, tx.index);
-            if acc.address != Default::default() && tx.pub_key.0.decompress() != acc.address {
+            if acc.address != Default::default() && tx.pub_key != acc.address {
                 return Err(BankError::InvalidPublicKey);
             } else if tx.amount < 0 && acc.balance as i64 + tx.amount < 0 {
                 return Err(BankError::BalanceInsufficient);
             } else {
                 let updated_acc = core::Account {
-                    address: tx.pub_key.0.decompress(),
+                    address: tx.pub_key,
                     balance: (acc.balance as i64 + tx.amount) as u64,
                     nonce: acc.nonce,
                 };
@@ -214,7 +214,41 @@ impl Bank {
             &ZkDataLocator(vec![]),
         )
         .unwrap();
-        let aux_data = ZkScalar::from(0);
+
+        let state_model = bazuka::zk::ZkStateModel::List {
+            item_type: Box::new(bazuka::zk::CONTRACT_PAYMENT_STATE_MODEL.clone()),
+            log4_size: config::LOG4_BATCH_SIZE as u8,
+        };
+        let mut state_builder =
+            bazuka::zk::ZkStateBuilder::<bazuka::core::ZkHasher>::new(state_model.clone());
+        for (i, trans) in transitions.iter().enumerate() {
+            state_builder
+                .set(
+                    bazuka::zk::ZkDataLocator(vec![i as u32, 0]),
+                    bazuka::zk::ZkScalar::from(trans.tx.index as u64),
+                )
+                .unwrap();
+            state_builder
+                .set(
+                    bazuka::zk::ZkDataLocator(vec![i as u32, 1]),
+                    bazuka::zk::ZkScalar::from(trans.tx.amount as u64),
+                )
+                .unwrap();
+            let pk = trans.tx.pub_key;
+            state_builder
+                .set(
+                    bazuka::zk::ZkDataLocator(vec![i as u32, 2]),
+                    bazuka::zk::ZkScalar::from(pk.0),
+                )
+                .unwrap();
+            state_builder
+                .set(
+                    bazuka::zk::ZkDataLocator(vec![i as u32, 3]),
+                    bazuka::zk::ZkScalar::from(pk.1),
+                )
+                .unwrap();
+        }
+        let aux_data = state_builder.compress().unwrap().state_hash;
 
         let circuit = circuits::DepositWithdrawCircuit {
             filled: true,

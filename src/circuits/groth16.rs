@@ -287,14 +287,51 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
 
         let aux_wit = alloc_num(&mut *cs, filled, self.aux_data)?;
         aux_wit.inputize(&mut *cs)?;
+
+        let state_model = bazuka::zk::ZkStateModel::List {
+            item_type: Box::new(bazuka::zk::CONTRACT_PAYMENT_STATE_MODEL.clone()),
+            log4_size: LOG4_BATCH_SIZE as u8,
+        };
+
+        let mut tx_wits = Vec::new();
+        let mut children = Vec::new();
+        for trans in self.transitions.0.iter() {
+            let index = alloc_num(&mut *cs, filled, ZkScalar::from(trans.tx.index as u64))?;
+            let amount = alloc_num(&mut *cs, filled, ZkScalar::from(trans.tx.amount as u64))?;
+            let pk = trans.tx.pub_key;
+            let pubx = alloc_num(&mut *cs, filled, pk.0)?;
+            let puby = alloc_num(&mut *cs, filled, pk.1)?;
+            tx_wits.push((
+                index.clone(),
+                amount.clone(),
+                AllocatedPoint {
+                    x: pubx.clone(),
+                    y: puby.clone(),
+                },
+            ));
+            children.push(AllocatedState::Children(vec![
+                AllocatedState::Value(index),
+                AllocatedState::Value(amount),
+                AllocatedState::Value(pubx),
+                AllocatedState::Value(puby),
+            ]));
+        }
+        let tx_root = reveal(
+            &mut *cs,
+            state_model.clone(),
+            AllocatedState::Children(children),
+        )?;
+
         cs.enforce(
             || "",
             |lc| lc + aux_wit.get_variable(),
             |lc| lc + CS::one(),
-            |lc| lc + aux_wit.get_variable(),
+            |lc| lc + tx_root.get_variable(),
         );
 
-        for trans in self.transitions.0.iter() {
+        for (trans, (tx_index_wit, tx_amount_wit, tx_pub_key_wit)) in
+            self.transitions.0.iter().zip(tx_wits.into_iter())
+        {
             let enabled_wit = AllocatedBit::alloc(&mut *cs, filled.then(|| trans.enabled))?;
 
             let src_nonce_wit = alloc_num(&mut *cs, filled, ZkScalar::from(trans.before.nonce))?;
@@ -319,11 +356,6 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
                     alloc_num(&mut *cs, filled, b[2])?,
                 ]);
             }
-
-            let tx_index_wit = alloc_num(&mut *cs, filled, ZkScalar::from(trans.tx.index as u64))?;
-            let tx_pub_key_wit = alloc_point(&mut *cs, filled, trans.tx.pub_key.0.decompress())?;
-            let tx_amount_wit =
-                alloc_num(&mut *cs, filled, ZkScalar::from(trans.tx.amount as u64))?;
 
             // enforce src_addr_wit == tx_pub_key_wit or zero!
             cs.enforce(

@@ -1,3 +1,3 @@
 pub const LOG4_TREE_SIZE: u8 = 10;
-pub const LOG_BATCH_SIZE: usize = 2;
-pub const BATCH_SIZE: usize = 1 << LOG_BATCH_SIZE;
+pub const LOG4_BATCH_SIZE: usize = 1;
+pub const BATCH_SIZE: usize = 1 << (2 * LOG4_BATCH_SIZE);
