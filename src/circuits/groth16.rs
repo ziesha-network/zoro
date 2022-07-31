@@ -4,6 +4,7 @@ use bellman::gadgets::boolean::{AllocatedBit, Boolean};
 use bellman::gadgets::num::AllocatedNum;
 use bellman::{Circuit, ConstraintSystem, SynthesisError};
 use zeekit::eddsa::groth16::AllocatedPoint;
+use zeekit::reveal::groth16::{reveal, AllocatedState};
 use zeekit::{common, eddsa, poseidon, BellmanFr};
 
 use super::*;

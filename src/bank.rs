@@ -1,3 +1,4 @@
+use crate::circuits::DepositWithdraw;
 use crate::config;
 use crate::{circuits, core};
 use bazuka::zk::ZkScalar;
@@ -6,7 +7,7 @@ use bazuka::{
     core::ZkHasher,
     crypto::jubjub::{PointAffine, PublicKey},
     db::KvStore,
-    zk::{DepositWithdraw, KvStoreStateManager, ZeroTransaction, ZkDataLocator, ZkStateModel},
+    zk::{KvStoreStateManager, ZeroTransaction, ZkDataLocator, ZkStateModel},
 };
 use bellman::groth16;
 use bellman::groth16::Parameters;
@@ -236,7 +237,7 @@ impl Bank {
         );
 
         if bazuka::zk::groth16::groth16_verify(
-            &bazuka::config::blockchain::MPN_DEPOSIT_WITHDRAW_VK,
+            &bazuka::config::blockchain::MPN_PAYMENT_VK,
             state,
             aux_data,
             next_state,

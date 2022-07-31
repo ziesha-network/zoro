@@ -6,11 +6,13 @@ mod circuits;
 mod config;
 mod core;
 
+use circuits::DepositWithdraw;
+
 use bazuka::config::blockchain::MPN_CONTRACT_ID;
 use bazuka::core::{PaymentDirection, ZkHasher};
 use bazuka::crypto::{jubjub, ZkSignatureScheme};
 use bazuka::db::ReadOnlyLevelDbKvStore;
-use bazuka::zk::{DepositWithdraw, ZeroTransaction};
+use bazuka::zk::ZeroTransaction;
 use bellman::{groth16, Circuit};
 use bls12_381::Bls12;
 use rand_core::OsRng;
@@ -176,14 +178,14 @@ fn main() {
         let mempool = get_zero_mempool(node_addr).unwrap();
 
         let contract_payments = mempool
-            .deposit_withdraws
+            .payments
             .iter()
             .filter(|dw| dw.contract_id == *MPN_CONTRACT_ID)
             .cloned()
             .take(config::BATCH_SIZE)
             .collect::<Vec<_>>();
 
-        let deposit_withdraws = contract_payments
+        let payments = contract_payments
             .iter()
             .map(|dw| DepositWithdraw {
                 index: dw.zk_address_index,
@@ -196,14 +198,14 @@ fn main() {
             .collect::<Vec<_>>();
         println!(
             "Got {}/{} transactions...",
-            deposit_withdraws.len(),
+            payments.len(),
             config::BATCH_SIZE
         );
 
-        let (delta, new_root, proof) = b.deposit_withdraw(&db, deposit_withdraws).unwrap();
+        let (delta, new_root, proof) = b.deposit_withdraw(&db, payments).unwrap();
 
-        let dw = bazuka::core::ContractUpdate::DepositWithdraw {
-            deposit_withdraws: contract_payments,
+        let dw = bazuka::core::ContractUpdate::Payment {
+            payments: contract_payments,
             next_state: new_root,
             proof: bazuka::zk::ZkProof::Groth16(Box::new(proof)),
         };
