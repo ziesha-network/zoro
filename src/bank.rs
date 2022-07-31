@@ -223,29 +223,27 @@ impl Bank {
             bazuka::zk::ZkStateBuilder::<bazuka::core::ZkHasher>::new(state_model.clone());
         for (i, trans) in transitions.iter().enumerate() {
             state_builder
-                .set(
-                    bazuka::zk::ZkDataLocator(vec![i as u32, 0]),
-                    bazuka::zk::ZkScalar::from(trans.tx.index as u64),
-                )
-                .unwrap();
-            state_builder
-                .set(
-                    bazuka::zk::ZkDataLocator(vec![i as u32, 1]),
-                    bazuka::zk::ZkScalar::from(trans.tx.amount as u64),
-                )
-                .unwrap();
-            let pk = trans.tx.pub_key;
-            state_builder
-                .set(
-                    bazuka::zk::ZkDataLocator(vec![i as u32, 2]),
-                    bazuka::zk::ZkScalar::from(pk.0),
-                )
-                .unwrap();
-            state_builder
-                .set(
-                    bazuka::zk::ZkDataLocator(vec![i as u32, 3]),
-                    bazuka::zk::ZkScalar::from(pk.1),
-                )
+                .batch_set(&bazuka::zk::ZkDeltaPairs(
+                    [
+                        (
+                            bazuka::zk::ZkDataLocator(vec![i as u32, 0]),
+                            Some(bazuka::zk::ZkScalar::from(trans.tx.index as u64)),
+                        ),
+                        (
+                            bazuka::zk::ZkDataLocator(vec![i as u32, 1]),
+                            Some(bazuka::zk::ZkScalar::from(trans.tx.amount as u64)),
+                        ),
+                        (
+                            bazuka::zk::ZkDataLocator(vec![i as u32, 2]),
+                            Some(bazuka::zk::ZkScalar::from(trans.tx.pub_key.0)),
+                        ),
+                        (
+                            bazuka::zk::ZkDataLocator(vec![i as u32, 3]),
+                            Some(bazuka::zk::ZkScalar::from(trans.tx.pub_key.1)),
+                        ),
+                    ]
+                    .into(),
+                ))
                 .unwrap();
         }
         let aux_data = state_builder.compress().unwrap().state_hash;

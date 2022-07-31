@@ -138,6 +138,8 @@ fn chain_height<K: bazuka::db::KvStore>(db: &K) -> u64 {
 }
 
 fn main() {
+    println!("{}", bazuka::config::blockchain::MPN_CONTRACT_ID.clone());
+
     let exec_wallet = bazuka::wallet::Wallet::new(b"ABC".to_vec());
 
     let use_cache = true;
