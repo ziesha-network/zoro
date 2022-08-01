@@ -66,12 +66,13 @@ pub fn get_account<K: KvStore>(db: &K, index: u32) -> core::Account {
     }
 }
 
-pub fn set_account<K: KvStore>(db: &mut K, index: u32, acc: core::Account) {
+pub fn set_account<K: KvStore>(db: &mut K, index: u32, acc: core::Account, size_diff: &mut u32) {
     KvStoreStateManager::<ZkHasher>::set_data(
         db,
         *MPN_CONTRACT_ID,
         ZkDataLocator(vec![index, 0]),
         ZkScalar::from(acc.nonce),
+        size_diff,
     )
     .unwrap();
     KvStoreStateManager::<ZkHasher>::set_data(
@@ -79,6 +80,7 @@ pub fn set_account<K: KvStore>(db: &mut K, index: u32, acc: core::Account) {
         *MPN_CONTRACT_ID,
         ZkDataLocator(vec![index, 1]),
         acc.address.0,
+        size_diff,
     )
     .unwrap();
     KvStoreStateManager::<ZkHasher>::set_data(
@@ -86,6 +88,7 @@ pub fn set_account<K: KvStore>(db: &mut K, index: u32, acc: core::Account) {
         *MPN_CONTRACT_ID,
         ZkDataLocator(vec![index, 2]),
         acc.address.1,
+        size_diff,
     )
     .unwrap();
     KvStoreStateManager::<ZkHasher>::set_data(
@@ -93,6 +96,7 @@ pub fn set_account<K: KvStore>(db: &mut K, index: u32, acc: core::Account) {
         *MPN_CONTRACT_ID,
         ZkDataLocator(vec![index, 3]),
         ZkScalar::from(acc.balance),
+        size_diff,
     )
     .unwrap();
 }
@@ -172,15 +176,17 @@ impl Bank {
         let mut mirror = db.mirror();
 
         let mut transitions = Vec::new();
-        let state =
-            KvStoreStateManager::<ZkHasher>::get_data(db, *MPN_CONTRACT_ID, &ZkDataLocator(vec![]))
-                .unwrap();
+        let root = KvStoreStateManager::<ZkHasher>::root(db, *MPN_CONTRACT_ID).unwrap();
+
+        let state = root.state_hash;
+        let mut state_size = root.state_size;
+
         for tx in txs.iter() {
             let acc = get_account(&mirror, tx.index);
             if acc.address != Default::default() && tx.pub_key != acc.address {
-                return Err(BankError::InvalidPublicKey);
+                continue;
             } else if tx.amount < 0 && acc.balance as i64 + tx.amount < 0 {
-                return Err(BankError::BalanceInsufficient);
+                continue;
             } else {
                 let updated_acc = core::Account {
                     address: tx.pub_key,
@@ -198,7 +204,7 @@ impl Bank {
                     .unwrap(),
                 );
 
-                set_account(&mut mirror, tx.index, updated_acc);
+                set_account(&mut mirror, tx.index, updated_acc, &mut state_size);
 
                 transitions.push(circuits::DepositWithdrawTransition {
                     enabled: true,
@@ -279,7 +285,7 @@ impl Bank {
                 extract_delta(mirror.to_ops()),
                 bazuka::zk::ZkCompressedState {
                     state_hash: next_state,
-                    state_size: 0,
+                    state_size,
                 },
                 proof,
             ))
@@ -304,20 +310,21 @@ impl Bank {
     > {
         let mut transitions = Vec::new();
 
-        let state =
-            KvStoreStateManager::<ZkHasher>::get_data(db, *MPN_CONTRACT_ID, &ZkDataLocator(vec![]))
-                .unwrap();
+        let root = KvStoreStateManager::<ZkHasher>::root(db, *MPN_CONTRACT_ID).unwrap();
+
+        let state = root.state_hash;
+        let mut state_size = root.state_size;
 
         let mut mirror = db.mirror();
 
         for tx in txs.iter() {
             let src_before = get_account(&mirror, tx.src_index);
             if tx.nonce != src_before.nonce {
-                return Err(BankError::InvalidNonce);
+                continue;
             } else if !tx.verify(PublicKey(src_before.address.compress())) {
-                return Err(BankError::InvalidSignature);
+                continue;
             } else if src_before.balance < tx.fee + tx.amount {
-                return Err(BankError::BalanceInsufficient);
+                continue;
             } else {
                 let src_proof = zeekit::merkle::Proof::<{ config::LOG4_TREE_SIZE }>(
                     KvStoreStateManager::<ZkHasher>::prove(
@@ -333,7 +340,7 @@ impl Bank {
                     balance: src_before.balance - tx.fee - tx.amount,
                     nonce: src_before.nonce + 1,
                 };
-                set_account(&mut mirror, tx.src_index, src_after);
+                set_account(&mut mirror, tx.src_index, src_after, &mut state_size);
 
                 let dst_before = get_account(&mirror, tx.dst_index);
                 let dst_proof = zeekit::merkle::Proof::<{ config::LOG4_TREE_SIZE }>(
@@ -351,7 +358,7 @@ impl Bank {
                     balance: dst_before.balance + tx.amount,
                     nonce: dst_before.nonce,
                 };
-                set_account(&mut mirror, tx.dst_index, dst_after);
+                set_account(&mut mirror, tx.dst_index, dst_after, &mut state_size);
 
                 transitions.push(circuits::Transition {
                     enabled: true,
@@ -402,7 +409,7 @@ impl Bank {
                 extract_delta(mirror.to_ops()),
                 bazuka::zk::ZkCompressedState {
                     state_hash: next_state,
-                    state_size: 0,
+                    state_size,
                 },
                 proof,
             ))
