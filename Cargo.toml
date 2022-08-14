@@ -16,6 +16,7 @@ num-bigint = "0.4"
 num-integer = "0.1"
 serde = { version = "1.0" }
 thiserror = "1.0"
+structopt = { version = "0.3", default-features = false }
 
 # Serialization of VKs
 hex = "0.4.3"

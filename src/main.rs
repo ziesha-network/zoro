@@ -15,24 +15,44 @@ use bellman::{groth16, Circuit};
 use bls12_381::Bls12;
 use rand_core::OsRng;
 use std::fs::File;
+use std::path::PathBuf;
+use structopt::StructOpt;
 use zeekit::BellmanFr;
 
+#[derive(Debug, StructOpt)]
+#[structopt(name = "Zoro", about = "Zeeka's MPN Executor")]
+struct Opt {
+    #[structopt(long)]
+    seed: String,
+    #[structopt(long)]
+    node: String,
+    #[structopt(long, default_value = "mainnet")]
+    network: String,
+    #[structopt(long, default_value = "update_params.dat")]
+    update_circuit_params: PathBuf,
+    #[structopt(long, default_value = "payment_params.dat")]
+    payment_circuit_params: PathBuf,
+    #[structopt(long)]
+    generate_params: bool,
+}
+
 fn load_params<C: Circuit<BellmanFr> + Default>(
-    path: &str,
-    use_cache: bool,
+    path: PathBuf,
+    generate: bool,
 ) -> groth16::Parameters<Bls12> {
-    if use_cache {
-        let param_file = File::open(path).expect("Unable to open parameters file!");
-        groth16::Parameters::<Bls12>::read(param_file, false /* false for better performance*/)
-            .expect("Unable to read parameters file!")
-    } else {
+    if generate {
         let c = C::default();
 
         let p = groth16::generate_random_parameters::<Bls12, _, _>(c, &mut OsRng).unwrap();
-        let param_file = File::create(path).expect("Unable to create parameters file!");
+        let param_file = File::create(path.clone()).expect("Unable to create parameters file!");
         p.write(param_file)
             .expect("Unable to write parameters file!");
+        println!("VK of {}: {}", path.to_string_lossy(), vk_to_hex(&p.vk));
         p
+    } else {
+        let param_file = File::open(path).expect("Unable to open parameters file!");
+        groth16::Parameters::<Bls12>::read(param_file, false /* false for better performance*/)
+            .expect("Unable to read parameters file!")
     }
 }
 
@@ -136,24 +156,18 @@ fn chain_height<K: bazuka::db::KvStore>(db: &K) -> u64 {
 }
 
 fn main() {
-    println!("{}", bazuka::config::blockchain::MPN_CONTRACT_ID.clone());
+    let opt = Opt::from_args();
 
-    let exec_wallet = bazuka::wallet::Wallet::new(b"ABC".to_vec());
+    let exec_wallet = bazuka::wallet::Wallet::new(opt.seed.as_bytes().to_vec());
 
-    let use_cache = true;
-    let update_params = load_params::<circuits::UpdateCircuit>("groth16_mpn_update.dat", use_cache);
+    let update_params =
+        load_params::<circuits::UpdateCircuit>(opt.update_circuit_params, opt.generate_params);
     let deposit_withdraw_params = load_params::<circuits::DepositWithdrawCircuit>(
-        "groth16_mpn_deposit_withdraw.dat",
-        use_cache,
+        opt.payment_circuit_params,
+        opt.generate_params,
     );
 
-    println!("Update: {}", vk_to_hex(&update_params.vk));
-    println!(
-        "Deposit/Withdraw: {}",
-        vk_to_hex(&deposit_withdraw_params.vk)
-    );
-
-    let node_addr = bazuka::client::PeerAddress("127.0.0.1:8765".parse().unwrap());
+    let node_addr = bazuka::client::PeerAddress(opt.node.parse().unwrap());
 
     let b = bank::Bank::new(update_params, deposit_withdraw_params);
 
