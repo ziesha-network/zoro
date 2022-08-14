@@ -9,10 +9,8 @@ mod core;
 use circuits::DepositWithdraw;
 
 use bazuka::config::blockchain::MPN_CONTRACT_ID;
-use bazuka::core::{PaymentDirection, ZkHasher};
-use bazuka::crypto::{jubjub, ZkSignatureScheme};
+use bazuka::core::{Money, PaymentDirection};
 use bazuka::db::ReadOnlyLevelDbKvStore;
-use bazuka::zk::ZeroTransaction;
 use bellman::{groth16, Circuit};
 use bls12_381::Bls12;
 use rand_core::OsRng;
@@ -75,7 +73,7 @@ fn transact(
             let sk =
                 <bazuka::core::Signer as bazuka::crypto::SignatureScheme>::generate_keys(b"dummy")
                     .1;
-            let (lp, client) = bazuka::client::BazukaClient::connect(sk, node);
+            let (lp, client) = bazuka::client::BazukaClient::connect(sk, node, "mainnet".into());
 
             let (res, _) = tokio::join!(
                 async move { Ok::<_, bazuka::client::NodeError>(client.transact(tx).await) },
@@ -97,7 +95,7 @@ fn get_account(
             let sk =
                 <bazuka::core::Signer as bazuka::crypto::SignatureScheme>::generate_keys(b"dummy")
                     .1;
-            let (lp, client) = bazuka::client::BazukaClient::connect(sk, node);
+            let (lp, client) = bazuka::client::BazukaClient::connect(sk, node, "mainnet".into());
 
             let (res, _) = tokio::join!(
                 async move { Ok::<_, bazuka::client::NodeError>(client.get_account(address).await) },
@@ -118,7 +116,7 @@ fn get_zero_mempool(
             let sk =
                 <bazuka::core::Signer as bazuka::crypto::SignatureScheme>::generate_keys(b"dummy")
                     .1;
-            let (lp, client) = bazuka::client::BazukaClient::connect(sk, node);
+            let (lp, client) = bazuka::client::BazukaClient::connect(sk, node, "mainnet".into());
 
             let (res, _) = tokio::join!(
                 async move { Ok::<_, bazuka::client::NodeError>(client.get_zero_mempool().await) },
@@ -155,7 +153,7 @@ fn main() {
         vk_to_hex(&deposit_withdraw_params.vk)
     );
 
-    let node_addr = bazuka::client::PeerAddress("127.0.0.1:3030".parse().unwrap());
+    let node_addr = bazuka::client::PeerAddress("127.0.0.1:8765".parse().unwrap());
 
     let b = bank::Bank::new(update_params, deposit_withdraw_params);
 
@@ -193,8 +191,8 @@ fn main() {
                 index: dw.zk_address_index,
                 pub_key: dw.zk_address.0.decompress(),
                 amount: match dw.direction {
-                    PaymentDirection::Deposit(_) => dw.amount as i64,
-                    PaymentDirection::Withdraw(_) => -(dw.amount as i64),
+                    PaymentDirection::Deposit(_) => (Into::<u64>::into(dw.amount) as i64),
+                    PaymentDirection::Withdraw(_) => -(Into::<u64>::into(dw.amount) as i64),
                 },
             })
             .collect::<Vec<_>>();
@@ -215,7 +213,7 @@ fn main() {
         let mut update = bazuka::core::Transaction {
             src: exec_wallet.get_address(),
             nonce: acc.nonce + 1,
-            fee: 0,
+            fee: Money(0),
             data: bazuka::core::TransactionData::UpdateContract {
                 contract_id: *MPN_CONTRACT_ID,
                 updates: vec![dw],

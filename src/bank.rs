@@ -4,7 +4,7 @@ use crate::{circuits, core};
 use bazuka::zk::ZkScalar;
 use bazuka::{
     config::blockchain::MPN_CONTRACT_ID,
-    core::ZkHasher,
+    core::{Money, ZkHasher},
     crypto::jubjub::{PointAffine, PublicKey},
     db::KvStore,
     zk::{KvStoreStateManager, ZeroTransaction, ZkDataLocator, ZkStateModel},
@@ -61,7 +61,7 @@ pub fn get_account<K: KvStore>(db: &K, index: u32) -> core::Account {
     .unwrap();
     core::Account {
         nonce,
-        balance,
+        balance: Money(balance),
         address: PointAffine(pub_x, pub_y),
     }
 }
@@ -91,11 +91,12 @@ pub fn set_account<K: KvStore>(db: &mut K, index: u32, acc: core::Account, size_
         size_diff,
     )
     .unwrap();
+    let balance: u64 = acc.balance.into();
     KvStoreStateManager::<ZkHasher>::set_data(
         db,
         *MPN_CONTRACT_ID,
         ZkDataLocator(vec![index, 3]),
-        ZkScalar::from(acc.balance),
+        ZkScalar::from(balance),
         size_diff,
     )
     .unwrap();
@@ -103,10 +104,6 @@ pub fn set_account<K: KvStore>(db: &mut K, index: u32, acc: core::Account, size_
 
 #[derive(Clone, Debug)]
 pub enum BankError {
-    BalanceInsufficient,
-    InvalidNonce,
-    InvalidSignature,
-    InvalidPublicKey,
     CannotProve,
 }
 
@@ -183,14 +180,15 @@ impl Bank {
 
         for tx in txs.iter() {
             let acc = get_account(&mirror, tx.index);
+            let balance_u64: u64 = acc.balance.into();
             if acc.address != Default::default() && tx.pub_key != acc.address {
                 continue;
-            } else if tx.amount < 0 && acc.balance as i64 + tx.amount < 0 {
+            } else if tx.amount < 0 && balance_u64 as i64 + tx.amount < 0 {
                 continue;
             } else {
                 let updated_acc = core::Account {
                     address: tx.pub_key,
-                    balance: (acc.balance as i64 + tx.amount) as u64,
+                    balance: ((balance_u64 as i64 + tx.amount) as u64).into(),
                     nonce: acc.nonce,
                 };
 
@@ -321,7 +319,7 @@ impl Bank {
             let src_before = get_account(&mirror, tx.src_index);
             if tx.nonce != src_before.nonce {
                 continue;
-            } else if !tx.verify(PublicKey(src_before.address.compress())) {
+            } else if !tx.verify(&PublicKey(src_before.address.compress())) {
                 continue;
             } else if src_before.balance < tx.fee + tx.amount {
                 continue;
