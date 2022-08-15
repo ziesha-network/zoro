@@ -190,6 +190,7 @@ fn process_payments<K: bazuka::db::KvStore>(
     let (new_root, proof) = b.deposit_withdraw(db_mirror, payments)?;
 
     Ok(bazuka::core::ContractUpdate::Payment {
+        circuit_id: 0,
         payments: contract_payments,
         next_state: new_root,
         proof: bazuka::zk::ZkProof::Groth16(Box::new(proof)),
