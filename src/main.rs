@@ -13,6 +13,7 @@ use bazuka::core::{Money, PaymentDirection};
 use bazuka::db::ReadOnlyLevelDbKvStore;
 use bellman::{groth16, Circuit};
 use bls12_381::Bls12;
+use colored::Colorize;
 use rand_core::OsRng;
 use std::fs::File;
 use std::path::PathBuf;
@@ -41,6 +42,7 @@ fn load_params<C: Circuit<BellmanFr> + Default>(
     generate: bool,
 ) -> groth16::Parameters<Bls12> {
     if generate {
+        log::info!("Generating {}...", path.to_string_lossy());
         let c = C::default();
 
         let p = groth16::generate_random_parameters::<Bls12, _, _>(c, &mut OsRng).unwrap();
@@ -50,6 +52,7 @@ fn load_params<C: Circuit<BellmanFr> + Default>(
         println!("VK of {}: {}", path.to_string_lossy(), vk_to_hex(&p.vk));
         p
     } else {
+        log::info!("Loading {}...", path.to_string_lossy());
         let param_file = File::open(path).expect("Unable to open parameters file!");
         groth16::Parameters::<Bls12>::read(param_file, false /* false for better performance*/)
             .expect("Unable to read parameters file!")
@@ -156,6 +159,12 @@ fn chain_height<K: bazuka::db::KvStore>(db: &K) -> u64 {
 }
 
 fn main() {
+    env_logger::init();
+    println!(
+        "{} v{} - A CPU-based MPN Executor for Zeeka Cryptocurrency",
+        "Zoro!".bright_green(),
+        env!("CARGO_PKG_VERSION")
+    );
     let opt = Opt::from_args();
 
     let exec_wallet = bazuka::wallet::Wallet::new(opt.seed.as_bytes().to_vec());
