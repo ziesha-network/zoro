@@ -10,6 +10,7 @@ use circuits::DepositWithdraw;
 
 use bazuka::config::blockchain::MPN_CONTRACT_ID;
 use bazuka::core::{Money, PaymentDirection};
+use bazuka::db::KvStore;
 use bazuka::db::ReadOnlyLevelDbKvStore;
 use bellman::{groth16, Circuit};
 use bls12_381::Bls12;
@@ -184,6 +185,7 @@ fn main() {
     loop {
         let db_shutter = db_shutter();
         let db = db_shutter.snapshot();
+        let mut db_mirror = db.mirror();
 
         let acc = get_account(node_addr, exec_wallet.get_address())
             .unwrap()
@@ -225,7 +227,7 @@ fn main() {
             config::BATCH_SIZE
         );
 
-        let (delta, new_root, proof) = b.deposit_withdraw(&db, payments).unwrap();
+        let (delta, new_root, proof) = b.deposit_withdraw(&mut db_mirror, payments).unwrap();
 
         let dw = bazuka::core::ContractUpdate::Payment {
             payments: contract_payments,

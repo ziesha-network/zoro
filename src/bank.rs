@@ -13,6 +13,7 @@ use bellman::groth16;
 use bellman::groth16::Parameters;
 use bls12_381::Bls12;
 use rand::rngs::OsRng;
+use thiserror::Error;
 
 lazy_static! {
     pub static ref STATE_MODEL: ZkStateModel = {
@@ -102,9 +103,12 @@ pub fn set_account<K: KvStore>(db: &mut K, index: u32, acc: core::Account, size_
     .unwrap();
 }
 
-#[derive(Clone, Debug)]
+#[derive(Error, Debug)]
 pub enum BankError {
+    #[error("cannot generate zk-snark proof!")]
     CannotProve,
+    #[error("kv-store error: {0}")]
+    KvStoreError(#[from] bazuka::db::KvStoreError),
 }
 
 pub struct Bank {
@@ -160,7 +164,7 @@ impl Bank {
 
     pub fn deposit_withdraw<K: KvStore>(
         &self,
-        db: &K,
+        db: &mut K,
         txs: Vec<DepositWithdraw>,
     ) -> Result<
         (
@@ -279,8 +283,10 @@ impl Bank {
             next_state,
             &proof,
         ) {
+            let ops = mirror.to_ops();
+            db.update(&ops)?;
             Ok((
-                extract_delta(mirror.to_ops()),
+                extract_delta(ops),
                 bazuka::zk::ZkCompressedState {
                     state_hash: next_state,
                     state_size,
@@ -296,7 +302,7 @@ impl Bank {
     }
     pub fn change_state<K: KvStore>(
         &self,
-        db: &K,
+        db: &mut K,
         txs: Vec<ZeroTransaction>,
     ) -> Result<
         (
@@ -403,8 +409,10 @@ impl Bank {
             next_state,
             &proof,
         ) {
+            let ops = mirror.to_ops();
+            db.update(&ops)?;
             Ok((
-                extract_delta(mirror.to_ops()),
+                extract_delta(ops),
                 bazuka::zk::ZkCompressedState {
                     state_hash: next_state,
                     state_size,
