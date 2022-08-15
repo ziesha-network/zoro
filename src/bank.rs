@@ -182,6 +182,9 @@ impl Bank {
         let mut state_size = root.state_size;
 
         for tx in txs.iter() {
+            if transitions.len() == config::BATCH_SIZE {
+                break;
+            }
             let acc = get_account(&mirror, tx.index);
             let balance_u64: u64 = acc.balance.into();
             if acc.address != Default::default() && tx.pub_key != acc.address {
@@ -273,17 +276,12 @@ impl Bank {
             transitions: Box::new(circuits::DepositWithdrawTransitionBatch::new(transitions)),
         };
 
-        let start = std::time::Instant::now();
         let proof = unsafe {
             std::mem::transmute::<bellman::groth16::Proof<Bls12>, bazuka::zk::groth16::Groth16Proof>(
                 groth16::create_random_proof(circuit, &self.deposit_withdraw_params, &mut OsRng)
                     .unwrap(),
             )
         };
-        println!(
-            "Proving took: {}ms",
-            (std::time::Instant::now() - start).as_millis()
-        );
 
         if bazuka::zk::groth16::groth16_verify(
             &bazuka::config::blockchain::MPN_PAYMENT_VK,
@@ -329,6 +327,9 @@ impl Bank {
         let mut mirror = db.mirror();
 
         for tx in txs.iter() {
+            if transitions.len() == config::BATCH_SIZE {
+                break;
+            }
             let src_before = get_account(&mirror, tx.src_index);
             if tx.nonce != src_before.nonce {
                 continue;
@@ -415,10 +416,6 @@ impl Bank {
                 groth16::create_random_proof(circuit, &self.update_params, &mut OsRng).unwrap(),
             )
         };
-        println!(
-            "Proving took: {}ms",
-            (std::time::Instant::now() - start).as_millis()
-        );
 
         if bazuka::zk::groth16::groth16_verify(
             &bazuka::config::blockchain::MPN_UPDATE_VK,

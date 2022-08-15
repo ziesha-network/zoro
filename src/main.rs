@@ -173,7 +173,6 @@ fn process_payments<K: bazuka::db::KvStore>(
         .iter()
         .filter(|dw| dw.contract_id == *MPN_CONTRACT_ID)
         .cloned()
-        .take(config::BATCH_SIZE)
         .collect::<Vec<_>>();
 
     let payments = contract_payments
@@ -187,11 +186,6 @@ fn process_payments<K: bazuka::db::KvStore>(
             },
         })
         .collect::<Vec<_>>();
-    println!(
-        "Got {}/{} transactions...",
-        payments.len(),
-        config::BATCH_SIZE
-    );
 
     let (new_root, proof) = b.deposit_withdraw(db_mirror, payments)?;
 
@@ -209,17 +203,7 @@ fn process_updates<K: bazuka::db::KvStore>(
 ) -> Result<bazuka::core::ContractUpdate, ZoroError> {
     let mempool = get_zero_mempool(node_addr)?;
 
-    let updates = mempool
-        .updates
-        .iter()
-        .cloned()
-        .take(config::BATCH_SIZE)
-        .collect::<Vec<_>>();
-    println!(
-        "Got {}/{} transactions...",
-        updates.len(),
-        config::BATCH_SIZE
-    );
+    let updates = mempool.updates.iter().cloned().collect::<Vec<_>>();
 
     let (new_root, proof) = b.change_state(db_mirror, updates)?;
 
@@ -271,10 +255,44 @@ fn main() {
             .account;
 
         let mut updates = Vec::new();
-        println!("Processing Payment-Transactions...");
+
+        let start = std::time::Instant::now();
+        println!(
+            "{} {}",
+            "Processing:".bright_yellow(),
+            "Payment-Transactions..."
+        );
+        println!(
+            "{} {} {}",
+            bazuka::config::SYMBOL.bright_red(),
+            "Alice is shuffling the balls!".bright_cyan(),
+            bazuka::config::SYMBOL.bright_red()
+        );
         updates.push(process_payments(&b, node_addr, &mut db_mirror).unwrap());
-        println!("Processing Zero-Transactions...");
+        println!(
+            "{} {}ms",
+            "Proving took:".bright_green(),
+            (std::time::Instant::now() - start).as_millis()
+        );
+
+        let start = std::time::Instant::now();
+        println!(
+            "{} {}",
+            "Processing:".bright_yellow(),
+            "Zero-Transactions..."
+        );
+        println!(
+            "{} {} {}",
+            bazuka::config::SYMBOL.bright_red(),
+            "Alice is shuffling the balls!".bright_cyan(),
+            bazuka::config::SYMBOL.bright_red()
+        );
         updates.push(process_updates(&b, node_addr, &mut db_mirror).unwrap());
+        println!(
+            "{} {}ms",
+            "Proving took:".bright_green(),
+            (std::time::Instant::now() - start).as_millis()
+        );
 
         let mut update = bazuka::core::Transaction {
             src: exec_wallet.get_address(),
