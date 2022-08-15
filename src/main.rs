@@ -266,8 +266,10 @@ fn main() {
             .account;
 
         let mut updates = Vec::new();
+        println!("Processing Payment-Transactions...");
         updates.push(process_payments(&b, node_addr, &mut db_mirror).unwrap());
-        //updates.push(process_updates(&b, node_addr, &mut db_mirror).unwrap());
+        println!("Processing Zero-Transactions...");
+        updates.push(process_updates(&b, node_addr, &mut db_mirror).unwrap());
 
         let mut update = bazuka::core::Transaction {
             src: exec_wallet.get_address(),
@@ -291,53 +293,4 @@ fn main() {
 
         transact(node_addr, tx_delta).unwrap();
     }
-
-    /*println!("{:?}", b.balances(&db));
-
-    let mut tx1 = ZeroTransaction {
-        nonce: 0,
-        src_index: alice_index,
-        dst_index: bob_index,
-        dst_pub_key: bob_keys.0.clone(),
-        amount: 200,
-        fee: 1,
-        sig: jubjub::Signature::default(),
-    };
-    tx1.sign(alice_keys.1.clone());
-
-    let mut tx2 = ZeroTransaction {
-        nonce: 0,
-        src_index: bob_index,
-        dst_index: alice_index,
-        dst_pub_key: alice_keys.0.clone(),
-        amount: 50,
-        fee: 1,
-        sig: jubjub::Signature::default(),
-    };
-    tx2.sign(bob_keys.1.clone());
-
-    let mut tx3 = ZeroTransaction {
-        nonce: 1,
-        src_index: bob_index,
-        dst_index: alice_index,
-        dst_pub_key: alice_keys.0.clone(),
-        amount: 647,
-        fee: 2,
-        sig: jubjub::Signature::default(),
-    };
-    tx3.sign(bob_keys.1);
-
-    let mut tx4 = ZeroTransaction {
-        nonce: 1,
-        src_index: alice_index,
-        dst_index: charlie_index,
-        dst_pub_key: charlie_keys.0.clone(),
-        amount: 197,
-        fee: 2,
-        sig: jubjub::Signature::default(),
-    };
-    tx4.sign(alice_keys.1);
-
-    b.change_state(&db, vec![tx1, tx2, tx3, tx4]).unwrap();
-    println!("{:?}", b.balances(&db));*/
 }
