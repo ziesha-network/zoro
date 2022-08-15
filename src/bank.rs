@@ -168,7 +168,6 @@ impl Bank {
         txs: Vec<DepositWithdraw>,
     ) -> Result<
         (
-            bazuka::zk::ZkDeltaPairs,
             bazuka::zk::ZkCompressedState,
             bazuka::zk::groth16::Groth16Proof,
         ),
@@ -286,7 +285,6 @@ impl Bank {
             let ops = mirror.to_ops();
             db.update(&ops)?;
             Ok((
-                extract_delta(ops),
                 bazuka::zk::ZkCompressedState {
                     state_hash: next_state,
                     state_size,
@@ -306,7 +304,6 @@ impl Bank {
         txs: Vec<ZeroTransaction>,
     ) -> Result<
         (
-            bazuka::zk::ZkDeltaPairs,
             bazuka::zk::ZkCompressedState,
             bazuka::zk::groth16::Groth16Proof,
         ),
@@ -412,7 +409,6 @@ impl Bank {
             let ops = mirror.to_ops();
             db.update(&ops)?;
             Ok((
-                extract_delta(ops),
                 bazuka::zk::ZkCompressedState {
                     state_hash: next_state,
                     state_size,

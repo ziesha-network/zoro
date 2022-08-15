@@ -84,6 +84,8 @@ pub enum ZoroError {
     IoError(#[from] std::io::Error),
     #[error("node error: {0}")]
     NodeError(#[from] bazuka::client::NodeError),
+    #[error("bank error: {0}")]
+    BankError(#[from] bank::BankError),
 }
 
 fn transact(
@@ -159,6 +161,71 @@ fn chain_height<K: bazuka::db::KvStore>(db: &K) -> u64 {
     }
 }
 
+fn process_payments<K: bazuka::db::KvStore>(
+    b: &bank::Bank,
+    node_addr: bazuka::client::PeerAddress,
+    db_mirror: &mut bazuka::db::RamMirrorKvStore<K>,
+) -> Result<bazuka::core::ContractUpdate, ZoroError> {
+    let mempool = get_zero_mempool(node_addr)?;
+
+    let contract_payments = mempool
+        .payments
+        .iter()
+        .filter(|dw| dw.contract_id == *MPN_CONTRACT_ID)
+        .cloned()
+        .take(config::BATCH_SIZE)
+        .collect::<Vec<_>>();
+
+    let payments = contract_payments
+        .iter()
+        .map(|dw| DepositWithdraw {
+            index: dw.zk_address_index,
+            pub_key: dw.zk_address.0.decompress(),
+            amount: match dw.direction {
+                PaymentDirection::Deposit(_) => (Into::<u64>::into(dw.amount) as i64),
+                PaymentDirection::Withdraw(_) => -(Into::<u64>::into(dw.amount) as i64),
+            },
+        })
+        .collect::<Vec<_>>();
+    println!(
+        "Got {}/{} transactions...",
+        payments.len(),
+        config::BATCH_SIZE
+    );
+
+    let (new_root, proof) = b.deposit_withdraw(db_mirror, payments)?;
+
+    Ok(bazuka::core::ContractUpdate::Payment {
+        payments: contract_payments,
+        next_state: new_root,
+        proof: bazuka::zk::ZkProof::Groth16(Box::new(proof)),
+    })
+}
+
+fn process_updates<K: bazuka::db::KvStore>(
+    b: &bank::Bank,
+    node_addr: bazuka::client::PeerAddress,
+    db_mirror: &mut bazuka::db::RamMirrorKvStore<K>,
+) -> Result<bazuka::core::ContractUpdate, ZoroError> {
+    let mempool = get_zero_mempool(node_addr)?;
+
+    let updates = mempool
+        .updates
+        .iter()
+        .cloned()
+        .take(config::BATCH_SIZE)
+        .collect::<Vec<_>>();
+
+    let (new_root, proof) = b.change_state(db_mirror, updates)?;
+
+    Ok(bazuka::core::ContractUpdate::FunctionCall {
+        fee: Money(0),
+        function_id: 0,
+        next_state: new_root,
+        proof: bazuka::zk::ZkProof::Groth16(Box::new(proof)),
+    })
+}
+
 fn main() {
     env_logger::init();
     println!(
@@ -185,55 +252,22 @@ fn main() {
     loop {
         let db_shutter = db_shutter();
         let db = db_shutter.snapshot();
-        let mut db_mirror = db.mirror();
-
-        let acc = get_account(node_addr, exec_wallet.get_address())
-            .unwrap()
-            .account;
 
         if latest_processed == Some(chain_height(&db)) {
             std::thread::sleep(std::time::Duration::from_millis(1000));
             continue;
+        } else {
+            latest_processed = Some(chain_height(&db));
         }
 
-        println!("Processing block...");
+        let mut db_mirror = db.mirror();
+        let mut acc = get_account(node_addr, exec_wallet.get_address())
+            .unwrap()
+            .account;
 
-        latest_processed = Some(chain_height(&db));
-
-        let mempool = get_zero_mempool(node_addr).unwrap();
-
-        let contract_payments = mempool
-            .payments
-            .iter()
-            .filter(|dw| dw.contract_id == *MPN_CONTRACT_ID)
-            .cloned()
-            .take(config::BATCH_SIZE)
-            .collect::<Vec<_>>();
-
-        let payments = contract_payments
-            .iter()
-            .map(|dw| DepositWithdraw {
-                index: dw.zk_address_index,
-                pub_key: dw.zk_address.0.decompress(),
-                amount: match dw.direction {
-                    PaymentDirection::Deposit(_) => (Into::<u64>::into(dw.amount) as i64),
-                    PaymentDirection::Withdraw(_) => -(Into::<u64>::into(dw.amount) as i64),
-                },
-            })
-            .collect::<Vec<_>>();
-        println!(
-            "Got {}/{} transactions...",
-            payments.len(),
-            config::BATCH_SIZE
-        );
-
-        let (delta, new_root, proof) = b.deposit_withdraw(&mut db_mirror, payments).unwrap();
-
-        let dw = bazuka::core::ContractUpdate::Payment {
-            payments: contract_payments,
-            next_state: new_root,
-            proof: bazuka::zk::ZkProof::Groth16(Box::new(proof)),
-        };
+        let mut updates = Vec::new();
+        updates.push(process_payments(&b, node_addr, &mut db_mirror).unwrap());
+        //updates.push(process_updates(&b, node_addr, &mut db_mirror).unwrap());
 
         let mut update = bazuka::core::Transaction {
             src: exec_wallet.get_address(),
@@ -241,11 +275,14 @@ fn main() {
             fee: Money(0),
             data: bazuka::core::TransactionData::UpdateContract {
                 contract_id: *MPN_CONTRACT_ID,
-                updates: vec![dw],
+                updates,
             },
             sig: bazuka::core::Signature::Unsigned,
         };
         exec_wallet.sign(&mut update);
+
+        let ops = db_mirror.to_ops();
+        let delta = bank::extract_delta(ops);
 
         let tx_delta = bazuka::core::TransactionAndDelta {
             tx: update,
