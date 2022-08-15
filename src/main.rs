@@ -215,6 +215,11 @@ fn process_updates<K: bazuka::db::KvStore>(
         .cloned()
         .take(config::BATCH_SIZE)
         .collect::<Vec<_>>();
+    println!(
+        "Got {}/{} transactions...",
+        updates.len(),
+        config::BATCH_SIZE
+    );
 
     let (new_root, proof) = b.change_state(db_mirror, updates)?;
 

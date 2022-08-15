@@ -221,6 +221,16 @@ impl Bank {
             &ZkDataLocator(vec![]),
         )
         .unwrap();
+        mirror
+            .update(&[bazuka::db::WriteOp::Put(
+                bazuka::db::keys::local_root(&MPN_CONTRACT_ID),
+                bazuka::zk::ZkCompressedState {
+                    state_hash: next_state,
+                    state_size,
+                }
+                .into(),
+            )])
+            .unwrap();
 
         let state_model = bazuka::zk::ZkStateModel::List {
             item_type: Box::new(bazuka::zk::CONTRACT_PAYMENT_STATE_MODEL.clone()),
@@ -378,6 +388,17 @@ impl Bank {
             &ZkDataLocator(vec![]),
         )
         .unwrap();
+        mirror
+            .update(&[bazuka::db::WriteOp::Put(
+                bazuka::db::keys::local_root(&MPN_CONTRACT_ID),
+                bazuka::zk::ZkCompressedState {
+                    state_hash: next_state,
+                    state_size,
+                }
+                .into(),
+            )])
+            .unwrap();
+
         let aux_data = ZkScalar::from(0);
 
         let circuit = circuits::UpdateCircuit {
