@@ -165,12 +165,11 @@ fn chain_height<K: bazuka::db::KvStore>(db: &K) -> u64 {
 }
 
 fn process_payments<K: bazuka::db::KvStore>(
+    mempool: &mut bazuka::client::messages::GetZeroMempoolResponse,
     b: &bank::Bank,
     node_addr: bazuka::client::PeerAddress,
     db_mirror: &mut bazuka::db::RamMirrorKvStore<K>,
 ) -> Result<bazuka::core::ContractUpdate, ZoroError> {
-    let mempool = get_zero_mempool(node_addr)?;
-
     let contract_payments = mempool
         .payments
         .iter()
@@ -181,6 +180,7 @@ fn process_payments<K: bazuka::db::KvStore>(
     let payments = contract_payments
         .iter()
         .map(|dw| DepositWithdraw {
+            contract_payment: Some(dw.clone()),
             index: dw.zk_address_index,
             pub_key: dw.zk_address.0.decompress(),
             amount: match dw.direction {
@@ -190,26 +190,36 @@ fn process_payments<K: bazuka::db::KvStore>(
         })
         .collect::<Vec<_>>();
 
-    let (new_root, proof) = b.deposit_withdraw(db_mirror, payments)?;
+    let (accepted, new_root, proof) = b.deposit_withdraw(db_mirror, payments)?;
+
+    for tx in accepted.iter() {
+        mempool
+            .payments
+            .retain(|z| Some(z.clone()) != tx.contract_payment);
+    }
 
     Ok(bazuka::core::ContractUpdate::Payment {
         circuit_id: 0,
-        payments: contract_payments,
+        payments: accepted
+            .into_iter()
+            .map(|dw| dw.contract_payment.unwrap())
+            .collect(),
         next_state: new_root,
         proof: bazuka::zk::ZkProof::Groth16(Box::new(proof)),
     })
 }
 
 fn process_updates<K: bazuka::db::KvStore>(
+    mempool: &mut bazuka::client::messages::GetZeroMempoolResponse,
     b: &bank::Bank,
     node_addr: bazuka::client::PeerAddress,
     db_mirror: &mut bazuka::db::RamMirrorKvStore<K>,
 ) -> Result<bazuka::core::ContractUpdate, ZoroError> {
-    let mempool = get_zero_mempool(node_addr)?;
+    let (accepted, new_root, proof) = b.change_state(db_mirror, mempool.updates.clone())?;
 
-    let updates = mempool.updates.iter().cloned().collect::<Vec<_>>();
-
-    let (new_root, proof) = b.change_state(db_mirror, updates)?;
+    for tx in accepted {
+        mempool.updates.retain(|z| z != &tx);
+    }
 
     Ok(bazuka::core::ContractUpdate::FunctionCall {
         fee: Money(0),
@@ -258,6 +268,8 @@ fn main() {
             .unwrap()
             .account;
 
+        let mut mempool = get_zero_mempool(node_addr).unwrap();
+
         let mut updates = Vec::new();
 
         for i in 1..opt.payment_batches + 1 {
@@ -274,7 +286,7 @@ fn main() {
                 "Alice is shuffling the balls!".bright_cyan(),
                 bazuka::config::SYMBOL.bright_red()
             );
-            updates.push(process_payments(&b, node_addr, &mut db_mirror).unwrap());
+            updates.push(process_payments(&mut mempool, &b, node_addr, &mut db_mirror).unwrap());
             println!(
                 "{} {}ms",
                 "Proving took:".bright_green(),
@@ -296,7 +308,7 @@ fn main() {
                 "Alice is shuffling the balls!".bright_cyan(),
                 bazuka::config::SYMBOL.bright_red()
             );
-            updates.push(process_updates(&b, node_addr, &mut db_mirror).unwrap());
+            updates.push(process_updates(&mut mempool, &b, node_addr, &mut db_mirror).unwrap());
             println!(
                 "{} {}ms",
                 "Proving took:".bright_green(),

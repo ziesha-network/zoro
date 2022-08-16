@@ -96,6 +96,7 @@ impl Bank {
         txs: Vec<DepositWithdraw>,
     ) -> Result<
         (
+            Vec<DepositWithdraw>,
             bazuka::zk::ZkCompressedState,
             bazuka::zk::groth16::Groth16Proof,
         ),
@@ -104,12 +105,13 @@ impl Bank {
         let mut mirror = db.mirror();
 
         let mut transitions = Vec::new();
+        let mut accepted = Vec::new();
         let root = KvStoreStateManager::<ZkHasher>::root(db, *MPN_CONTRACT_ID).unwrap();
 
         let state = root.state_hash;
         let mut state_size = root.state_size;
 
-        for tx in txs.iter() {
+        for tx in txs.into_iter() {
             if transitions.len() == config::BATCH_SIZE {
                 break;
             }
@@ -156,6 +158,7 @@ impl Bank {
                     before: acc,
                     proof,
                 });
+                accepted.push(tx);
             }
         }
         let next_state = KvStoreStateManager::<ZkHasher>::get_data(
@@ -233,6 +236,7 @@ impl Bank {
             let ops = mirror.to_ops();
             db.update(&ops)?;
             Ok((
+                accepted,
                 bazuka::zk::ZkCompressedState {
                     state_hash: next_state,
                     state_size,
@@ -252,11 +256,13 @@ impl Bank {
         txs: Vec<ZeroTransaction>,
     ) -> Result<
         (
+            Vec<ZeroTransaction>,
             bazuka::zk::ZkCompressedState,
             bazuka::zk::groth16::Groth16Proof,
         ),
         BankError,
     > {
+        let mut accepted = Vec::new();
         let mut transitions = Vec::new();
 
         let root = KvStoreStateManager::<ZkHasher>::root(db, *MPN_CONTRACT_ID).unwrap();
@@ -266,7 +272,7 @@ impl Bank {
 
         let mut mirror = db.mirror();
 
-        for tx in txs.iter() {
+        for tx in txs.into_iter() {
             if transitions.len() == config::BATCH_SIZE {
                 break;
             }
@@ -344,6 +350,7 @@ impl Bank {
                     dst_before,
                     dst_proof,
                 });
+                accepted.push(tx);
             }
         }
 
@@ -391,6 +398,7 @@ impl Bank {
             let ops = mirror.to_ops();
             db.update(&ops)?;
             Ok((
+                accepted,
                 bazuka::zk::ZkCompressedState {
                     state_hash: next_state,
                     state_size,

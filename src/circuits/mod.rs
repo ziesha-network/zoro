@@ -1,6 +1,7 @@
 mod groth16;
 
 use crate::config::{BATCH_SIZE, LOG4_BATCH_SIZE, LOG4_TREE_SIZE};
+use bazuka::core::ContractPayment;
 use bazuka::crypto::jubjub;
 use bazuka::zk::{MpnAccount, ZeroTransaction, ZkScalar};
 use zeekit::merkle;
@@ -48,6 +49,7 @@ impl Default for TransitionBatch {
 
 #[derive(Debug, Clone, Default)]
 pub struct DepositWithdraw {
+    pub contract_payment: Option<ContractPayment>,
     pub index: u32,
     pub pub_key: jubjub::PointAffine,
     pub amount: i64,
