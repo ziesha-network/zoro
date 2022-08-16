@@ -1,9 +1,8 @@
 mod groth16;
 
 use crate::config::{BATCH_SIZE, LOG4_BATCH_SIZE, LOG4_TREE_SIZE};
-use crate::core;
 use bazuka::crypto::jubjub;
-use bazuka::zk::{ZeroTransaction, ZkScalar};
+use bazuka::zk::{MpnAccount, ZeroTransaction, ZkScalar};
 use zeekit::merkle;
 
 // Validation:
@@ -19,9 +18,9 @@ use zeekit::merkle;
 pub struct Transition {
     pub enabled: bool,
     pub tx: ZeroTransaction,
-    pub src_before: core::Account, // src_after can be derived
+    pub src_before: MpnAccount, // src_after can be derived
     pub src_proof: merkle::Proof<LOG4_TREE_SIZE>,
-    pub dst_before: core::Account, // dst_after can be derived
+    pub dst_before: MpnAccount, // dst_after can be derived
     pub dst_proof: merkle::Proof<LOG4_TREE_SIZE>,
 }
 
@@ -67,7 +66,7 @@ pub struct UpdateCircuit {
 pub struct DepositWithdrawTransition {
     pub enabled: bool,
     pub tx: DepositWithdraw,
-    pub before: core::Account,
+    pub before: MpnAccount,
     pub proof: merkle::Proof<LOG4_TREE_SIZE>,
 }
 

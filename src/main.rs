@@ -4,7 +4,6 @@ extern crate lazy_static;
 mod bank;
 mod circuits;
 mod config;
-mod core;
 
 use circuits::DepositWithdraw;
 

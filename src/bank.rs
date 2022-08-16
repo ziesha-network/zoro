@@ -1,13 +1,13 @@
+use crate::circuits;
 use crate::circuits::DepositWithdraw;
 use crate::config;
-use crate::{circuits, core};
 use bazuka::zk::ZkScalar;
 use bazuka::{
     config::blockchain::MPN_CONTRACT_ID,
-    core::{Money, ZkHasher},
-    crypto::jubjub::{PointAffine, PublicKey},
+    core::ZkHasher,
+    crypto::jubjub::PublicKey,
     db::KvStore,
-    zk::{KvStoreStateManager, ZeroTransaction, ZkDataLocator, ZkStateModel},
+    zk::{KvStoreStateManager, MpnAccount, ZeroTransaction, ZkDataLocator, ZkStateModel},
 };
 use bellman::groth16;
 use bellman::groth16::Parameters;
@@ -29,78 +29,6 @@ lazy_static! {
             }),
         }
     };
-}
-
-pub fn get_account<K: KvStore>(db: &K, index: u32) -> core::Account {
-    let nonce: u64 = KvStoreStateManager::<ZkHasher>::get_data(
-        db,
-        *MPN_CONTRACT_ID,
-        &ZkDataLocator(vec![index, 0]),
-    )
-    .unwrap()
-    .try_into()
-    .unwrap();
-    let pub_x = KvStoreStateManager::<ZkHasher>::get_data(
-        db,
-        *MPN_CONTRACT_ID,
-        &ZkDataLocator(vec![index, 1]),
-    )
-    .unwrap();
-    let pub_y = KvStoreStateManager::<ZkHasher>::get_data(
-        db,
-        *MPN_CONTRACT_ID,
-        &ZkDataLocator(vec![index, 2]),
-    )
-    .unwrap();
-    let balance: u64 = KvStoreStateManager::<ZkHasher>::get_data(
-        db,
-        *MPN_CONTRACT_ID,
-        &ZkDataLocator(vec![index, 3]),
-    )
-    .unwrap()
-    .try_into()
-    .unwrap();
-    core::Account {
-        nonce,
-        balance: Money(balance),
-        address: PointAffine(pub_x, pub_y),
-    }
-}
-
-pub fn set_account<K: KvStore>(db: &mut K, index: u32, acc: core::Account, size_diff: &mut u32) {
-    KvStoreStateManager::<ZkHasher>::set_data(
-        db,
-        *MPN_CONTRACT_ID,
-        ZkDataLocator(vec![index, 0]),
-        ZkScalar::from(acc.nonce),
-        size_diff,
-    )
-    .unwrap();
-    KvStoreStateManager::<ZkHasher>::set_data(
-        db,
-        *MPN_CONTRACT_ID,
-        ZkDataLocator(vec![index, 1]),
-        acc.address.0,
-        size_diff,
-    )
-    .unwrap();
-    KvStoreStateManager::<ZkHasher>::set_data(
-        db,
-        *MPN_CONTRACT_ID,
-        ZkDataLocator(vec![index, 2]),
-        acc.address.1,
-        size_diff,
-    )
-    .unwrap();
-    let balance: u64 = acc.balance.into();
-    KvStoreStateManager::<ZkHasher>::set_data(
-        db,
-        *MPN_CONTRACT_ID,
-        ZkDataLocator(vec![index, 3]),
-        ZkScalar::from(balance),
-        size_diff,
-    )
-    .unwrap();
 }
 
 #[derive(Error, Debug)]
@@ -185,14 +113,19 @@ impl Bank {
             if transitions.len() == config::BATCH_SIZE {
                 break;
             }
-            let acc = get_account(&mirror, tx.index);
+            let acc = KvStoreStateManager::<ZkHasher>::get_mpn_account(
+                &mirror,
+                *MPN_CONTRACT_ID,
+                tx.index,
+            )
+            .unwrap();
             let balance_u64: u64 = acc.balance.into();
             if acc.address != Default::default() && tx.pub_key != acc.address {
                 continue;
             } else if tx.amount < 0 && balance_u64 as i64 + tx.amount < 0 {
                 continue;
             } else {
-                let updated_acc = core::Account {
+                let updated_acc = MpnAccount {
                     address: tx.pub_key,
                     balance: ((balance_u64 as i64 + tx.amount) as u64).into(),
                     nonce: acc.nonce,
@@ -208,7 +141,14 @@ impl Bank {
                     .unwrap(),
                 );
 
-                set_account(&mut mirror, tx.index, updated_acc, &mut state_size);
+                KvStoreStateManager::<ZkHasher>::set_mpn_account(
+                    &mut mirror,
+                    *MPN_CONTRACT_ID,
+                    tx.index,
+                    updated_acc,
+                    &mut state_size,
+                )
+                .unwrap();
 
                 transitions.push(circuits::DepositWithdrawTransition {
                     enabled: true,
@@ -330,7 +270,12 @@ impl Bank {
             if transitions.len() == config::BATCH_SIZE {
                 break;
             }
-            let src_before = get_account(&mirror, tx.src_index);
+            let src_before = KvStoreStateManager::<ZkHasher>::get_mpn_account(
+                &mirror,
+                *MPN_CONTRACT_ID,
+                tx.src_index,
+            )
+            .unwrap();
             if tx.nonce != src_before.nonce {
                 continue;
             } else if !tx.verify(&PublicKey(src_before.address.compress())) {
@@ -347,14 +292,26 @@ impl Bank {
                     )
                     .unwrap(),
                 );
-                let src_after = core::Account {
+                let src_after = MpnAccount {
                     address: src_before.address.clone(),
                     balance: src_before.balance - tx.fee - tx.amount,
                     nonce: src_before.nonce + 1,
                 };
-                set_account(&mut mirror, tx.src_index, src_after, &mut state_size);
+                KvStoreStateManager::<ZkHasher>::set_mpn_account(
+                    &mut mirror,
+                    *MPN_CONTRACT_ID,
+                    tx.src_index,
+                    src_after,
+                    &mut state_size,
+                )
+                .unwrap();
 
-                let dst_before = get_account(&mirror, tx.dst_index);
+                let dst_before = KvStoreStateManager::<ZkHasher>::get_mpn_account(
+                    &mirror,
+                    *MPN_CONTRACT_ID,
+                    tx.dst_index,
+                )
+                .unwrap();
                 let dst_proof = zeekit::merkle::Proof::<{ config::LOG4_TREE_SIZE }>(
                     KvStoreStateManager::<ZkHasher>::prove(
                         &mirror,
@@ -365,12 +322,19 @@ impl Bank {
                     .unwrap(),
                 );
 
-                let dst_after = core::Account {
+                let dst_after = MpnAccount {
                     address: tx.dst_pub_key.0.decompress(),
                     balance: dst_before.balance + tx.amount,
                     nonce: dst_before.nonce,
                 };
-                set_account(&mut mirror, tx.dst_index, dst_after, &mut state_size);
+                KvStoreStateManager::<ZkHasher>::set_mpn_account(
+                    &mut mirror,
+                    *MPN_CONTRACT_ID,
+                    tx.dst_index,
+                    dst_after,
+                    &mut state_size,
+                )
+                .unwrap();
 
                 transitions.push(circuits::Transition {
                     enabled: true,
