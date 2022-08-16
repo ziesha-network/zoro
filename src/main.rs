@@ -35,6 +35,10 @@ struct Opt {
     payment_circuit_params: PathBuf,
     #[structopt(long)]
     generate_params: bool,
+    #[structopt(long, default_value = "1")]
+    payment_batches: usize,
+    #[structopt(long, default_value = "1")]
+    update_batches: usize,
 }
 
 fn load_params<C: Circuit<BellmanFr> + Default>(
@@ -256,43 +260,49 @@ fn main() {
 
         let mut updates = Vec::new();
 
-        let start = std::time::Instant::now();
-        println!(
-            "{} {}",
-            "Processing:".bright_yellow(),
-            "Payment-Transactions..."
-        );
-        println!(
-            "{} {} {}",
-            bazuka::config::SYMBOL.bright_red(),
-            "Alice is shuffling the balls!".bright_cyan(),
-            bazuka::config::SYMBOL.bright_red()
-        );
-        updates.push(process_payments(&b, node_addr, &mut db_mirror).unwrap());
-        println!(
-            "{} {}ms",
-            "Proving took:".bright_green(),
-            (std::time::Instant::now() - start).as_millis()
-        );
+        for i in 1..opt.payment_batches + 1 {
+            let start = std::time::Instant::now();
+            println!(
+                "{} Payment-Transactions ({}/{})...",
+                "Processing:".bright_yellow(),
+                i,
+                opt.payment_batches
+            );
+            println!(
+                "{} {} {}",
+                bazuka::config::SYMBOL.bright_red(),
+                "Alice is shuffling the balls!".bright_cyan(),
+                bazuka::config::SYMBOL.bright_red()
+            );
+            updates.push(process_payments(&b, node_addr, &mut db_mirror).unwrap());
+            println!(
+                "{} {}ms",
+                "Proving took:".bright_green(),
+                (std::time::Instant::now() - start).as_millis()
+            );
+        }
 
-        let start = std::time::Instant::now();
-        println!(
-            "{} {}",
-            "Processing:".bright_yellow(),
-            "Zero-Transactions..."
-        );
-        println!(
-            "{} {} {}",
-            bazuka::config::SYMBOL.bright_red(),
-            "Alice is shuffling the balls!".bright_cyan(),
-            bazuka::config::SYMBOL.bright_red()
-        );
-        updates.push(process_updates(&b, node_addr, &mut db_mirror).unwrap());
-        println!(
-            "{} {}ms",
-            "Proving took:".bright_green(),
-            (std::time::Instant::now() - start).as_millis()
-        );
+        for i in 1..opt.payment_batches + 1 {
+            let start = std::time::Instant::now();
+            println!(
+                "{} Zero-Transactions ({}/{})...",
+                "Processing:".bright_yellow(),
+                i,
+                opt.update_batches
+            );
+            println!(
+                "{} {} {}",
+                bazuka::config::SYMBOL.bright_red(),
+                "Alice is shuffling the balls!".bright_cyan(),
+                bazuka::config::SYMBOL.bright_red()
+            );
+            updates.push(process_updates(&b, node_addr, &mut db_mirror).unwrap());
+            println!(
+                "{} {}ms",
+                "Proving took:".bright_green(),
+                (std::time::Instant::now() - start).as_millis()
+            );
+        }
 
         let mut update = bazuka::core::Transaction {
             src: exec_wallet.get_address(),
