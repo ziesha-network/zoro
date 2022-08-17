@@ -97,6 +97,7 @@ impl Bank {
     ) -> Result<
         (
             Vec<DepositWithdraw>,
+            Vec<DepositWithdraw>,
             bazuka::zk::ZkCompressedState,
             bazuka::zk::groth16::Groth16Proof,
         ),
@@ -105,6 +106,7 @@ impl Bank {
         let mut mirror = db.mirror();
 
         let mut transitions = Vec::new();
+        let mut rejected = Vec::new();
         let mut accepted = Vec::new();
         let root = KvStoreStateManager::<ZkHasher>::root(db, *MPN_CONTRACT_ID).unwrap();
 
@@ -122,9 +124,10 @@ impl Bank {
             )
             .unwrap();
             let balance_u64: u64 = acc.balance.into();
-            if acc.address != Default::default() && tx.pub_key != acc.address {
-                continue;
-            } else if tx.amount < 0 && balance_u64 as i64 + tx.amount < 0 {
+            if (acc.address != Default::default() && tx.pub_key != acc.address)
+                || (tx.amount < 0 && balance_u64 as i64 + tx.amount < 0)
+            {
+                rejected.push(tx.clone());
                 continue;
             } else {
                 let updated_acc = MpnAccount {
@@ -237,6 +240,7 @@ impl Bank {
             db.update(&ops)?;
             Ok((
                 accepted,
+                rejected,
                 bazuka::zk::ZkCompressedState {
                     state_hash: next_state,
                     state_size,
@@ -257,11 +261,13 @@ impl Bank {
     ) -> Result<
         (
             Vec<ZeroTransaction>,
+            Vec<ZeroTransaction>,
             bazuka::zk::ZkCompressedState,
             bazuka::zk::groth16::Groth16Proof,
         ),
         BankError,
     > {
+        let mut rejected = Vec::new();
         let mut accepted = Vec::new();
         let mut transitions = Vec::new();
 
@@ -282,11 +288,11 @@ impl Bank {
                 tx.src_index,
             )
             .unwrap();
-            if tx.nonce != src_before.nonce {
-                continue;
-            } else if !tx.verify(&PublicKey(src_before.address.compress())) {
-                continue;
-            } else if src_before.balance < tx.fee + tx.amount {
+            if tx.nonce != src_before.nonce
+                || !tx.verify(&PublicKey(src_before.address.compress()))
+                || src_before.balance < tx.fee + tx.amount
+            {
+                rejected.push(tx.clone());
                 continue;
             } else {
                 let src_proof = zeekit::merkle::Proof::<{ config::LOG4_TREE_SIZE }>(
@@ -399,6 +405,7 @@ impl Bank {
             db.update(&ops)?;
             Ok((
                 accepted,
+                rejected,
                 bazuka::zk::ZkCompressedState {
                     state_hash: next_state,
                     state_size,
