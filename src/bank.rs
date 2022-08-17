@@ -377,7 +377,12 @@ impl Bank {
             )])
             .unwrap();
 
-        let aux_data = ZkScalar::from(0);
+        let aux_data = ZkScalar::from(
+            accepted
+                .iter()
+                .map(|tx| Into::<u64>::into(tx.fee))
+                .sum::<u64>(),
+        );
 
         let circuit = circuits::UpdateCircuit {
             filled: true,

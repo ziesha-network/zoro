@@ -140,7 +140,7 @@ fn get_account(
         })??)
 }
 
-fn drain_zero_mempool(
+fn get_zero_mempool(
     node: bazuka::client::PeerAddress,
 ) -> Result<bazuka::client::messages::GetZeroMempoolResponse, ZoroError> {
     Ok(tokio::runtime::Builder::new_multi_thread()
@@ -153,7 +153,7 @@ fn drain_zero_mempool(
             let (lp, client) = bazuka::client::BazukaClient::connect(sk, node, "mainnet".into());
 
             let (res, _) = tokio::join!(
-                async move { Ok::<_, bazuka::client::NodeError>(client.drain_zero_mempool().await) },
+                async move { Ok::<_, bazuka::client::NodeError>(client.get_zero_mempool().await) },
                 lp
             );
 
@@ -178,7 +178,7 @@ fn process_payments<K: bazuka::db::KvStore>(
     for (tx, _) in mempool
         .clone()
         .iter()
-        .filter(|(dw, _)| dw.contract_id == *MPN_CONTRACT_ID)
+        .filter(|(dw, _)| dw.contract_id != *MPN_CONTRACT_ID)
     {
         mempool.remove(tx);
     }
@@ -223,12 +223,16 @@ fn process_updates<K: bazuka::db::KvStore>(
     let (accepted, rejected, new_root, proof) =
         b.change_state(db_mirror, mempool.clone().into_keys().collect())?;
 
+    let fee_sum = accepted
+        .iter()
+        .map(|tx| Into::<u64>::into(tx.fee))
+        .sum::<u64>();
     for tx in accepted.into_iter().chain(rejected.into_iter()) {
         mempool.remove(&tx);
     }
 
     Ok(bazuka::core::ContractUpdate::FunctionCall {
-        fee: Money(0),
+        fee: fee_sum.into(),
         function_id: 0,
         next_state: new_root,
         proof: bazuka::zk::ZkProof::Groth16(Box::new(proof)),
@@ -277,7 +281,7 @@ fn main() {
             .unwrap()
             .account;
 
-        let mut mempool = drain_zero_mempool(node_addr).unwrap();
+        let mut mempool = get_zero_mempool(node_addr).unwrap();
         for update in mempool.updates.iter() {
             update_mempool.insert(update.clone(), ());
         }
