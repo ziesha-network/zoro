@@ -15,7 +15,8 @@ use bazuka::zk::ZeroTransaction;
 use bellman::{groth16, Circuit};
 use bls12_381::Bls12;
 use colored::Colorize;
-use rand_core::OsRng;
+use rand::SeedableRng;
+use rand_chacha::ChaCha8Rng;
 use std::fs::File;
 use std::path::PathBuf;
 use structopt::StructOpt;
@@ -52,7 +53,8 @@ fn load_params<C: Circuit<BellmanFr> + Default>(
         log::info!("Generating {}...", path.to_string_lossy());
         let c = C::default();
 
-        let p = groth16::generate_random_parameters::<Bls12, _, _>(c, &mut OsRng).unwrap();
+        let mut rng = ChaCha8Rng::seed_from_u64(1234);
+        let p = groth16::generate_random_parameters::<Bls12, _, _>(c, &mut rng).unwrap();
         let param_file = File::create(path.clone()).expect("Unable to create parameters file!");
         p.write(param_file)
             .expect("Unable to write parameters file!");

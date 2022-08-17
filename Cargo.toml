@@ -15,6 +15,7 @@ tokio = { version = "1", features = ["rt"]}
 
 rand = "0.8.5"
 rand_core = "0.6.3"
+rand_chacha = "0.3.1"
 lazy_static = "1.4.0"
 num-bigint = "0.4"
 num-integer = "0.1"
