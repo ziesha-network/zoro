@@ -161,6 +161,32 @@ fn get_zero_mempool(
         })??)
 }
 
+fn is_mining(node: bazuka::client::PeerAddress) -> Result<bool, ZoroError> {
+    Ok(tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(async {
+            let sk =
+                <bazuka::core::Signer as bazuka::crypto::SignatureScheme>::generate_keys(b"dummy")
+                    .1;
+            let (lp, client) = bazuka::client::BazukaClient::connect(sk, node, "mainnet".into());
+
+            let (res, _) = tokio::join!(
+                async move {
+                    Ok::<_, bazuka::client::NodeError>(
+                        client
+                            .get_miner_puzzle()
+                            .await
+                            .map(|resp| resp.puzzle.is_some()),
+                    )
+                },
+                lp
+            );
+
+            res
+        })??)
+}
+
 fn chain_height<K: bazuka::db::KvStore>(db: &K) -> u64 {
     if let Some(v) = db.get("height".into()).unwrap() {
         v.try_into().unwrap()
@@ -264,16 +290,14 @@ fn main() {
     let mut update_mempool = HashMap::<ZeroTransaction, ()>::new();
     let mut payment_mempool = HashMap::<ContractPayment, ()>::new();
 
-    let mut latest_processed = None;
     loop {
         let db_shutter = db_shutter();
         let db = db_shutter.snapshot();
 
-        if latest_processed == Some(chain_height(&db)) {
+        // Wait till mine is done
+        if is_mining(node_addr).unwrap() {
             std::thread::sleep(std::time::Duration::from_millis(1000));
             continue;
-        } else {
-            latest_processed = Some(chain_height(&db));
         }
 
         let mut db_mirror = db.mirror();
