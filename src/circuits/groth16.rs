@@ -3,6 +3,7 @@ use bazuka::zk::ZkScalar;
 use bellman::gadgets::boolean::{AllocatedBit, Boolean};
 use bellman::gadgets::num::AllocatedNum;
 use bellman::{Circuit, ConstraintSystem, SynthesisError};
+use zeekit::common::groth16::WrappedLc;
 use zeekit::eddsa::groth16::AllocatedPoint;
 use zeekit::reveal::groth16::{reveal, AllocatedState};
 use zeekit::{common, eddsa, poseidon, BellmanFr};
@@ -44,12 +45,8 @@ impl Circuit<BellmanFr> for UpdateCircuit {
 
         let aux_wit = alloc_num(&mut *cs, filled, self.aux_data)?;
         aux_wit.inputize(&mut *cs)?;
-        cs.enforce(
-            || "",
-            |lc| lc + aux_wit.get_variable(),
-            |lc| lc + CS::one(),
-            |lc| lc + aux_wit.get_variable(),
-        );
+
+        let mut fee_sum = WrappedLc::zero();
 
         for trans in self.transitions.0.iter() {
             let enabled_wit = AllocatedBit::alloc(&mut *cs, filled.then(|| trans.enabled))?;
@@ -86,6 +83,15 @@ impl Circuit<BellmanFr> for UpdateCircuit {
                 alloc_point(&mut *cs, filled, trans.tx.dst_pub_key.0.decompress())?;
             let tx_amount_wit = alloc_num(&mut *cs, filled, ZkScalar::from(trans.tx.amount))?;
             let tx_fee_wit = alloc_num(&mut *cs, filled, ZkScalar::from(trans.tx.fee))?;
+
+            let final_fee = common::groth16::mux(
+                &mut *cs,
+                &Boolean::Is(enabled_wit.clone()),
+                &WrappedLc::zero(),
+                &WrappedLc::alloc_num(tx_fee_wit.clone()),
+            )?;
+            fee_sum.add_num(&final_fee);
+
             let tx_hash_wit = poseidon::groth16::poseidon(
                 &mut *cs,
                 &[
@@ -263,6 +269,13 @@ impl Circuit<BellmanFr> for UpdateCircuit {
 
         let claimed_next_state_wit = alloc_num(&mut *cs, filled, self.next_state)?;
         claimed_next_state_wit.inputize(&mut *cs)?;
+
+        cs.enforce(
+            || "",
+            |lc| lc + aux_wit.get_variable(),
+            |lc| lc + CS::one(),
+            |lc| lc + fee_sum.get_lc(),
+        );
 
         cs.enforce(
             || "",
