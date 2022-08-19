@@ -1,6 +1,3 @@
-#[macro_use]
-extern crate lazy_static;
-
 mod bank;
 mod circuits;
 mod config;
@@ -187,18 +184,9 @@ fn is_mining(node: bazuka::client::PeerAddress) -> Result<bool, ZoroError> {
         })??)
 }
 
-fn chain_height<K: bazuka::db::KvStore>(db: &K) -> u64 {
-    if let Some(v) = db.get("height".into()).unwrap() {
-        v.try_into().unwrap()
-    } else {
-        0
-    }
-}
-
 fn process_payments<K: bazuka::db::KvStore>(
     mempool: &mut HashMap<ContractPayment, ()>,
     b: &bank::Bank,
-    node_addr: bazuka::client::PeerAddress,
     db_mirror: &mut bazuka::db::RamMirrorKvStore<K>,
 ) -> Result<bazuka::core::ContractUpdate, ZoroError> {
     for (tx, _) in mempool
@@ -243,7 +231,6 @@ fn process_payments<K: bazuka::db::KvStore>(
 fn process_updates<K: bazuka::db::KvStore>(
     mempool: &mut HashMap<ZeroTransaction, ()>,
     b: &bank::Bank,
-    node_addr: bazuka::client::PeerAddress,
     db_mirror: &mut bazuka::db::RamMirrorKvStore<K>,
 ) -> Result<bazuka::core::ContractUpdate, ZoroError> {
     let (accepted, rejected, new_root, proof) =
@@ -301,11 +288,11 @@ fn main() {
         }
 
         let mut db_mirror = db.mirror();
-        let mut acc = get_account(node_addr, exec_wallet.get_address())
+        let acc = get_account(node_addr, exec_wallet.get_address())
             .unwrap()
             .account;
 
-        let mut mempool = get_zero_mempool(node_addr).unwrap();
+        let mempool = get_zero_mempool(node_addr).unwrap();
         for update in mempool.updates.iter() {
             update_mempool.insert(update.clone(), ());
         }
@@ -329,9 +316,7 @@ fn main() {
                 "Alice is shuffling the balls!".bright_cyan(),
                 bazuka::config::SYMBOL.bright_red()
             );
-            updates.push(
-                process_payments(&mut payment_mempool, &b, node_addr, &mut db_mirror).unwrap(),
-            );
+            updates.push(process_payments(&mut payment_mempool, &b, &mut db_mirror).unwrap());
             println!(
                 "{} {}ms",
                 "Proving took:".bright_green(),
@@ -353,8 +338,7 @@ fn main() {
                 "Alice is shuffling the balls!".bright_cyan(),
                 bazuka::config::SYMBOL.bright_red()
             );
-            updates
-                .push(process_updates(&mut update_mempool, &b, node_addr, &mut db_mirror).unwrap());
+            updates.push(process_updates(&mut update_mempool, &b, &mut db_mirror).unwrap());
             println!(
                 "{} {}ms",
                 "Proving took:".bright_green(),

@@ -7,29 +7,13 @@ use bazuka::{
     core::ZkHasher,
     crypto::jubjub::PublicKey,
     db::KvStore,
-    zk::{KvStoreStateManager, MpnAccount, ZeroTransaction, ZkDataLocator, ZkStateModel},
+    zk::{KvStoreStateManager, MpnAccount, ZeroTransaction, ZkDataLocator},
 };
 use bellman::groth16;
 use bellman::groth16::Parameters;
 use bls12_381::Bls12;
 use rand::rngs::OsRng;
 use thiserror::Error;
-
-lazy_static! {
-    pub static ref STATE_MODEL: ZkStateModel = {
-        ZkStateModel::List {
-            log4_size: config::LOG4_TREE_SIZE,
-            item_type: Box::new(ZkStateModel::Struct {
-                field_types: vec![
-                    ZkStateModel::Scalar, // Nonce
-                    ZkStateModel::Scalar, // Pub-key X
-                    ZkStateModel::Scalar, // Pub-key Y
-                    ZkStateModel::Scalar, // Balance
-                ],
-            }),
-        }
-    };
-}
 
 #[derive(Error, Debug)]
 pub enum BankError {
@@ -251,9 +235,6 @@ impl Bank {
             Err(BankError::CannotProve)
         }
     }
-    pub fn root<K: KvStore>(&self, db: &K) -> bazuka::zk::ZkCompressedState {
-        KvStoreStateManager::<ZkHasher>::root(db, *MPN_CONTRACT_ID).unwrap()
-    }
     pub fn change_state<K: KvStore>(
         &self,
         db: &mut K,
@@ -392,7 +373,6 @@ impl Bank {
             transitions: Box::new(circuits::TransitionBatch::new(transitions)),
         };
 
-        let start = std::time::Instant::now();
         let proof = unsafe {
             std::mem::transmute::<bellman::groth16::Proof<Bls12>, bazuka::zk::groth16::Groth16Proof>(
                 groth16::create_random_proof(circuit, &self.update_params, &mut OsRng).unwrap(),
