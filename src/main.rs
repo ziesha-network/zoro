@@ -1,5 +1,6 @@
 mod bank;
 mod circuits;
+mod client;
 mod config;
 
 use circuits::DepositWithdraw;
@@ -91,97 +92,6 @@ pub enum ZoroError {
     NodeError(#[from] bazuka::client::NodeError),
     #[error("bank error: {0}")]
     BankError(#[from] bank::BankError),
-}
-
-fn transact(
-    node: bazuka::client::PeerAddress,
-    tx: bazuka::core::TransactionAndDelta,
-) -> Result<bazuka::client::messages::TransactResponse, ZoroError> {
-    Ok(tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?
-        .block_on(async {
-            let sk =
-                <bazuka::core::Signer as bazuka::crypto::SignatureScheme>::generate_keys(b"dummy")
-                    .1;
-            let (lp, client) = bazuka::client::BazukaClient::connect(sk, node, "mainnet".into());
-
-            let (res, _) = tokio::join!(
-                async move { Ok::<_, bazuka::client::NodeError>(client.transact(tx).await) },
-                lp
-            );
-
-            res
-        })??)
-}
-
-fn get_account(
-    node: bazuka::client::PeerAddress,
-    address: bazuka::core::Address,
-) -> Result<bazuka::client::messages::GetAccountResponse, ZoroError> {
-    Ok(tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?
-        .block_on(async {
-            let sk =
-                <bazuka::core::Signer as bazuka::crypto::SignatureScheme>::generate_keys(b"dummy")
-                    .1;
-            let (lp, client) = bazuka::client::BazukaClient::connect(sk, node, "mainnet".into());
-
-            let (res, _) = tokio::join!(
-                async move { Ok::<_, bazuka::client::NodeError>(client.get_account(address).await) },
-                lp
-            );
-
-            res
-        })??)
-}
-
-fn get_zero_mempool(
-    node: bazuka::client::PeerAddress,
-) -> Result<bazuka::client::messages::GetZeroMempoolResponse, ZoroError> {
-    Ok(tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?
-        .block_on(async {
-            let sk =
-                <bazuka::core::Signer as bazuka::crypto::SignatureScheme>::generate_keys(b"dummy")
-                    .1;
-            let (lp, client) = bazuka::client::BazukaClient::connect(sk, node, "mainnet".into());
-
-            let (res, _) = tokio::join!(
-                async move { Ok::<_, bazuka::client::NodeError>(client.get_zero_mempool().await) },
-                lp
-            );
-
-            res
-        })??)
-}
-
-fn is_mining(node: bazuka::client::PeerAddress) -> Result<bool, ZoroError> {
-    Ok(tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?
-        .block_on(async {
-            let sk =
-                <bazuka::core::Signer as bazuka::crypto::SignatureScheme>::generate_keys(b"dummy")
-                    .1;
-            let (lp, client) = bazuka::client::BazukaClient::connect(sk, node, "mainnet".into());
-
-            let (res, _) = tokio::join!(
-                async move {
-                    Ok::<_, bazuka::client::NodeError>(
-                        client
-                            .get_miner_puzzle()
-                            .await
-                            .map(|resp| resp.puzzle.is_some()),
-                    )
-                },
-                lp
-            );
-
-            res
-        })??)
 }
 
 fn process_payments<K: bazuka::db::KvStore>(
@@ -282,17 +192,17 @@ fn main() {
         let db = db_shutter.snapshot();
 
         // Wait till mine is done
-        if is_mining(node_addr).unwrap() {
+        if client::is_mining(node_addr).unwrap() {
             std::thread::sleep(std::time::Duration::from_millis(1000));
             continue;
         }
 
         let mut db_mirror = db.mirror();
-        let acc = get_account(node_addr, exec_wallet.get_address())
+        let acc = client::get_account(node_addr, exec_wallet.get_address())
             .unwrap()
             .account;
 
-        let mempool = get_zero_mempool(node_addr).unwrap();
+        let mempool = client::get_zero_mempool(node_addr).unwrap();
         for update in mempool.updates.iter() {
             update_mempool.insert(update.clone(), ());
         }
@@ -366,6 +276,6 @@ fn main() {
             state_delta: Some(delta),
         };
 
-        transact(node_addr, tx_delta).unwrap();
+        client::transact(node_addr, tx_delta).unwrap();
     }
 }
