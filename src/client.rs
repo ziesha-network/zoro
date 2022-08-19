@@ -1,92 +1,70 @@
 use crate::ZoroError;
+use std::future::Future;
 
-pub fn transact(
+pub struct SyncClient {
     node: bazuka::client::PeerAddress,
-    tx: bazuka::core::TransactionAndDelta,
-) -> Result<bazuka::client::messages::TransactResponse, ZoroError> {
-    Ok(tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?
-        .block_on(async {
-            let sk =
-                <bazuka::core::Signer as bazuka::crypto::SignatureScheme>::generate_keys(b"dummy")
-                    .1;
-            let (lp, client) = bazuka::client::BazukaClient::connect(sk, node, "mainnet".into());
-
-            let (res, _) = tokio::join!(
-                async move { Ok::<_, bazuka::client::NodeError>(client.transact(tx).await) },
-                lp
-            );
-
-            res
-        })??)
+    network: String,
+    sk: <bazuka::core::Signer as bazuka::crypto::SignatureScheme>::Priv,
 }
 
-pub fn get_account(
-    node: bazuka::client::PeerAddress,
-    address: bazuka::core::Address,
-) -> Result<bazuka::client::messages::GetAccountResponse, ZoroError> {
-    Ok(tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?
-        .block_on(async {
-            let sk =
-                <bazuka::core::Signer as bazuka::crypto::SignatureScheme>::generate_keys(b"dummy")
-                    .1;
-            let (lp, client) = bazuka::client::BazukaClient::connect(sk, node, "mainnet".into());
+impl SyncClient {
+    pub fn new(node: bazuka::client::PeerAddress, network: &str) -> Self {
+        Self {
+            node,
+            network: network.to_string(),
+            sk: <bazuka::core::Signer as bazuka::crypto::SignatureScheme>::generate_keys(b"dummy")
+                .1,
+        }
+    }
+    fn call<
+        R,
+        Fut: Future<Output = Result<R, ZoroError>>,
+        F: FnOnce(bazuka::client::BazukaClient) -> Fut,
+    >(
+        &self,
+        f: F,
+    ) -> Result<R, ZoroError> {
+        Ok(tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()?
+            .block_on(async {
+                let (lp, client) = bazuka::client::BazukaClient::connect(
+                    self.sk.clone(),
+                    self.node,
+                    self.network.clone(),
+                );
 
-            let (res, _) = tokio::join!(
-                async move { Ok::<_, bazuka::client::NodeError>(client.get_account(address).await) },
-                lp
-            );
+                let (res, _) = tokio::join!(
+                    async move { Ok::<_, bazuka::client::NodeError>(f(client).await) },
+                    lp
+                );
 
-            res
-        })??)
-}
-
-pub fn get_zero_mempool(
-    node: bazuka::client::PeerAddress,
-) -> Result<bazuka::client::messages::GetZeroMempoolResponse, ZoroError> {
-    Ok(tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?
-        .block_on(async {
-            let sk =
-                <bazuka::core::Signer as bazuka::crypto::SignatureScheme>::generate_keys(b"dummy")
-                    .1;
-            let (lp, client) = bazuka::client::BazukaClient::connect(sk, node, "mainnet".into());
-
-            let (res, _) = tokio::join!(
-                async move { Ok::<_, bazuka::client::NodeError>(client.get_zero_mempool().await) },
-                lp
-            );
-
-            res
-        })??)
-}
-
-pub fn is_mining(node: bazuka::client::PeerAddress) -> Result<bool, ZoroError> {
-    Ok(tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?
-        .block_on(async {
-            let sk =
-                <bazuka::core::Signer as bazuka::crypto::SignatureScheme>::generate_keys(b"dummy")
-                    .1;
-            let (lp, client) = bazuka::client::BazukaClient::connect(sk, node, "mainnet".into());
-
-            let (res, _) = tokio::join!(
-                async move {
-                    Ok::<_, bazuka::client::NodeError>(
-                        client
-                            .get_miner_puzzle()
-                            .await
-                            .map(|resp| resp.puzzle.is_some()),
-                    )
-                },
-                lp
-            );
-
-            res
-        })??)
+                res
+            })??)
+    }
+    pub fn transact(
+        &self,
+        tx: bazuka::core::TransactionAndDelta,
+    ) -> Result<bazuka::client::messages::TransactResponse, ZoroError> {
+        self.call(move |client| async move { Ok(client.transact(tx).await?) })
+    }
+    pub fn get_account(
+        &self,
+        address: bazuka::core::Address,
+    ) -> Result<bazuka::client::messages::GetAccountResponse, ZoroError> {
+        self.call(move |client| async move { Ok(client.get_account(address).await?) })
+    }
+    pub fn get_zero_mempool(
+        &self,
+    ) -> Result<bazuka::client::messages::GetZeroMempoolResponse, ZoroError> {
+        self.call(move |client| async move { Ok(client.get_zero_mempool().await?) })
+    }
+    pub fn is_mining(&self) -> Result<bool, ZoroError> {
+        self.call(move |client| async move {
+            Ok(client
+                .get_miner_puzzle()
+                .await
+                .map(|resp| resp.puzzle.is_some())?)
+        })
+    }
 }

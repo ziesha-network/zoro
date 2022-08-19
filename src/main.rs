@@ -12,6 +12,7 @@ use bazuka::db::ReadOnlyLevelDbKvStore;
 use bazuka::zk::ZeroTransaction;
 use bellman::{groth16, Circuit};
 use bls12_381::Bls12;
+use client::SyncClient;
 use colored::Colorize;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -181,6 +182,7 @@ fn main() {
     );
 
     let node_addr = bazuka::client::PeerAddress(opt.node.parse().unwrap());
+    let client = SyncClient::new(node_addr, &opt.network);
 
     let b = bank::Bank::new(update_params, deposit_withdraw_params);
 
@@ -192,17 +194,18 @@ fn main() {
         let db = db_shutter.snapshot();
 
         // Wait till mine is done
-        if client::is_mining(node_addr).unwrap() {
+        if client.is_mining().unwrap() {
             std::thread::sleep(std::time::Duration::from_millis(1000));
             continue;
         }
 
         let mut db_mirror = db.mirror();
-        let acc = client::get_account(node_addr, exec_wallet.get_address())
+        let acc = client
+            .get_account(exec_wallet.get_address())
             .unwrap()
             .account;
 
-        let mempool = client::get_zero_mempool(node_addr).unwrap();
+        let mempool = client.get_zero_mempool().unwrap();
         for update in mempool.updates.iter() {
             update_mempool.insert(update.clone(), ());
         }
@@ -276,6 +279,6 @@ fn main() {
             state_delta: Some(delta),
         };
 
-        client::transact(node_addr, tx_delta).unwrap();
+        client.transact(tx_delta).unwrap();
     }
 }
