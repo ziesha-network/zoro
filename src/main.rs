@@ -195,6 +195,14 @@ fn main() {
 
         // Wait till mine is done
         if client.is_mining().unwrap() {
+            log::info!("Nothing to mine!");
+            std::thread::sleep(std::time::Duration::from_millis(1000));
+            continue;
+        }
+
+        // Wait till chain gets updated
+        if client.is_outdated().unwrap() {
+            log::info!("Chain is outdated!");
             std::thread::sleep(std::time::Duration::from_millis(1000));
             continue;
         }
