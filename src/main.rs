@@ -164,6 +164,15 @@ fn process_updates<K: bazuka::db::KvStore>(
     })
 }
 
+fn alice_shuffle() {
+    println!(
+        "{} {} {}",
+        bazuka::config::SYMBOL.bright_red(),
+        "Alice is shuffling the balls...".bright_cyan(),
+        bazuka::config::SYMBOL.bright_red()
+    );
+}
+
 fn main() {
     env_logger::init();
     println!(
@@ -196,6 +205,14 @@ fn main() {
 
         // Wait till mine is done
         if client.is_mining().unwrap() {
+            log::info!("Nothing to mine!");
+            std::thread::sleep(std::time::Duration::from_millis(1000));
+            continue;
+        }
+
+        // Wait till chain gets updated
+        if client.is_outdated().unwrap() {
+            log::info!("Chain is outdated!");
             std::thread::sleep(std::time::Duration::from_millis(1000));
             continue;
         }
@@ -216,20 +233,15 @@ fn main() {
 
         let mut updates = Vec::new();
 
-        for i in 1..opt.payment_batches + 1 {
+        for i in 0..opt.payment_batches {
             let start = std::time::Instant::now();
             println!(
                 "{} Payment-Transactions ({}/{})...",
                 "Processing:".bright_yellow(),
-                i,
+                i + 1,
                 opt.payment_batches
             );
-            println!(
-                "{} {} {}",
-                bazuka::config::SYMBOL.bright_red(),
-                "Alice is shuffling the balls!".bright_cyan(),
-                bazuka::config::SYMBOL.bright_red()
-            );
+            alice_shuffle();
             updates.push(process_payments(&mut payment_mempool, &b, &mut db_mirror).unwrap());
             println!(
                 "{} {}ms",
@@ -238,20 +250,15 @@ fn main() {
             );
         }
 
-        for i in 1..opt.payment_batches + 1 {
+        for i in 0..opt.update_batches {
             let start = std::time::Instant::now();
             println!(
                 "{} Zero-Transactions ({}/{})...",
                 "Processing:".bright_yellow(),
-                i,
+                i + 1,
                 opt.update_batches
             );
-            println!(
-                "{} {} {}",
-                bazuka::config::SYMBOL.bright_red(),
-                "Alice is shuffling the balls!".bright_cyan(),
-                bazuka::config::SYMBOL.bright_red()
-            );
+            alice_shuffle();
             updates.push(process_updates(&mut update_mempool, &b, &mut db_mirror).unwrap());
             println!(
                 "{} {}ms",

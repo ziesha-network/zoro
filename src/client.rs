@@ -42,6 +42,11 @@ impl SyncClient {
                 res
             })??)
     }
+    pub fn is_outdated(&self) -> Result<bool, ZoroError> {
+        self.call(move |client| async move {
+            Ok(!client.outdated_heights().await?.outdated_heights.is_empty())
+        })
+    }
     pub fn transact(
         &self,
         tx: bazuka::core::TransactionAndDelta,
