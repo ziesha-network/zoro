@@ -211,7 +211,6 @@ impl Bank {
         let aux_data = state_builder.compress().unwrap().state_hash;
 
         let circuit = circuits::DepositWithdrawCircuit {
-            filled: true,
             state,
             aux_data,
             next_state,
@@ -378,7 +377,6 @@ impl Bank {
         );
 
         let circuit = circuits::UpdateCircuit {
-            filled: true,
             state,
             aux_data,
             next_state,

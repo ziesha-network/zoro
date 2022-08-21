@@ -58,7 +58,6 @@ pub struct DepositWithdraw {
 
 #[derive(Debug, Default)]
 pub struct UpdateCircuit {
-    pub filled: bool,
     pub state: ZkScalar,                   // Public
     pub aux_data: ZkScalar,                // Public
     pub next_state: ZkScalar,              // Public
@@ -97,7 +96,6 @@ impl Default for DepositWithdrawTransitionBatch {
 
 #[derive(Debug, Default)]
 pub struct DepositWithdrawCircuit {
-    pub filled: bool,
     pub state: ZkScalar,                                  // Public
     pub aux_data: ZkScalar,                               // Public
     pub next_state: ZkScalar,                             // Public
