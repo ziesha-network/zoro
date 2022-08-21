@@ -115,9 +115,10 @@ fn process_payments<K: bazuka::db::KvStore>(
             contract_payment: Some(dw.clone()),
             index: dw.zk_address_index,
             pub_key: dw.zk_address.0.decompress(),
-            amount: match dw.direction {
-                PaymentDirection::Deposit(_) => (Into::<u64>::into(dw.amount) as i64),
-                PaymentDirection::Withdraw(_) => -(Into::<u64>::into(dw.amount) as i64),
+            amount: dw.amount,
+            withdraw: match dw.direction {
+                PaymentDirection::Deposit(_) => false,
+                PaymentDirection::Withdraw(_) => true,
             },
         })
         .collect::<Vec<_>>();

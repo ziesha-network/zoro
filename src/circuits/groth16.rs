@@ -3,6 +3,8 @@ use bazuka::zk::ZkScalar;
 use bellman::gadgets::boolean::{AllocatedBit, Boolean};
 use bellman::gadgets::num::AllocatedNum;
 use bellman::{Circuit, ConstraintSystem, SynthesisError};
+use ff::Field;
+use zeekit::common::groth16::UnsignedInteger;
 use zeekit::common::groth16::WrappedLc;
 use zeekit::eddsa::groth16::AllocatedPoint;
 use zeekit::reveal::groth16::{reveal, AllocatedState};
@@ -222,18 +224,18 @@ impl Circuit<BellmanFr> for UpdateCircuit {
             )?;
 
             // WARN: MIGHT OVERFLOW!
-            let tx_balance_plus_fee = alloc_num(
+            let tx_balance_plus_fee_64 = UnsignedInteger::constrain(
                 &mut *cs,
-                filled,
-                ZkScalar::from(trans.tx.amount + trans.tx.fee),
+                WrappedLc::alloc_num(tx_amount_wit.clone())
+                    + WrappedLc::alloc_num(tx_fee_wit.clone()),
+                64,
             )?;
-            cs.enforce(
-                || "",
-                |lc| lc + tx_amount_wit.get_variable() + tx_fee_wit.get_variable(),
-                |lc| lc + CS::one(),
-                |lc| lc + tx_balance_plus_fee.get_variable(),
-            );
-            common::groth16::lte(&mut *cs, tx_balance_plus_fee, src_balance_wit)?;
+            let src_balance_64 = UnsignedInteger::constrain(
+                &mut *cs,
+                WrappedLc::alloc_num(src_balance_wit.clone()),
+                64,
+            )?;
+            tx_balance_plus_fee_64.lte(&mut *cs, &src_balance_64)?;
 
             cs.enforce(
                 || "",
@@ -310,13 +312,19 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
         let mut children = Vec::new();
         for trans in self.transitions.0.iter() {
             let index = alloc_num(&mut *cs, filled, ZkScalar::from(trans.tx.index as u64))?;
-            let amount = alloc_num(&mut *cs, filled, ZkScalar::from(trans.tx.amount as u64))?;
+            let amount = alloc_num(&mut *cs, filled, ZkScalar::from(trans.tx.amount))?;
+            let withdraw = alloc_num(
+                &mut *cs,
+                filled,
+                ZkScalar::from(if trans.tx.withdraw { 1 } else { 0 }),
+            )?;
             let pk = trans.tx.pub_key;
             let pubx = alloc_num(&mut *cs, filled, pk.0)?;
             let puby = alloc_num(&mut *cs, filled, pk.1)?;
             tx_wits.push((
                 index.clone(),
                 amount.clone(),
+                withdraw.clone(),
                 AllocatedPoint {
                     x: pubx.clone(),
                     y: puby.clone(),
@@ -325,6 +333,7 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
             children.push(AllocatedState::Children(vec![
                 AllocatedState::Value(index),
                 AllocatedState::Value(amount),
+                AllocatedState::Value(withdraw),
                 AllocatedState::Value(pubx),
                 AllocatedState::Value(puby),
             ]));
@@ -342,9 +351,22 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
             |lc| lc + tx_root.get_variable(),
         );
 
-        for (trans, (tx_index_wit, tx_amount_wit, tx_pub_key_wit)) in
+        for (trans, (tx_index_wit, tx_amount_wit, tx_withdraw_wit, tx_pub_key_wit)) in
             self.transitions.0.iter().zip(tx_wits.into_iter())
         {
+            cs.enforce(
+                || "",
+                |lc| lc + tx_withdraw_wit.get_variable(),
+                |lc| lc + tx_withdraw_wit.get_variable() - CS::one(),
+                |lc| lc,
+            );
+            let tx_withdraw_wit = AllocatedBit::alloc(
+                &mut *cs,
+                tx_withdraw_wit
+                    .get_value()
+                    .map(|v| !Into::<bool>::into(v.is_zero())),
+            )?;
+
             let enabled_wit = AllocatedBit::alloc(&mut *cs, filled.then(|| trans.enabled))?;
 
             let src_nonce_wit = alloc_num(&mut *cs, filled, ZkScalar::from(trans.before.nonce))?;
@@ -393,14 +415,14 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
                 state_wit.clone(),
             )?;
 
-            let balance_bits = common::groth16::to_bits(&mut *cs, src_balance_wit, 64)?;
-            let amount_bits = common::groth16::to_bits(&mut *cs, tx_amount_wit, 64)?;
-            let balance_amount_sum =
-                common::groth16::sum_bits(&mut *cs, balance_bits, amount_bits)?;
-            let balance_amount_sum_bits =
-                common::groth16::to_bits(&mut *cs, balance_amount_sum, 65)?;
-            let new_balance_wit =
-                common::groth16::from_bits(&mut *cs, balance_amount_sum_bits[..64].to_vec())?;
+            let src_balance_lc = WrappedLc::alloc_num(src_balance_wit);
+            let tx_amount_lc = WrappedLc::alloc_num(tx_amount_wit);
+            let new_balance_wit = common::groth16::mux(
+                &mut *cs,
+                &Boolean::Is(tx_withdraw_wit.clone()),
+                &(src_balance_lc.clone() + tx_amount_lc.clone()),
+                &(src_balance_lc - tx_amount_lc),
+            )?;
 
             let new_hash_wit = poseidon::groth16::poseidon(
                 &mut *cs,

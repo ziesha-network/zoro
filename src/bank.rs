@@ -107,16 +107,20 @@ impl Bank {
                 tx.index,
             )
             .unwrap();
-            let balance_u64: u64 = acc.balance.into();
             if (acc.address != Default::default() && tx.pub_key != acc.address)
-                || (tx.amount < 0 && balance_u64 as i64 + tx.amount < 0)
+                || (tx.withdraw && acc.balance < tx.amount)
             {
                 rejected.push(tx.clone());
                 continue;
             } else {
+                let new_balance = if tx.withdraw {
+                    acc.balance - tx.amount
+                } else {
+                    acc.balance + tx.amount
+                };
                 let updated_acc = MpnAccount {
                     address: tx.pub_key,
-                    balance: ((balance_u64 as i64 + tx.amount) as u64).into(),
+                    balance: new_balance,
                     nonce: acc.nonce,
                 };
 
@@ -181,14 +185,22 @@ impl Bank {
                         ),
                         (
                             bazuka::zk::ZkDataLocator(vec![i as u32, 1]),
-                            Some(bazuka::zk::ZkScalar::from(trans.tx.amount as u64)),
+                            Some(bazuka::zk::ZkScalar::from(trans.tx.amount)),
                         ),
                         (
                             bazuka::zk::ZkDataLocator(vec![i as u32, 2]),
-                            Some(bazuka::zk::ZkScalar::from(trans.tx.pub_key.0)),
+                            Some(bazuka::zk::ZkScalar::from(if trans.tx.withdraw {
+                                1
+                            } else {
+                                0
+                            })),
                         ),
                         (
                             bazuka::zk::ZkDataLocator(vec![i as u32, 3]),
+                            Some(bazuka::zk::ZkScalar::from(trans.tx.pub_key.0)),
+                        ),
+                        (
+                            bazuka::zk::ZkDataLocator(vec![i as u32, 4]),
                             Some(bazuka::zk::ZkScalar::from(trans.tx.pub_key.1)),
                         ),
                     ]
