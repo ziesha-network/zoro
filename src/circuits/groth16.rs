@@ -27,11 +27,14 @@ impl Circuit<BellmanFr> for UpdateCircuit {
 
         for trans in self.transitions.0.iter() {
             // If enabled, transaction is validated, otherwise neglected
-            let enabled_wit = AllocatedBit::alloc(&mut *cs, Some(trans.enabled))?;
+            let enabled_wit = Boolean::Is(AllocatedBit::alloc(&mut *cs, Some(trans.enabled))?);
 
             let src_nonce_wit =
                 AllocatedNum::alloc(&mut *cs, || Ok(trans.src_before.nonce.into()))?;
+
             let src_addr_wit = AllocatedPoint::alloc(&mut *cs, || Ok(trans.src_before.address))?;
+            src_addr_wit.assert_on_curve(&mut *cs, &enabled_wit)?;
+
             let src_balance_wit =
                 UnsignedInteger::alloc_64(&mut *cs, trans.src_before.balance.into())?;
             let src_hash_wit = poseidon::groth16::poseidon(
@@ -57,13 +60,14 @@ impl Circuit<BellmanFr> for UpdateCircuit {
             let tx_dst_index_wit = UnsignedInteger::alloc_32(&mut *cs, trans.tx.dst_index)?;
             let tx_dst_addr_wit =
                 AllocatedPoint::alloc(&mut *cs, || Ok(trans.tx.dst_pub_key.0.decompress()))?;
+            tx_dst_addr_wit.assert_on_curve(&mut *cs, &enabled_wit)?;
 
             let tx_amount_wit = UnsignedInteger::alloc_64(&mut *cs, trans.tx.amount.into())?;
             let tx_fee_wit = UnsignedInteger::alloc_64(&mut *cs, trans.tx.fee.into())?;
 
             let final_fee = common::groth16::mux(
                 &mut *cs,
-                &Boolean::Is(enabled_wit.clone()),
+                &enabled_wit.clone(),
                 &Number::zero(),
                 &tx_fee_wit.clone().into(),
             )?;
@@ -79,7 +83,10 @@ impl Circuit<BellmanFr> for UpdateCircuit {
                     tx_fee_wit.clone().into(),
                 ],
             )?;
+
             let tx_sig_r_wit = AllocatedPoint::alloc(&mut *cs, || Ok(trans.tx.sig.r))?;
+            tx_sig_r_wit.assert_on_curve(&mut *cs, &enabled_wit)?;
+
             let tx_sig_s_wit = AllocatedNum::alloc(&mut *cs, || Ok(trans.tx.sig.s.into()))?;
 
             let new_src_nonce_wit =
@@ -158,7 +165,7 @@ impl Circuit<BellmanFr> for UpdateCircuit {
 
             merkle::groth16::check_proof_poseidon4(
                 &mut *cs,
-                enabled_wit.clone(),
+                &enabled_wit,
                 tx_dst_index_wit.clone().into(),
                 dst_hash_wit,
                 dst_proof_wits.clone(),
@@ -166,7 +173,7 @@ impl Circuit<BellmanFr> for UpdateCircuit {
             )?;
             merkle::groth16::check_proof_poseidon4(
                 &mut *cs,
-                enabled_wit.clone(),
+                &enabled_wit,
                 tx_src_index_wit.into(),
                 src_hash_wit,
                 src_proof_wits,
@@ -189,7 +196,7 @@ impl Circuit<BellmanFr> for UpdateCircuit {
 
             eddsa::groth16::verify_eddsa(
                 &mut *cs,
-                enabled_wit.clone(),
+                &enabled_wit,
                 src_addr_wit,
                 tx_hash_wit,
                 tx_sig_r_wit,
@@ -203,12 +210,8 @@ impl Circuit<BellmanFr> for UpdateCircuit {
                 dst_proof_wits,
             )?;
 
-            state_wit = common::groth16::mux(
-                &mut *cs,
-                &Boolean::Is(enabled_wit),
-                &state_wit.into(),
-                &next_state_wit,
-            )?;
+            state_wit =
+                common::groth16::mux(&mut *cs, &enabled_wit, &state_wit.into(), &next_state_wit)?;
         }
 
         let claimed_next_state_wit = AllocatedNum::alloc(&mut *cs, || Ok(self.next_state.into()))?;
@@ -290,7 +293,7 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
         for (trans, (tx_index_wit, tx_amount_wit, tx_withdraw_wit, tx_pub_key_wit)) in
             self.transitions.0.iter().zip(tx_wits.into_iter())
         {
-            let enabled_wit = AllocatedBit::alloc(&mut *cs, Some(trans.enabled))?;
+            let enabled_wit = Boolean::Is(AllocatedBit::alloc(&mut *cs, Some(trans.enabled))?);
 
             let src_nonce_wit = AllocatedNum::alloc(&mut *cs, || Ok(trans.before.nonce.into()))?;
             let src_addr_wit = AllocatedPoint::alloc(&mut *cs, || Ok(trans.before.address))?;
@@ -330,7 +333,7 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
 
             merkle::groth16::check_proof_poseidon4(
                 &mut *cs,
-                enabled_wit.clone(),
+                &enabled_wit,
                 tx_index_wit.clone().into(),
                 src_hash_wit,
                 proof_wits.clone(),
@@ -363,12 +366,8 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
                 proof_wits,
             )?;
 
-            state_wit = common::groth16::mux(
-                &mut *cs,
-                &Boolean::Is(enabled_wit),
-                &state_wit.into(),
-                &next_state_wit,
-            )?;
+            state_wit =
+                common::groth16::mux(&mut *cs, &enabled_wit, &state_wit.into(), &next_state_wit)?;
         }
 
         let claimed_next_state_wit = AllocatedNum::alloc(&mut *cs, || Ok(self.next_state.into()))?;
