@@ -4,8 +4,8 @@ use bellman::gadgets::boolean::{AllocatedBit, Boolean};
 use bellman::gadgets::num::AllocatedNum;
 use bellman::{Circuit, ConstraintSystem, SynthesisError};
 use ff::Field;
+use zeekit::common::groth16::Number;
 use zeekit::common::groth16::UnsignedInteger;
-use zeekit::common::groth16::WrappedLc;
 use zeekit::eddsa::groth16::AllocatedPoint;
 use zeekit::reveal::groth16::{reveal, AllocatedState};
 use zeekit::{common, eddsa, poseidon, BellmanFr};
@@ -48,7 +48,7 @@ impl Circuit<BellmanFr> for UpdateCircuit {
         let aux_wit = alloc_num(&mut *cs, filled, self.aux_data)?;
         aux_wit.inputize(&mut *cs)?;
 
-        let mut fee_sum = WrappedLc::zero();
+        let mut fee_sum = Number::zero();
 
         for trans in self.transitions.0.iter() {
             let enabled_wit = AllocatedBit::alloc(&mut *cs, filled.then(|| trans.enabled))?;
@@ -61,10 +61,10 @@ impl Circuit<BellmanFr> for UpdateCircuit {
             let src_hash_wit = poseidon::groth16::poseidon(
                 &mut *cs,
                 &[
-                    src_nonce_wit.clone(),
-                    src_addr_wit.x.clone(),
-                    src_addr_wit.y.clone(),
-                    src_balance_wit.clone(),
+                    src_nonce_wit.clone().into(),
+                    src_addr_wit.x.clone().into(),
+                    src_addr_wit.y.clone().into(),
+                    src_balance_wit.clone().into(),
                 ],
             )?;
             let mut src_proof_wits = Vec::new();
@@ -89,60 +89,44 @@ impl Circuit<BellmanFr> for UpdateCircuit {
             let final_fee = common::groth16::mux(
                 &mut *cs,
                 &Boolean::Is(enabled_wit.clone()),
-                &WrappedLc::zero(),
-                &WrappedLc::alloc_num(tx_fee_wit.clone()),
+                &Number::zero(),
+                &tx_fee_wit.clone().into(),
             )?;
             fee_sum.add_num(&final_fee);
 
             let tx_hash_wit = poseidon::groth16::poseidon(
                 &mut *cs,
                 &[
-                    tx_nonce_wit.clone(),
-                    tx_src_index_wit.clone(),
-                    tx_dst_index_wit.clone(),
-                    tx_amount_wit.clone(),
-                    tx_fee_wit.clone(),
+                    tx_nonce_wit.clone().into(),
+                    tx_src_index_wit.clone().into(),
+                    tx_dst_index_wit.clone().into(),
+                    tx_amount_wit.clone().into(),
+                    tx_fee_wit.clone().into(),
                 ],
-            )?;
+            )?
+            .alloc(&mut *cs)?;
             let tx_sig_r_wit = alloc_point(&mut *cs, filled, trans.tx.sig.r)?;
             let tx_sig_s_wit = alloc_num(&mut *cs, filled, trans.tx.sig.s)?;
 
             let new_src_nonce_wit =
-                alloc_num(&mut *cs, filled, ZkScalar::from(trans.src_before.nonce + 1))?;
-            cs.enforce(
-                || "",
-                |lc| lc + src_nonce_wit.get_variable() + CS::one(),
-                |lc| lc + CS::one(),
-                |lc| lc + new_src_nonce_wit.get_variable(),
-            );
-            let new_src_balance_wit = alloc_num(
-                &mut *cs,
-                filled,
-                ZkScalar::from(trans.src_before.balance - trans.tx.amount - trans.tx.fee),
-            )?;
-            cs.enforce(
-                || "",
-                |lc| {
-                    lc + src_balance_wit.get_variable()
-                        - tx_amount_wit.get_variable()
-                        - tx_fee_wit.get_variable()
-                },
-                |lc| lc + CS::one(),
-                |lc| lc + new_src_balance_wit.get_variable(),
-            );
+                Number::from(src_nonce_wit.clone()) + Number::constant::<CS>(BellmanFr::one());
+            let new_src_balance_wit = Number::from(src_balance_wit.clone())
+                - Number::from(tx_amount_wit.clone())
+                - Number::from(tx_fee_wit.clone());
+
             let new_src_hash_wit = poseidon::groth16::poseidon(
                 &mut *cs,
                 &[
                     new_src_nonce_wit,
-                    src_addr_wit.x.clone(),
-                    src_addr_wit.y.clone(),
+                    src_addr_wit.x.clone().into(),
+                    src_addr_wit.y.clone().into(),
                     new_src_balance_wit,
                 ],
             )?;
 
             let middle_root_wit = merkle::groth16::calc_root_poseidon4(
                 &mut *cs,
-                tx_src_index_wit.clone(),
+                tx_src_index_wit.clone().into(),
                 new_src_hash_wit,
                 src_proof_wits.clone(),
             )?;
@@ -155,10 +139,10 @@ impl Circuit<BellmanFr> for UpdateCircuit {
             let dst_hash_wit = poseidon::groth16::poseidon(
                 &mut *cs,
                 &[
-                    dst_nonce_wit.clone(),
-                    dst_addr_wit.x.clone(),
-                    dst_addr_wit.y.clone(),
-                    dst_balance_wit.clone(),
+                    dst_nonce_wit.clone().into(),
+                    dst_addr_wit.x.clone().into(),
+                    dst_addr_wit.y.clone().into(),
+                    dst_balance_wit.clone().into(),
                 ],
             )?;
             let mut dst_proof_wits = Vec::new();
@@ -199,17 +183,17 @@ impl Circuit<BellmanFr> for UpdateCircuit {
             let new_dst_hash_wit = poseidon::groth16::poseidon(
                 &mut *cs,
                 &[
-                    dst_nonce_wit,
-                    tx_dst_addr_wit.x,
-                    tx_dst_addr_wit.y,
-                    new_dst_balance_wit,
+                    dst_nonce_wit.into(),
+                    tx_dst_addr_wit.x.into(),
+                    tx_dst_addr_wit.y.into(),
+                    new_dst_balance_wit.into(),
                 ],
             )?;
 
             merkle::groth16::check_proof_poseidon4(
                 &mut *cs,
                 enabled_wit.clone(),
-                tx_dst_index_wit.clone(),
+                tx_dst_index_wit.clone().into(),
                 dst_hash_wit,
                 dst_proof_wits.clone(),
                 middle_root_wit,
@@ -217,24 +201,20 @@ impl Circuit<BellmanFr> for UpdateCircuit {
             merkle::groth16::check_proof_poseidon4(
                 &mut *cs,
                 enabled_wit.clone(),
-                tx_src_index_wit,
+                tx_src_index_wit.into(),
                 src_hash_wit,
                 src_proof_wits,
-                state_wit.clone(),
+                state_wit.clone().into(),
             )?;
 
             // WARN: MIGHT OVERFLOW!
             let tx_balance_plus_fee_64 = UnsignedInteger::constrain(
                 &mut *cs,
-                WrappedLc::alloc_num(tx_amount_wit.clone())
-                    + WrappedLc::alloc_num(tx_fee_wit.clone()),
+                Number::from(tx_amount_wit.clone()) + Number::from(tx_fee_wit.clone()),
                 64,
             )?;
-            let src_balance_64 = UnsignedInteger::constrain(
-                &mut *cs,
-                WrappedLc::alloc_num(src_balance_wit.clone()),
-                64,
-            )?;
+            let src_balance_64 =
+                UnsignedInteger::constrain(&mut *cs, src_balance_wit.clone().into(), 64)?;
             tx_balance_plus_fee_64.lte(&mut *cs, &src_balance_64)?;
 
             cs.enforce(
@@ -255,18 +235,17 @@ impl Circuit<BellmanFr> for UpdateCircuit {
 
             let next_state_wit = merkle::groth16::calc_root_poseidon4(
                 &mut *cs,
-                tx_dst_index_wit,
+                tx_dst_index_wit.into(),
                 new_dst_hash_wit,
                 dst_proof_wits,
             )?;
 
-            state_wit = AllocatedNum::conditionally_reverse(
+            state_wit = common::groth16::mux(
                 &mut *cs,
-                &state_wit,
-                &next_state_wit,
                 &Boolean::Is(enabled_wit),
-            )?
-            .0;
+                &state_wit.into(),
+                &next_state_wit,
+            )?;
         }
 
         let claimed_next_state_wit = alloc_num(&mut *cs, filled, self.next_state)?;
@@ -376,10 +355,10 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
             let src_hash_wit = poseidon::groth16::poseidon(
                 &mut *cs,
                 &[
-                    src_nonce_wit.clone(),
-                    src_addr_wit.x.clone(),
-                    src_addr_wit.y.clone(),
-                    src_balance_wit.clone(),
+                    src_nonce_wit.clone().into(),
+                    src_addr_wit.x.clone().into(),
+                    src_addr_wit.y.clone().into(),
+                    src_balance_wit.clone().into(),
                 ],
             )?;
 
@@ -409,14 +388,14 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
             merkle::groth16::check_proof_poseidon4(
                 &mut *cs,
                 enabled_wit.clone(),
-                tx_index_wit.clone(),
+                tx_index_wit.clone().into(),
                 src_hash_wit,
                 proof_wits.clone(),
-                state_wit.clone(),
+                state_wit.clone().into(),
             )?;
 
-            let src_balance_lc = WrappedLc::alloc_num(src_balance_wit);
-            let tx_amount_lc = WrappedLc::alloc_num(tx_amount_wit);
+            let src_balance_lc = Number::from(src_balance_wit);
+            let tx_amount_lc = Number::from(tx_amount_wit);
             let new_balance_wit = common::groth16::mux(
                 &mut *cs,
                 &Boolean::Is(tx_withdraw_wit.clone()),
@@ -427,27 +406,26 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
             let new_hash_wit = poseidon::groth16::poseidon(
                 &mut *cs,
                 &[
-                    src_nonce_wit,
-                    tx_pub_key_wit.x.clone(),
-                    tx_pub_key_wit.y.clone(),
-                    new_balance_wit,
+                    src_nonce_wit.into(),
+                    tx_pub_key_wit.x.clone().into(),
+                    tx_pub_key_wit.y.clone().into(),
+                    new_balance_wit.into(),
                 ],
             )?;
 
             let next_state_wit = merkle::groth16::calc_root_poseidon4(
                 &mut *cs,
-                tx_index_wit,
+                tx_index_wit.into(),
                 new_hash_wit,
                 proof_wits,
             )?;
 
-            state_wit = AllocatedNum::conditionally_reverse(
+            state_wit = common::groth16::mux(
                 &mut *cs,
-                &state_wit,
-                &next_state_wit,
                 &Boolean::Is(enabled_wit),
-            )?
-            .0;
+                &state_wit.into(),
+                &next_state_wit,
+            )?;
         }
 
         let claimed_next_state_wit = alloc_num(&mut *cs, filled, self.next_state)?;
