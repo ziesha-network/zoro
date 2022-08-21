@@ -3,7 +3,6 @@ use bazuka::zk::ZkScalar;
 use bellman::gadgets::boolean::{AllocatedBit, Boolean};
 use bellman::gadgets::num::AllocatedNum;
 use bellman::{Circuit, ConstraintSystem, SynthesisError};
-use ff::Field;
 use zeekit::common::groth16::Number;
 use zeekit::common::groth16::UnsignedInteger;
 use zeekit::eddsa::groth16::AllocatedPoint;
@@ -47,7 +46,8 @@ impl Circuit<BellmanFr> for UpdateCircuit {
 
             let src_nonce_wit = alloc_num(&mut *cs, ZkScalar::from(trans.src_before.nonce))?;
             let src_addr_wit = alloc_point(&mut *cs, trans.src_before.address)?;
-            let src_balance_wit = alloc_num(&mut *cs, ZkScalar::from(trans.src_before.balance))?;
+            let src_balance_wit =
+                UnsignedInteger::alloc_64(&mut *cs, trans.src_before.balance.into())?;
             let src_hash_wit = poseidon::groth16::poseidon(
                 &mut *cs,
                 &[
@@ -67,11 +67,12 @@ impl Circuit<BellmanFr> for UpdateCircuit {
             }
 
             let tx_nonce_wit = alloc_num(&mut *cs, ZkScalar::from(trans.tx.nonce))?;
-            let tx_src_index_wit = alloc_num(&mut *cs, ZkScalar::from(trans.tx.src_index as u64))?;
-            let tx_dst_index_wit = alloc_num(&mut *cs, ZkScalar::from(trans.tx.dst_index as u64))?;
+            let tx_src_index_wit = UnsignedInteger::alloc_32(&mut *cs, trans.tx.src_index)?;
+            let tx_dst_index_wit = UnsignedInteger::alloc_32(&mut *cs, trans.tx.dst_index)?;
             let tx_dst_addr_wit = alloc_point(&mut *cs, trans.tx.dst_pub_key.0.decompress())?;
-            let tx_amount_wit = alloc_num(&mut *cs, ZkScalar::from(trans.tx.amount))?;
-            let tx_fee_wit = alloc_num(&mut *cs, ZkScalar::from(trans.tx.fee))?;
+
+            let tx_amount_wit = UnsignedInteger::alloc_64(&mut *cs, trans.tx.amount.into())?;
+            let tx_fee_wit = UnsignedInteger::alloc_64(&mut *cs, trans.tx.fee.into())?;
 
             let final_fee = common::groth16::mux(
                 &mut *cs,
@@ -139,16 +140,8 @@ impl Circuit<BellmanFr> for UpdateCircuit {
                 ]);
             }
 
-            let new_dst_balance_wit = alloc_num(
-                &mut *cs,
-                ZkScalar::from(trans.dst_before.balance + trans.tx.amount),
-            )?;
-            cs.enforce(
-                || "",
-                |lc| lc + dst_balance_wit.get_variable() + tx_amount_wit.get_variable(),
-                |lc| lc + CS::one(),
-                |lc| lc + new_dst_balance_wit.get_variable(),
-            );
+            let new_dst_balance_wit =
+                Number::from(dst_balance_wit.clone()) + Number::from(tx_amount_wit.clone());
 
             // enforce dst_addr_wit == tx_dst_addr_wit or zero!
             cs.enforce(
@@ -170,7 +163,7 @@ impl Circuit<BellmanFr> for UpdateCircuit {
                     dst_nonce_wit.into(),
                     tx_dst_addr_wit.x.into(),
                     tx_dst_addr_wit.y.into(),
-                    new_dst_balance_wit.into(),
+                    new_dst_balance_wit,
                 ],
             )?;
 
@@ -191,15 +184,12 @@ impl Circuit<BellmanFr> for UpdateCircuit {
                 state_wit.clone().into(),
             )?;
 
-            // WARN: MIGHT OVERFLOW!
             let tx_balance_plus_fee_64 = UnsignedInteger::constrain(
                 &mut *cs,
                 Number::from(tx_amount_wit.clone()) + Number::from(tx_fee_wit.clone()),
                 64,
             )?;
-            let src_balance_64 =
-                UnsignedInteger::constrain(&mut *cs, src_balance_wit.clone().into(), 64)?;
-            tx_balance_plus_fee_64.lte(&mut *cs, &src_balance_64)?;
+            tx_balance_plus_fee_64.lte(&mut *cs, &src_balance_wit)?;
 
             cs.enforce(
                 || "",
@@ -272,12 +262,9 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
         let mut tx_wits = Vec::new();
         let mut children = Vec::new();
         for trans in self.transitions.0.iter() {
-            let index = alloc_num(&mut *cs, ZkScalar::from(trans.tx.index as u64))?;
-            let amount = alloc_num(&mut *cs, ZkScalar::from(trans.tx.amount))?;
-            let withdraw = alloc_num(
-                &mut *cs,
-                ZkScalar::from(if trans.tx.withdraw { 1 } else { 0 }),
-            )?;
+            let index = UnsignedInteger::alloc_32(&mut *cs, trans.tx.index)?;
+            let amount = UnsignedInteger::alloc_64(&mut *cs, trans.tx.amount.into())?;
+            let withdraw = AllocatedBit::alloc(&mut *cs, Some(trans.tx.withdraw))?;
             let pk = trans.tx.pub_key;
             let pubx = alloc_num(&mut *cs, pk.0)?;
             let puby = alloc_num(&mut *cs, pk.1)?;
@@ -291,11 +278,11 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
                 },
             ));
             children.push(AllocatedState::Children(vec![
-                AllocatedState::Value(index),
-                AllocatedState::Value(amount),
-                AllocatedState::Value(withdraw),
-                AllocatedState::Value(pubx),
-                AllocatedState::Value(puby),
+                AllocatedState::Value(index.into()),
+                AllocatedState::Value(amount.into()),
+                AllocatedState::Value(withdraw.into()),
+                AllocatedState::Value(pubx.into()),
+                AllocatedState::Value(puby.into()),
             ]));
         }
         let tx_root = reveal(
@@ -308,37 +295,24 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
             || "",
             |lc| lc + aux_wit.get_variable(),
             |lc| lc + CS::one(),
-            |lc| lc + tx_root.get_variable(),
+            |lc| lc + tx_root.get_lc(),
         );
 
         for (trans, (tx_index_wit, tx_amount_wit, tx_withdraw_wit, tx_pub_key_wit)) in
             self.transitions.0.iter().zip(tx_wits.into_iter())
         {
-            cs.enforce(
-                || "",
-                |lc| lc + tx_withdraw_wit.get_variable(),
-                |lc| lc + tx_withdraw_wit.get_variable() - CS::one(),
-                |lc| lc,
-            );
-            let tx_withdraw_wit = AllocatedBit::alloc(
-                &mut *cs,
-                tx_withdraw_wit
-                    .get_value()
-                    .map(|v| !Into::<bool>::into(v.is_zero())),
-            )?;
-
             let enabled_wit = AllocatedBit::alloc(&mut *cs, Some(trans.enabled))?;
 
             let src_nonce_wit = alloc_num(&mut *cs, ZkScalar::from(trans.before.nonce))?;
             let src_addr_wit = alloc_point(&mut *cs, trans.before.address)?;
-            let src_balance_wit = alloc_num(&mut *cs, ZkScalar::from(trans.before.balance))?;
+            let src_balance_wit = UnsignedInteger::alloc_64(&mut *cs, trans.before.balance.into())?;
             let src_hash_wit = poseidon::groth16::poseidon(
                 &mut *cs,
                 &[
                     src_nonce_wit.clone().into(),
                     src_addr_wit.x.clone().into(),
                     src_addr_wit.y.clone().into(),
-                    src_balance_wit.clone().into(),
+                    src_balance_wit.get_number().clone(),
                 ],
             )?;
 
@@ -395,7 +369,7 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
 
             let next_state_wit = merkle::groth16::calc_root_poseidon4(
                 &mut *cs,
-                tx_index_wit.into(),
+                tx_index_wit,
                 new_hash_wit,
                 proof_wits,
             )?;
