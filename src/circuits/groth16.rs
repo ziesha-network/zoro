@@ -67,7 +67,7 @@ impl Circuit<BellmanFr> for UpdateCircuit {
 
             let final_fee = common::groth16::mux(
                 &mut *cs,
-                &enabled_wit.clone(),
+                &enabled_wit,
                 &Number::zero(),
                 &tx_fee_wit.clone().into(),
             )?;
