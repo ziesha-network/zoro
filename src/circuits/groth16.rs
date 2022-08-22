@@ -40,10 +40,10 @@ impl Circuit<BellmanFr> for UpdateCircuit {
             let src_hash_wit = poseidon::groth16::poseidon(
                 &mut *cs,
                 &[
-                    src_nonce_wit.clone().into(),
-                    src_addr_wit.x.clone().into(),
-                    src_addr_wit.y.clone().into(),
-                    src_balance_wit.clone().into(),
+                    &src_nonce_wit.clone().into(),
+                    &src_addr_wit.x.clone().into(),
+                    &src_addr_wit.y.clone().into(),
+                    &src_balance_wit.clone().into(),
                 ],
             )?;
             let mut src_proof_wits = Vec::new();
@@ -76,11 +76,11 @@ impl Circuit<BellmanFr> for UpdateCircuit {
             let tx_hash_wit = poseidon::groth16::poseidon(
                 &mut *cs,
                 &[
-                    tx_nonce_wit.clone().into(),
-                    tx_src_index_wit.clone().into(),
-                    tx_dst_index_wit.clone().into(),
-                    tx_amount_wit.clone().into(),
-                    tx_fee_wit.clone().into(),
+                    &tx_nonce_wit.clone().into(),
+                    &tx_src_index_wit.clone().into(),
+                    &tx_dst_index_wit.clone().into(),
+                    &tx_amount_wit.clone().into(),
+                    &tx_fee_wit.clone().into(),
                 ],
             )?;
 
@@ -98,18 +98,18 @@ impl Circuit<BellmanFr> for UpdateCircuit {
             let new_src_hash_wit = poseidon::groth16::poseidon(
                 &mut *cs,
                 &[
-                    new_src_nonce_wit,
-                    src_addr_wit.x.clone().into(),
-                    src_addr_wit.y.clone().into(),
-                    new_src_balance_wit,
+                    &new_src_nonce_wit,
+                    &src_addr_wit.x.clone().into(),
+                    &src_addr_wit.y.clone().into(),
+                    &new_src_balance_wit,
                 ],
             )?;
 
             let middle_root_wit = merkle::groth16::calc_root_poseidon4(
                 &mut *cs,
-                tx_src_index_wit.clone().into(),
-                new_src_hash_wit,
-                src_proof_wits.clone(),
+                &tx_src_index_wit.clone().into(),
+                &new_src_hash_wit,
+                &src_proof_wits,
             )?;
 
             let dst_nonce_wit =
@@ -121,10 +121,10 @@ impl Circuit<BellmanFr> for UpdateCircuit {
             let dst_hash_wit = poseidon::groth16::poseidon(
                 &mut *cs,
                 &[
-                    dst_nonce_wit.clone().into(),
-                    dst_addr_wit.x.clone().into(),
-                    dst_addr_wit.y.clone().into(),
-                    dst_balance_wit.clone().into(),
+                    &dst_nonce_wit.clone().into(),
+                    &dst_addr_wit.x.clone().into(),
+                    &dst_addr_wit.y.clone().into(),
+                    &dst_balance_wit.clone().into(),
                 ],
             )?;
             let mut dst_proof_wits = Vec::new();
@@ -156,28 +156,28 @@ impl Circuit<BellmanFr> for UpdateCircuit {
             let new_dst_hash_wit = poseidon::groth16::poseidon(
                 &mut *cs,
                 &[
-                    dst_nonce_wit.into(),
-                    tx_dst_addr_wit.x.into(),
-                    tx_dst_addr_wit.y.into(),
-                    new_dst_balance_wit,
+                    &dst_nonce_wit.into(),
+                    &tx_dst_addr_wit.x.into(),
+                    &tx_dst_addr_wit.y.into(),
+                    &new_dst_balance_wit,
                 ],
             )?;
 
             merkle::groth16::check_proof_poseidon4(
                 &mut *cs,
                 &enabled_wit,
-                tx_dst_index_wit.clone().into(),
-                dst_hash_wit,
-                dst_proof_wits.clone(),
-                middle_root_wit,
+                &tx_dst_index_wit.clone().into(),
+                &dst_hash_wit,
+                &dst_proof_wits,
+                &middle_root_wit,
             )?;
             merkle::groth16::check_proof_poseidon4(
                 &mut *cs,
                 &enabled_wit,
-                tx_src_index_wit.into(),
-                src_hash_wit,
-                src_proof_wits,
-                state_wit.clone().into(),
+                &tx_src_index_wit.into(),
+                &src_hash_wit,
+                &src_proof_wits,
+                &state_wit.clone().into(),
             )?;
 
             let tx_balance_plus_fee_64 = UnsignedInteger::constrain(
@@ -197,17 +197,17 @@ impl Circuit<BellmanFr> for UpdateCircuit {
             eddsa::groth16::verify_eddsa(
                 &mut *cs,
                 &enabled_wit,
-                src_addr_wit,
-                tx_hash_wit,
-                tx_sig_r_wit,
-                tx_sig_s_wit,
+                &src_addr_wit,
+                &tx_hash_wit,
+                &tx_sig_r_wit,
+                &tx_sig_s_wit,
             )?;
 
             let next_state_wit = merkle::groth16::calc_root_poseidon4(
                 &mut *cs,
-                tx_dst_index_wit.into(),
-                new_dst_hash_wit,
-                dst_proof_wits,
+                &tx_dst_index_wit.into(),
+                &new_dst_hash_wit,
+                &dst_proof_wits,
             )?;
 
             state_wit =
@@ -301,10 +301,10 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
             let src_hash_wit = poseidon::groth16::poseidon(
                 &mut *cs,
                 &[
-                    src_nonce_wit.clone().into(),
-                    src_addr_wit.x.clone().into(),
-                    src_addr_wit.y.clone().into(),
-                    src_balance_wit.get_number().clone(),
+                    &src_nonce_wit.clone().into(),
+                    &src_addr_wit.x.clone().into(),
+                    &src_addr_wit.y.clone().into(),
+                    src_balance_wit.get_number(),
                 ],
             )?;
 
@@ -334,10 +334,10 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
             merkle::groth16::check_proof_poseidon4(
                 &mut *cs,
                 &enabled_wit,
-                tx_index_wit.clone().into(),
-                src_hash_wit,
-                proof_wits.clone(),
-                state_wit.clone().into(),
+                &tx_index_wit.clone().into(),
+                &src_hash_wit,
+                &proof_wits,
+                &state_wit.clone().into(),
             )?;
 
             let src_balance_lc = Number::from(src_balance_wit);
@@ -352,18 +352,18 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
             let new_hash_wit = poseidon::groth16::poseidon(
                 &mut *cs,
                 &[
-                    src_nonce_wit.into(),
-                    tx_pub_key_wit.x.clone().into(),
-                    tx_pub_key_wit.y.clone().into(),
-                    new_balance_wit.into(),
+                    &src_nonce_wit.into(),
+                    &tx_pub_key_wit.x.clone().into(),
+                    &tx_pub_key_wit.y.clone().into(),
+                    &new_balance_wit.into(),
                 ],
             )?;
 
             let next_state_wit = merkle::groth16::calc_root_poseidon4(
                 &mut *cs,
-                tx_index_wit,
-                new_hash_wit,
-                proof_wits,
+                &tx_index_wit,
+                &new_hash_wit,
+                &proof_wits,
             )?;
 
             state_wit =
