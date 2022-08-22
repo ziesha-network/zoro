@@ -185,7 +185,9 @@ impl Circuit<BellmanFr> for UpdateCircuit {
                 Number::from(tx_amount_wit.clone()) + Number::from(tx_fee_wit.clone()),
                 64,
             )?;
-            tx_balance_plus_fee_64.lte(&mut *cs, &src_balance_wit)?;
+
+            let is_lte = tx_balance_plus_fee_64.lte(&mut *cs, &src_balance_wit)?;
+            common::groth16::assert_true(&mut *cs, &is_lte);
 
             cs.enforce(
                 || "",
