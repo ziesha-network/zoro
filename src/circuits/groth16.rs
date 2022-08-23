@@ -140,6 +140,12 @@ impl Circuit<BellmanFr> for UpdateCircuit {
                 Number::from(dst_balance_wit.clone()) + Number::from(tx_amount_wit.clone());
 
             // enforce dst_addr_wit == tx_dst_addr_wit or zero!
+            let is_dst_null = dst_addr_wit.is_null(&mut *cs)?;
+            let is_dst_and_tx_dst_equal = dst_addr_wit.is_equal(&mut *cs, &tx_dst_addr_wit)?;
+            let addr_valid =
+                common::groth16::boolean_or(&mut *cs, &is_dst_null, &is_dst_and_tx_dst_equal)?;
+            common::groth16::assert_true_if_enabled(&mut *cs, &enabled_wit, &addr_valid)?;
+
             cs.enforce(
                 || "",
                 |lc| lc + dst_addr_wit.x.get_variable(),
@@ -187,7 +193,7 @@ impl Circuit<BellmanFr> for UpdateCircuit {
             )?;
 
             let is_lte = tx_balance_plus_fee_64.lte(&mut *cs, &src_balance_wit)?;
-            common::groth16::assert_true(&mut *cs, &is_lte);
+            common::groth16::assert_true_if_enabled(&mut *cs, &enabled_wit, &is_lte)?;
 
             cs.enforce(
                 || "",
@@ -260,30 +266,22 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
             let amount = UnsignedInteger::alloc_64(&mut *cs, trans.tx.amount.into())?;
             let withdraw = AllocatedBit::alloc(&mut *cs, Some(trans.tx.withdraw))?;
             let pk = trans.tx.pub_key;
-            let pubx = AllocatedNum::alloc(&mut *cs, || Ok(pk.0.into()))?;
-            let puby = AllocatedNum::alloc(&mut *cs, || Ok(pk.1.into()))?;
+            let pub_key = AllocatedPoint::alloc(&mut *cs, || Ok(pk))?;
             tx_wits.push((
                 index.clone(),
                 amount.clone(),
                 withdraw.clone(),
-                AllocatedPoint {
-                    x: pubx.clone(),
-                    y: puby.clone(),
-                },
+                pub_key.clone(),
             ));
             children.push(AllocatedState::Children(vec![
                 AllocatedState::Value(index.into()),
                 AllocatedState::Value(amount.into()),
                 AllocatedState::Value(withdraw.into()),
-                AllocatedState::Value(pubx.into()),
-                AllocatedState::Value(puby.into()),
+                AllocatedState::Value(pub_key.x.into()),
+                AllocatedState::Value(pub_key.y.into()),
             ]));
         }
-        let tx_root = reveal(
-            &mut *cs,
-            state_model.clone(),
-            AllocatedState::Children(children),
-        )?;
+        let tx_root = reveal(&mut *cs, &state_model, &AllocatedState::Children(children))?;
 
         cs.enforce(
             || "",
@@ -296,6 +294,8 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
             self.transitions.0.iter().zip(tx_wits.into_iter())
         {
             let enabled_wit = Boolean::Is(AllocatedBit::alloc(&mut *cs, Some(trans.enabled))?);
+
+            tx_pub_key_wit.assert_on_curve(&mut *cs, &enabled_wit)?;
 
             let src_nonce_wit = AllocatedNum::alloc(&mut *cs, || Ok(trans.before.nonce.into()))?;
             let src_addr_wit = AllocatedPoint::alloc(&mut *cs, || Ok(trans.before.address))?;
@@ -320,18 +320,14 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
             }
 
             // enforce src_addr_wit == tx_pub_key_wit or zero!
-            cs.enforce(
-                || "",
-                |lc| lc + src_addr_wit.x.get_variable(),
-                |lc| lc + src_addr_wit.x.get_variable() - tx_pub_key_wit.x.get_variable(),
-                |lc| lc,
-            );
-            cs.enforce(
-                || "",
-                |lc| lc + src_addr_wit.y.get_variable(),
-                |lc| lc + src_addr_wit.y.get_variable() - tx_pub_key_wit.y.get_variable(),
-                |lc| lc,
-            );
+            let is_src_addr_null = src_addr_wit.is_null(&mut *cs)?;
+            let is_src_and_tx_pub_key_equal = src_addr_wit.is_equal(&mut *cs, &tx_pub_key_wit)?;
+            let addr_valid = common::groth16::boolean_or(
+                &mut *cs,
+                &is_src_addr_null,
+                &is_src_and_tx_pub_key_equal,
+            )?;
+            common::groth16::assert_true_if_enabled(&mut *cs, &enabled_wit, &addr_valid)?;
 
             merkle::groth16::check_proof_poseidon4(
                 &mut *cs,
