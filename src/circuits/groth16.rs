@@ -1,3 +1,4 @@
+use crate::config;
 use bellman::gadgets::boolean::{AllocatedBit, Boolean};
 use bellman::gadgets::num::AllocatedNum;
 use bellman::{Circuit, ConstraintSystem, SynthesisError};
@@ -56,8 +57,16 @@ impl Circuit<BellmanFr> for UpdateCircuit {
             }
 
             let tx_nonce_wit = AllocatedNum::alloc(&mut *cs, || Ok(trans.tx.nonce.into()))?;
-            let tx_src_index_wit = UnsignedInteger::alloc_32(&mut *cs, trans.tx.src_index)?;
-            let tx_dst_index_wit = UnsignedInteger::alloc_32(&mut *cs, trans.tx.dst_index)?;
+            let tx_src_index_wit = UnsignedInteger::alloc(
+                &mut *cs,
+                (trans.tx.src_index as u64).into(),
+                config::LOG4_TREE_SIZE as usize * 2,
+            )?;
+            let tx_dst_index_wit = UnsignedInteger::alloc(
+                &mut *cs,
+                (trans.tx.dst_index as u64).into(),
+                config::LOG4_TREE_SIZE as usize * 2,
+            )?;
             let tx_dst_addr_wit =
                 AllocatedPoint::alloc(&mut *cs, || Ok(trans.tx.dst_pub_key.0.decompress()))?;
             tx_dst_addr_wit.assert_on_curve(&mut *cs, &enabled_wit)?;
@@ -262,7 +271,11 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
         let mut tx_wits = Vec::new();
         let mut children = Vec::new();
         for trans in self.transitions.0.iter() {
-            let index = UnsignedInteger::alloc_32(&mut *cs, trans.tx.index)?;
+            let index = UnsignedInteger::alloc(
+                &mut *cs,
+                (trans.tx.index as u64).into(),
+                config::LOG4_TREE_SIZE as usize * 2,
+            )?;
             let amount = UnsignedInteger::alloc_64(&mut *cs, trans.tx.amount.into())?;
             let withdraw = AllocatedBit::alloc(&mut *cs, Some(trans.tx.withdraw))?;
             let pk = trans.tx.pub_key;
