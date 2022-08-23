@@ -154,19 +154,6 @@ impl Circuit<BellmanFr> for UpdateCircuit {
             let addr_valid = common::boolean_or(&mut *cs, &is_dst_null, &is_dst_and_tx_dst_equal)?;
             common::assert_true_if_enabled(&mut *cs, &enabled_wit, &addr_valid)?;
 
-            cs.enforce(
-                || "",
-                |lc| lc + dst_addr_wit.x.get_variable(),
-                |lc| lc + dst_addr_wit.x.get_variable() - tx_dst_addr_wit.x.get_variable(),
-                |lc| lc,
-            );
-            cs.enforce(
-                || "",
-                |lc| lc + dst_addr_wit.y.get_variable(),
-                |lc| lc + dst_addr_wit.y.get_variable() - tx_dst_addr_wit.y.get_variable(),
-                |lc| lc,
-            );
-
             let new_dst_hash_wit = poseidon::poseidon(
                 &mut *cs,
                 &[
@@ -310,14 +297,16 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
 
             let src_nonce_wit = AllocatedNum::alloc(&mut *cs, || Ok(trans.before.nonce.into()))?;
             let src_addr_wit = AllocatedPoint::alloc(&mut *cs, || Ok(trans.before.address))?;
-            let src_balance_wit = UnsignedInteger::alloc_64(&mut *cs, trans.before.balance.into())?;
+            let src_balance_wit = AllocatedNum::alloc(&mut *cs, || {
+                Ok(Into::<u64>::into(trans.before.balance).into())
+            })?;
             let src_hash_wit = poseidon::poseidon(
                 &mut *cs,
                 &[
                     &src_nonce_wit.clone().into(),
                     &src_addr_wit.x.clone().into(),
                     &src_addr_wit.y.clone().into(),
-                    src_balance_wit.get_number(),
+                    &src_balance_wit.clone().into(),
                 ],
             )?;
 
