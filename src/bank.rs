@@ -22,7 +22,11 @@ pub enum BankError {
     KvStoreError(#[from] bazuka::db::KvStoreError),
 }
 
-pub struct Bank<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> {
+pub struct Bank<
+    const LOG4_PAYMENT_BATCH_SIZE: u8,
+    const LOG4_UPDATE_BATCH_SIZE: u8,
+    const LOG4_TREE_SIZE: u8,
+> {
     update_params: Parameters<Bls12>,
     deposit_withdraw_params: Parameters<Bls12>,
 }
@@ -52,7 +56,12 @@ pub fn extract_delta(ops: Vec<bazuka::db::WriteOp>) -> bazuka::zk::ZkDeltaPairs 
     pairs
 }
 
-impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Bank<LOG4_BATCH_SIZE, LOG4_TREE_SIZE> {
+impl<
+        const LOG4_PAYMENT_BATCH_SIZE: u8,
+        const LOG4_UPDATE_BATCH_SIZE: u8,
+        const LOG4_TREE_SIZE: u8,
+    > Bank<LOG4_PAYMENT_BATCH_SIZE, LOG4_UPDATE_BATCH_SIZE, LOG4_TREE_SIZE>
+{
     pub fn balances<K: KvStore>(&self, db: &K) -> Vec<(u32, u64)> {
         let state = KvStoreStateManager::<ZkHasher>::get_full_state(db, *MPN_CONTRACT_ID).unwrap();
         let mut result = Vec::new();
@@ -97,7 +106,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Bank<LOG4_BATCH_SIZE, 
         let mut state_size = root.state_size;
 
         for tx in txs.into_iter() {
-            if transitions.len() == 1 << LOG4_BATCH_SIZE {
+            if transitions.len() == 1 << LOG4_PAYMENT_BATCH_SIZE {
                 break;
             }
             let acc = KvStoreStateManager::<ZkHasher>::get_mpn_account(
@@ -170,7 +179,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Bank<LOG4_BATCH_SIZE, 
 
         let state_model = bazuka::zk::ZkStateModel::List {
             item_type: Box::new(bazuka::zk::CONTRACT_PAYMENT_STATE_MODEL.clone()),
-            log4_size: LOG4_BATCH_SIZE as u8,
+            log4_size: LOG4_PAYMENT_BATCH_SIZE as u8,
         };
         let mut state_builder =
             bazuka::zk::ZkStateBuilder::<bazuka::core::ZkHasher>::new(state_model.clone());
@@ -214,7 +223,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Bank<LOG4_BATCH_SIZE, 
             aux_data,
             next_state,
             transitions: Box::new(circuits::DepositWithdrawTransitionBatch::<
-                LOG4_BATCH_SIZE,
+                LOG4_PAYMENT_BATCH_SIZE,
                 LOG4_TREE_SIZE,
             >::new(transitions)),
         };
@@ -273,7 +282,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Bank<LOG4_BATCH_SIZE, 
         let mut mirror = db.mirror();
 
         for tx in txs.into_iter() {
-            if transitions.len() == 1 << LOG4_BATCH_SIZE {
+            if transitions.len() == 1 << LOG4_UPDATE_BATCH_SIZE {
                 break;
             }
             let src_before = KvStoreStateManager::<ZkHasher>::get_mpn_account(
@@ -382,9 +391,10 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Bank<LOG4_BATCH_SIZE, 
             state,
             aux_data,
             next_state,
-            transitions: Box::new(
-                circuits::TransitionBatch::<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>::new(transitions),
-            ),
+            transitions: Box::new(circuits::TransitionBatch::<
+                LOG4_UPDATE_BATCH_SIZE,
+                LOG4_TREE_SIZE,
+            >::new(transitions)),
         };
 
         let proof = unsafe {
