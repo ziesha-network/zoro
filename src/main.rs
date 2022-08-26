@@ -97,7 +97,7 @@ pub enum ZoroError {
 
 fn process_payments<K: bazuka::db::KvStore>(
     mempool: &mut HashMap<ContractPayment, ()>,
-    b: &bank::Bank,
+    b: &bank::Bank<{ config::LOG4_BATCH_SIZE }, { config::LOG4_TREE_SIZE }>,
     db_mirror: &mut bazuka::db::RamMirrorKvStore<K>,
 ) -> Result<bazuka::core::ContractUpdate, ZoroError> {
     for (tx, _) in mempool
@@ -142,7 +142,7 @@ fn process_payments<K: bazuka::db::KvStore>(
 
 fn process_updates<K: bazuka::db::KvStore>(
     mempool: &mut HashMap<ZeroTransaction, ()>,
-    b: &bank::Bank,
+    b: &bank::Bank<{ config::LOG4_BATCH_SIZE }, { config::LOG4_TREE_SIZE }>,
     db_mirror: &mut bazuka::db::RamMirrorKvStore<K>,
 ) -> Result<bazuka::core::ContractUpdate, ZoroError> {
     let (accepted, rejected, new_root, proof) =
@@ -184,12 +184,13 @@ fn main() {
 
     let exec_wallet = bazuka::wallet::Wallet::new(opt.seed.as_bytes().to_vec());
 
-    let update_params =
-        load_params::<circuits::UpdateCircuit>(opt.update_circuit_params, opt.generate_params);
-    let deposit_withdraw_params = load_params::<circuits::DepositWithdrawCircuit>(
-        opt.payment_circuit_params,
-        opt.generate_params,
-    );
+    let update_params = load_params::<
+        circuits::UpdateCircuit<{ config::LOG4_BATCH_SIZE }, { config::LOG4_TREE_SIZE }>,
+    >(opt.update_circuit_params, opt.generate_params);
+
+    let deposit_withdraw_params = load_params::<
+        circuits::DepositWithdrawCircuit<{ config::LOG4_BATCH_SIZE }, { config::LOG4_TREE_SIZE }>,
+    >(opt.payment_circuit_params, opt.generate_params);
 
     let node_addr = bazuka::client::PeerAddress(opt.node.parse().unwrap());
     let client = SyncClient::new(node_addr, &opt.network);

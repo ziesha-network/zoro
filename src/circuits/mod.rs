@@ -1,6 +1,5 @@
 mod groth16;
 
-use crate::config::{BATCH_SIZE, LOG4_BATCH_SIZE, LOG4_TREE_SIZE};
 use bazuka::core::{ContractPayment, Money};
 use bazuka::crypto::jubjub;
 use bazuka::zk::{MpnAccount, ZeroTransaction, ZkScalar};
@@ -16,7 +15,7 @@ use zeekit::merkle;
 // 6. root_after_dst := calc_new_root(dst_after, dst_proof)
 // 7. Check next_state == root_after_dst
 #[derive(Debug, Clone, Default)]
-pub struct Transition {
+pub struct Transition<const LOG4_TREE_SIZE: u8> {
     pub enabled: bool,
     pub tx: ZeroTransaction,
     pub src_before: MpnAccount, // src_after can be derived
@@ -26,23 +25,27 @@ pub struct Transition {
 }
 
 #[derive(Debug, Clone)]
-pub struct TransitionBatch(pub [Transition; BATCH_SIZE]);
-impl TransitionBatch {
-    pub fn new(mut ts: Vec<Transition>) -> Self {
-        while ts.len() < BATCH_SIZE {
+pub struct TransitionBatch<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8>(
+    Vec<Transition<LOG4_TREE_SIZE>>,
+);
+impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8>
+    TransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>
+{
+    pub fn new(mut ts: Vec<Transition<LOG4_TREE_SIZE>>) -> Self {
+        while ts.len() < 1 << LOG4_BATCH_SIZE {
             ts.push(Transition::default());
         }
-        Self(ts.try_into().unwrap())
+        Self(ts)
     }
 }
-impl Default for TransitionBatch {
+impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Default
+    for TransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>
+{
     fn default() -> Self {
         Self(
-            (0..BATCH_SIZE)
+            (0..1 << LOG4_BATCH_SIZE)
                 .map(|_| Transition::default())
-                .collect::<Vec<_>>()
-                .try_into()
-                .unwrap(),
+                .collect::<Vec<_>>(),
         )
     }
 }
@@ -57,15 +60,15 @@ pub struct DepositWithdraw {
 }
 
 #[derive(Debug, Default)]
-pub struct UpdateCircuit {
-    pub state: ZkScalar,                   // Public
-    pub aux_data: ZkScalar,                // Public
-    pub next_state: ZkScalar,              // Public
-    pub transitions: Box<TransitionBatch>, // Secret :)
+pub struct UpdateCircuit<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> {
+    pub state: ZkScalar,                                                    // Public
+    pub aux_data: ZkScalar,                                                 // Public
+    pub next_state: ZkScalar,                                               // Public
+    pub transitions: Box<TransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>>, // Secret :)
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct DepositWithdrawTransition {
+pub struct DepositWithdrawTransition<const LOG4_TREE_SIZE: u8> {
     pub enabled: bool,
     pub tx: DepositWithdraw,
     pub before: MpnAccount,
@@ -73,31 +76,35 @@ pub struct DepositWithdrawTransition {
 }
 
 #[derive(Debug, Clone)]
-pub struct DepositWithdrawTransitionBatch(pub [DepositWithdrawTransition; BATCH_SIZE]);
-impl DepositWithdrawTransitionBatch {
-    pub fn new(mut ts: Vec<DepositWithdrawTransition>) -> Self {
-        while ts.len() < BATCH_SIZE {
+pub struct DepositWithdrawTransitionBatch<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8>(
+    Vec<DepositWithdrawTransition<LOG4_TREE_SIZE>>,
+);
+impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8>
+    DepositWithdrawTransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>
+{
+    pub fn new(mut ts: Vec<DepositWithdrawTransition<LOG4_TREE_SIZE>>) -> Self {
+        while ts.len() < 1 << LOG4_BATCH_SIZE {
             ts.push(DepositWithdrawTransition::default());
         }
-        Self(ts.try_into().unwrap())
+        Self(ts)
     }
 }
-impl Default for DepositWithdrawTransitionBatch {
+impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Default
+    for DepositWithdrawTransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>
+{
     fn default() -> Self {
         Self(
-            (0..BATCH_SIZE)
+            (0..1 << LOG4_BATCH_SIZE)
                 .map(|_| DepositWithdrawTransition::default())
-                .collect::<Vec<_>>()
-                .try_into()
-                .unwrap(),
+                .collect::<Vec<_>>(),
         )
     }
 }
 
 #[derive(Debug, Default)]
-pub struct DepositWithdrawCircuit {
-    pub state: ZkScalar,                                  // Public
-    pub aux_data: ZkScalar,                               // Public
-    pub next_state: ZkScalar,                             // Public
-    pub transitions: Box<DepositWithdrawTransitionBatch>, // Secret :)
+pub struct DepositWithdrawCircuit<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> {
+    pub state: ZkScalar,      // Public
+    pub aux_data: ZkScalar,   // Public
+    pub next_state: ZkScalar, // Public
+    pub transitions: Box<DepositWithdrawTransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>>, // Secret :)
 }

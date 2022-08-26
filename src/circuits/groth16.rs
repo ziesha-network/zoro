@@ -1,4 +1,3 @@
-use crate::config;
 use bellman::gadgets::boolean::{AllocatedBit, Boolean};
 use bellman::gadgets::num::AllocatedNum;
 use bellman::{Circuit, ConstraintSystem, SynthesisError};
@@ -10,7 +9,9 @@ use zeekit::{common, eddsa, poseidon, BellmanFr};
 
 use super::*;
 
-impl Circuit<BellmanFr> for UpdateCircuit {
+impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
+    for UpdateCircuit<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>
+{
     fn synthesize<CS: ConstraintSystem<BellmanFr>>(
         self,
         cs: &mut CS,
@@ -60,12 +61,12 @@ impl Circuit<BellmanFr> for UpdateCircuit {
             let tx_src_index_wit = UnsignedInteger::alloc(
                 &mut *cs,
                 (trans.tx.src_index as u64).into(),
-                config::LOG4_TREE_SIZE as usize * 2,
+                LOG4_TREE_SIZE as usize * 2,
             )?;
             let tx_dst_index_wit = UnsignedInteger::alloc(
                 &mut *cs,
                 (trans.tx.dst_index as u64).into(),
-                config::LOG4_TREE_SIZE as usize * 2,
+                LOG4_TREE_SIZE as usize * 2,
             )?;
             let tx_dst_addr_wit =
                 AllocatedPoint::alloc(&mut *cs, || Ok(trans.tx.dst_pub_key.0.decompress()))?;
@@ -237,7 +238,9 @@ impl Circuit<BellmanFr> for UpdateCircuit {
     }
 }
 
-impl Circuit<BellmanFr> for DepositWithdrawCircuit {
+impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
+    for DepositWithdrawCircuit<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>
+{
     fn synthesize<CS: ConstraintSystem<BellmanFr>>(
         self,
         cs: &mut CS,
@@ -250,7 +253,7 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
 
         let state_model = bazuka::zk::ZkStateModel::List {
             item_type: Box::new(bazuka::zk::CONTRACT_PAYMENT_STATE_MODEL.clone()),
-            log4_size: LOG4_BATCH_SIZE as u8,
+            log4_size: LOG4_BATCH_SIZE,
         };
 
         let mut tx_wits = Vec::new();
@@ -259,7 +262,7 @@ impl Circuit<BellmanFr> for DepositWithdrawCircuit {
             let index = UnsignedInteger::alloc(
                 &mut *cs,
                 (trans.tx.index as u64).into(),
-                config::LOG4_TREE_SIZE as usize * 2,
+                LOG4_TREE_SIZE as usize * 2,
             )?;
             let amount = UnsignedInteger::alloc_64(&mut *cs, trans.tx.amount.into())?;
             let withdraw = AllocatedBit::alloc(&mut *cs, Some(trans.tx.withdraw))?;
