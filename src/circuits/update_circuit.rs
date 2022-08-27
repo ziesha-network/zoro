@@ -76,6 +76,10 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
         let aux_wit = AllocatedNum::alloc(&mut *cs, || Ok(self.aux_data.into()))?;
         aux_wit.inputize(&mut *cs)?;
 
+        // Expected next state feeded as input
+        let claimed_next_state_wit = AllocatedNum::alloc(&mut *cs, || Ok(self.next_state.into()))?;
+        claimed_next_state_wit.inputize(&mut *cs)?;
+
         // Sum of tx fees as a linear-combination of tx fees
         let mut fee_sum = Number::zero();
 
@@ -87,10 +91,13 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
                 AllocatedNum::alloc(&mut *cs, || Ok(trans.src_before.nonce.into()))?;
 
             let src_addr_wit = AllocatedPoint::alloc(&mut *cs, || Ok(trans.src_before.address))?;
+            // Sender address should be on curve in case transaction slot is non-empty
             src_addr_wit.assert_on_curve(&mut *cs, &enabled_wit)?;
 
+            // Sender balance should always have at most 64 bits
             let src_balance_wit =
                 UnsignedInteger::alloc_64(&mut *cs, trans.src_before.balance.into())?;
+
             let src_hash_wit = poseidon::poseidon(
                 &mut *cs,
                 &[
@@ -110,6 +117,8 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
             }
 
             let tx_nonce_wit = AllocatedNum::alloc(&mut *cs, || Ok(trans.tx.nonce.into()))?;
+
+            // src and dst indices should only have 2 * LOG4_TREE_SIZE bits
             let tx_src_index_wit = UnsignedInteger::alloc(
                 &mut *cs,
                 (trans.tx.src_index as u64).into(),
@@ -120,13 +129,17 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
                 (trans.tx.dst_index as u64).into(),
                 LOG4_TREE_SIZE as usize * 2,
             )?;
+
             let tx_dst_addr_wit =
                 AllocatedPoint::alloc(&mut *cs, || Ok(trans.tx.dst_pub_key.0.decompress()))?;
+            // Destination address should be on curve in case transaction slot is non-empty
             tx_dst_addr_wit.assert_on_curve(&mut *cs, &enabled_wit)?;
 
+            // Transaction amount and fee should at most have 64 bits
             let tx_amount_wit = UnsignedInteger::alloc_64(&mut *cs, trans.tx.amount.into())?;
             let tx_fee_wit = UnsignedInteger::alloc_64(&mut *cs, trans.tx.fee.into())?;
 
+            // Fee is zero if transaction slot is empty, otherwise it equals to transaction fee
             let final_fee = common::mux(
                 &mut *cs,
                 &enabled_wit,
@@ -147,10 +160,12 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
             )?;
 
             let tx_sig_r_wit = AllocatedPoint::alloc(&mut *cs, || Ok(trans.tx.sig.r))?;
+            // Check if sig_r resides on curve
             tx_sig_r_wit.assert_on_curve(&mut *cs, &enabled_wit)?;
 
             let tx_sig_s_wit = AllocatedNum::alloc(&mut *cs, || Ok(trans.tx.sig.s.into()))?;
 
+            // Source nonce is incremented by one and balance is decreased by amount+fee
             let new_src_nonce_wit =
                 Number::from(src_nonce_wit.clone()) + Number::constant::<CS>(BellmanFr::one());
             let new_src_balance_wit = Number::from(src_balance_wit.clone())
@@ -167,6 +182,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
                 ],
             )?;
 
+            // Root of the merkle tree after src account is updated
             let middle_root_wit = merkle::calc_root_poseidon4(
                 &mut *cs,
                 &tx_src_index_wit.clone().into(),
@@ -176,10 +192,16 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
 
             let dst_nonce_wit =
                 AllocatedNum::alloc(&mut *cs, || Ok(trans.dst_before.nonce.into()))?;
+
+            // Destination address doesn't necessarily need to reside on curve as it might be empty
             let dst_addr_wit = AllocatedPoint::alloc(&mut *cs, || Ok(trans.dst_before.address))?;
+
+            // We also don't need to make sure dst balance is 64 bits. If everything works as expected
+            // nothing like this should happen.
             let dst_balance_wit = AllocatedNum::alloc(&mut *cs, || {
                 Ok(Into::<u64>::into(trans.dst_before.balance).into())
             })?;
+
             let dst_hash_wit = poseidon::poseidon(
                 &mut *cs,
                 &[
@@ -198,14 +220,15 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
                 ]);
             }
 
+            // Increase destination balance by tx amount
             let new_dst_balance_wit =
                 Number::from(dst_balance_wit.clone()) + Number::from(tx_amount_wit.clone());
 
-            // enforce dst_addr_wit == tx_dst_addr_wit or zero!
+            // Address of destination account slot can either be empty or equal with tx destination
             let is_dst_null = dst_addr_wit.is_null(&mut *cs)?;
             let is_dst_and_tx_dst_equal = dst_addr_wit.is_equal(&mut *cs, &tx_dst_addr_wit)?;
             let addr_valid = common::boolean_or(&mut *cs, &is_dst_null, &is_dst_and_tx_dst_equal)?;
-            common::assert_true_if_enabled(&mut *cs, &enabled_wit, &addr_valid)?;
+            common::assert_true(&mut *cs, &addr_valid);
 
             let new_dst_hash_wit = poseidon::poseidon(
                 &mut *cs,
@@ -217,6 +240,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
                 ],
             )?;
 
+            // Check merkle proofs
             merkle::check_proof_poseidon4(
                 &mut *cs,
                 &enabled_wit,
@@ -234,15 +258,16 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
                 &state_wit.clone().into(),
             )?;
 
+            // tx amount+fee should be <= src balance
             let tx_balance_plus_fee_64 = UnsignedInteger::constrain(
                 &mut *cs,
                 Number::from(tx_amount_wit.clone()) + Number::from(tx_fee_wit.clone()),
                 64,
             )?;
-
             let is_lte = tx_balance_plus_fee_64.lte(&mut *cs, &src_balance_wit)?;
-            common::assert_true_if_enabled(&mut *cs, &enabled_wit, &is_lte)?;
+            common::assert_true(&mut *cs, &is_lte);
 
+            // Check tx nonce is equal with account nonce to prevent double spending
             cs.enforce(
                 || "",
                 |lc| lc + tx_nonce_wit.get_variable(),
@@ -250,6 +275,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
                 |lc| lc + src_nonce_wit.get_variable(),
             );
 
+            // Check EdDSA signature
             eddsa::verify_eddsa(
                 &mut *cs,
                 &enabled_wit,
@@ -259,19 +285,17 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
                 &tx_sig_s_wit,
             )?;
 
+            // Calculate next-state hash and update state if tx is enabled
             let next_state_wit = merkle::calc_root_poseidon4(
                 &mut *cs,
                 &tx_dst_index_wit.into(),
                 &new_dst_hash_wit,
                 &dst_proof_wits,
             )?;
-
             state_wit = common::mux(&mut *cs, &enabled_wit, &state_wit.into(), &next_state_wit)?;
         }
 
-        let claimed_next_state_wit = AllocatedNum::alloc(&mut *cs, || Ok(self.next_state.into()))?;
-        claimed_next_state_wit.inputize(&mut *cs)?;
-
+        // Check if sum of tx fees is equal with the feeded aux
         cs.enforce(
             || "",
             |lc| lc + aux_wit.get_variable(),
@@ -279,6 +303,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
             |lc| lc + fee_sum.get_lc(),
         );
 
+        // Check if applying txs result in the claimed next state
         cs.enforce(
             || "",
             |lc| lc + state_wit.get_variable(),
