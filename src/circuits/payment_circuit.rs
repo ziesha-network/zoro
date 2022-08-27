@@ -36,7 +36,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8>
     DepositWithdrawTransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>
 {
     pub fn new(mut ts: Vec<DepositWithdrawTransition<LOG4_TREE_SIZE>>) -> Self {
-        while ts.len() < 1 << LOG4_BATCH_SIZE {
+        while ts.len() < 1 << (2 * LOG4_BATCH_SIZE) {
             ts.push(DepositWithdrawTransition::default());
         }
         Self(ts)
@@ -47,7 +47,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Default
 {
     fn default() -> Self {
         Self(
-            (0..1 << LOG4_BATCH_SIZE)
+            (0..1 << (2 * LOG4_BATCH_SIZE))
                 .map(|_| DepositWithdrawTransition::default())
                 .collect::<Vec<_>>(),
         )

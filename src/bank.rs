@@ -106,7 +106,7 @@ impl<
         let mut state_size = root.state_size;
 
         for tx in txs.into_iter() {
-            if transitions.len() == 1 << LOG4_PAYMENT_BATCH_SIZE {
+            if transitions.len() == 1 << (2 * LOG4_PAYMENT_BATCH_SIZE) {
                 break;
             }
             let acc = KvStoreStateManager::<ZkHasher>::get_mpn_account(
@@ -282,7 +282,7 @@ impl<
         let mut mirror = db.mirror();
 
         for tx in txs.into_iter() {
-            if transitions.len() == 1 << LOG4_UPDATE_BATCH_SIZE {
+            if transitions.len() == 1 << (2 * LOG4_UPDATE_BATCH_SIZE) {
                 break;
             }
             let src_before = KvStoreStateManager::<ZkHasher>::get_mpn_account(
