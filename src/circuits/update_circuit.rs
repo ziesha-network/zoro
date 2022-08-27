@@ -94,7 +94,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
             // Sender address should be on curve in case transaction slot is non-empty
             src_addr_wit.assert_on_curve(&mut *cs, &enabled_wit)?;
 
-            // Sender balance should always have at most 64 bits
+            // We need bits of sender balance for the LTE operation
             let src_balance_wit =
                 UnsignedInteger::alloc_64(&mut *cs, trans.src_before.balance.into())?;
 
