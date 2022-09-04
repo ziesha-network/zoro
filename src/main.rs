@@ -50,7 +50,7 @@ fn load_params<C: Circuit<BellmanFr> + Default>(
     generate: bool,
 ) -> groth16::Parameters<Bls12> {
     if generate {
-        log::info!("Generating {}...", path.to_string_lossy());
+        println!("Generating {}...", path.to_string_lossy());
         let c = C::default();
 
         let mut rng = ChaCha8Rng::seed_from_u64(1234);
@@ -61,7 +61,7 @@ fn load_params<C: Circuit<BellmanFr> + Default>(
         println!("VK of {}: {}", path.to_string_lossy(), vk_to_hex(&p.vk));
         p
     } else {
-        log::info!("Loading {}...", path.to_string_lossy());
+        println!("Loading {}...", path.to_string_lossy());
         let param_file = File::open(path).expect("Unable to open parameters file!");
         groth16::Parameters::<Bls12>::read(param_file, false /* false for better performance*/)
             .expect("Unable to read parameters file!")
