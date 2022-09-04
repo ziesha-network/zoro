@@ -215,94 +215,102 @@ fn main() {
     let mut payment_mempool = HashMap::<ContractPayment, ()>::new();
 
     loop {
-        let db_shutter = db_shutter();
-        let db = db_shutter.snapshot();
+        if let Err(e) = || -> Result<(), ZoroError> {
+            let db_shutter = db_shutter();
+            let db = db_shutter.snapshot();
 
-        // Wait till mine is done
-        if client.is_mining().unwrap() {
-            log::info!("Nothing to mine!");
+            // Wait till mine is done
+            if client.is_mining()? {
+                log::info!("Nothing to mine!");
+                std::thread::sleep(std::time::Duration::from_millis(1000));
+                return Ok(());
+            }
+
+            // Wait till chain gets updated
+            if client.is_outdated()? {
+                log::info!("Chain is outdated!");
+                std::thread::sleep(std::time::Duration::from_millis(1000));
+                return Ok(());
+            }
+
+            let mut db_mirror = db.mirror();
+            let acc = client.get_account(exec_wallet.get_address())?.account;
+
+            let mempool = client.get_zero_mempool()?;
+            for update in mempool.updates.iter() {
+                update_mempool.insert(update.clone(), ());
+            }
+            for payment in mempool.payments.iter() {
+                payment_mempool.insert(payment.clone(), ());
+            }
+
+            let mut updates = Vec::new();
+
+            for i in 0..opt.payment_batches {
+                let start = std::time::Instant::now();
+                println!(
+                    "{} Payment-Transactions ({}/{})...",
+                    "Processing:".bright_yellow(),
+                    i + 1,
+                    opt.payment_batches
+                );
+                alice_shuffle();
+                updates.push(process_payments(
+                    &conf,
+                    &mut payment_mempool,
+                    &b,
+                    &mut db_mirror,
+                )?);
+                println!(
+                    "{} {}ms",
+                    "Proving took:".bright_green(),
+                    (std::time::Instant::now() - start).as_millis()
+                );
+            }
+
+            for i in 0..opt.update_batches {
+                let start = std::time::Instant::now();
+                println!(
+                    "{} Zero-Transactions ({}/{})...",
+                    "Processing:".bright_yellow(),
+                    i + 1,
+                    opt.update_batches
+                );
+                alice_shuffle();
+                updates.push(process_updates(&mut update_mempool, &b, &mut db_mirror)?);
+                println!(
+                    "{} {}ms",
+                    "Proving took:".bright_green(),
+                    (std::time::Instant::now() - start).as_millis()
+                );
+            }
+
+            let mut update = bazuka::core::Transaction {
+                src: exec_wallet.get_address(),
+                nonce: acc.nonce + 1,
+                fee: Money(0),
+                data: bazuka::core::TransactionData::UpdateContract {
+                    contract_id: conf.mpn_contract_id.clone(),
+                    updates,
+                },
+                sig: bazuka::core::Signature::Unsigned,
+            };
+            exec_wallet.sign(&mut update);
+
+            let ops = db_mirror.to_ops();
+            let delta = bank::extract_delta(ops);
+
+            let tx_delta = bazuka::core::TransactionAndDelta {
+                tx: update,
+                state_delta: Some(delta),
+            };
+
+            client.transact(tx_delta)?;
+
+            Ok(())
+        }() {
+            println!("Error happened! Error: {}", e);
             std::thread::sleep(std::time::Duration::from_millis(1000));
-            continue;
         }
-
-        // Wait till chain gets updated
-        if client.is_outdated().unwrap() {
-            log::info!("Chain is outdated!");
-            std::thread::sleep(std::time::Duration::from_millis(1000));
-            continue;
-        }
-
-        let mut db_mirror = db.mirror();
-        let acc = client
-            .get_account(exec_wallet.get_address())
-            .unwrap()
-            .account;
-
-        let mempool = client.get_zero_mempool().unwrap();
-        for update in mempool.updates.iter() {
-            update_mempool.insert(update.clone(), ());
-        }
-        for payment in mempool.payments.iter() {
-            payment_mempool.insert(payment.clone(), ());
-        }
-
-        let mut updates = Vec::new();
-
-        for i in 0..opt.payment_batches {
-            let start = std::time::Instant::now();
-            println!(
-                "{} Payment-Transactions ({}/{})...",
-                "Processing:".bright_yellow(),
-                i + 1,
-                opt.payment_batches
-            );
-            alice_shuffle();
-            updates
-                .push(process_payments(&conf, &mut payment_mempool, &b, &mut db_mirror).unwrap());
-            println!(
-                "{} {}ms",
-                "Proving took:".bright_green(),
-                (std::time::Instant::now() - start).as_millis()
-            );
-        }
-
-        for i in 0..opt.update_batches {
-            let start = std::time::Instant::now();
-            println!(
-                "{} Zero-Transactions ({}/{})...",
-                "Processing:".bright_yellow(),
-                i + 1,
-                opt.update_batches
-            );
-            alice_shuffle();
-            updates.push(process_updates(&mut update_mempool, &b, &mut db_mirror).unwrap());
-            println!(
-                "{} {}ms",
-                "Proving took:".bright_green(),
-                (std::time::Instant::now() - start).as_millis()
-            );
-        }
-
-        let mut update = bazuka::core::Transaction {
-            src: exec_wallet.get_address(),
-            nonce: acc.nonce + 1,
-            fee: Money(0),
-            data: bazuka::core::TransactionData::UpdateContract {
-                contract_id: conf.mpn_contract_id.clone(),
-                updates,
-            },
-            sig: bazuka::core::Signature::Unsigned,
-        };
-        exec_wallet.sign(&mut update);
-
-        let ops = db_mirror.to_ops();
-        let delta = bank::extract_delta(ops);
-
-        let tx_delta = bazuka::core::TransactionAndDelta {
-            tx: update,
-            state_delta: Some(delta),
-        };
-
-        client.transact(tx_delta).unwrap();
     }
 }
