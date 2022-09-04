@@ -31,6 +31,8 @@ struct Opt {
     seed: String,
     #[structopt(long)]
     node: String,
+    #[structopt(long)]
+    db: String,
     #[structopt(long, default_value = "mainnet")]
     network: String,
     #[structopt(long, default_value = "update_params.dat")]
@@ -80,8 +82,8 @@ fn vk_to_hex(vk: &bellman::groth16::VerifyingKey<Bls12>) -> String {
     )
 }
 
-fn db_shutter() -> ReadOnlyLevelDbKvStore {
-    ReadOnlyLevelDbKvStore::read_only(std::path::Path::new("/home/keyvan/.bazuka"), 64).unwrap()
+fn db_shutter(path: &str) -> ReadOnlyLevelDbKvStore {
+    ReadOnlyLevelDbKvStore::read_only(std::path::Path::new(path), 64).unwrap()
 }
 
 use thiserror::Error;
@@ -216,7 +218,7 @@ fn main() {
 
     loop {
         if let Err(e) = || -> Result<(), ZoroError> {
-            let db_shutter = db_shutter();
+            let db_shutter = db_shutter(&opt.db);
             let db = db_shutter.snapshot();
 
             // Wait till mine is done
