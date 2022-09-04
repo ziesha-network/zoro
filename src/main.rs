@@ -5,7 +5,8 @@ mod config;
 
 use circuits::DepositWithdraw;
 
-use bazuka::config::blockchain::MPN_CONTRACT_ID;
+use bazuka::blockchain::BlockchainConfig;
+use bazuka::config::blockchain::get_blockchain_config;
 use bazuka::core::{ContractPayment, Money, PaymentDirection};
 use bazuka::db::KvStore;
 use bazuka::db::ReadOnlyLevelDbKvStore;
@@ -96,6 +97,7 @@ pub enum ZoroError {
 }
 
 fn process_payments<K: bazuka::db::KvStore>(
+    conf: &BlockchainConfig,
     mempool: &mut HashMap<ContractPayment, ()>,
     b: &bank::Bank<
         { config::LOG4_PAYMENT_BATCH_SIZE },
@@ -107,7 +109,7 @@ fn process_payments<K: bazuka::db::KvStore>(
     for (tx, _) in mempool
         .clone()
         .iter()
-        .filter(|(dw, _)| dw.contract_id != *MPN_CONTRACT_ID)
+        .filter(|(dw, _)| &dw.contract_id != &conf.mpn_contract_id)
     {
         mempool.remove(tx);
     }
@@ -206,7 +208,8 @@ fn main() {
     let node_addr = bazuka::client::PeerAddress(opt.node.parse().unwrap());
     let client = SyncClient::new(node_addr, &opt.network);
 
-    let b = bank::Bank::new(update_params, deposit_withdraw_params);
+    let conf = get_blockchain_config();
+    let b = bank::Bank::new(conf.clone(), update_params, deposit_withdraw_params);
 
     let mut update_mempool = HashMap::<ZeroTransaction, ()>::new();
     let mut payment_mempool = HashMap::<ContractPayment, ()>::new();
@@ -254,7 +257,8 @@ fn main() {
                 opt.payment_batches
             );
             alice_shuffle();
-            updates.push(process_payments(&mut payment_mempool, &b, &mut db_mirror).unwrap());
+            updates
+                .push(process_payments(&conf, &mut payment_mempool, &b, &mut db_mirror).unwrap());
             println!(
                 "{} {}ms",
                 "Proving took:".bright_green(),
@@ -284,7 +288,7 @@ fn main() {
             nonce: acc.nonce + 1,
             fee: Money(0),
             data: bazuka::core::TransactionData::UpdateContract {
-                contract_id: *MPN_CONTRACT_ID,
+                contract_id: conf.mpn_contract_id.clone(),
                 updates,
             },
             sig: bazuka::core::Signature::Unsigned,

@@ -2,8 +2,8 @@ use crate::circuits;
 use crate::circuits::DepositWithdraw;
 use bazuka::zk::ZkScalar;
 use bazuka::{
-    config::blockchain::MPN_CONTRACT_ID,
-    core::ZkHasher,
+    blockchain::BlockchainConfig,
+    core::{ContractId, ZkHasher},
     crypto::jubjub::PublicKey,
     db::KvStore,
     zk::{KvStoreStateManager, MpnAccount, ZeroTransaction, ZkDataLocator},
@@ -27,6 +27,7 @@ pub struct Bank<
     const LOG4_UPDATE_BATCH_SIZE: u8,
     const LOG4_TREE_SIZE: u8,
 > {
+    mpn_contract_id: ContractId,
     update_params: Parameters<Bls12>,
     deposit_withdraw_params: Parameters<Bls12>,
 }
@@ -63,7 +64,8 @@ impl<
     > Bank<LOG4_PAYMENT_BATCH_SIZE, LOG4_UPDATE_BATCH_SIZE, LOG4_TREE_SIZE>
 {
     pub fn balances<K: KvStore>(&self, db: &K) -> Vec<(u32, u64)> {
-        let state = KvStoreStateManager::<ZkHasher>::get_full_state(db, *MPN_CONTRACT_ID).unwrap();
+        let state =
+            KvStoreStateManager::<ZkHasher>::get_full_state(db, self.mpn_contract_id).unwrap();
         let mut result = Vec::new();
         for (loc, val) in state.data.0 {
             if loc.0[1] == 3 {
@@ -73,10 +75,12 @@ impl<
         result
     }
     pub fn new(
+        blockchain_config: BlockchainConfig,
         update_params: Parameters<Bls12>,
         deposit_withdraw_params: Parameters<Bls12>,
     ) -> Self {
         Self {
+            mpn_contract_id: blockchain_config.mpn_contract_id,
             update_params,
             deposit_withdraw_params,
         }
@@ -100,7 +104,7 @@ impl<
         let mut transitions = Vec::new();
         let mut rejected = Vec::new();
         let mut accepted = Vec::new();
-        let root = KvStoreStateManager::<ZkHasher>::root(db, *MPN_CONTRACT_ID).unwrap();
+        let root = KvStoreStateManager::<ZkHasher>::root(db, self.mpn_contract_id).unwrap();
 
         let state = root.state_hash;
         let mut state_size = root.state_size;
@@ -111,7 +115,7 @@ impl<
             }
             let acc = KvStoreStateManager::<ZkHasher>::get_mpn_account(
                 &mirror,
-                *MPN_CONTRACT_ID,
+                self.mpn_contract_id,
                 tx.index,
             )
             .unwrap();
@@ -135,7 +139,7 @@ impl<
                 let proof = zeekit::merkle::Proof::<{ LOG4_TREE_SIZE }>(
                     KvStoreStateManager::<ZkHasher>::prove(
                         &mirror,
-                        *MPN_CONTRACT_ID,
+                        self.mpn_contract_id,
                         ZkDataLocator(vec![]),
                         tx.index,
                     )
@@ -144,7 +148,7 @@ impl<
 
                 KvStoreStateManager::<ZkHasher>::set_mpn_account(
                     &mut mirror,
-                    *MPN_CONTRACT_ID,
+                    self.mpn_contract_id,
                     tx.index,
                     updated_acc,
                     &mut state_size,
@@ -162,13 +166,13 @@ impl<
         }
         let next_state = KvStoreStateManager::<ZkHasher>::get_data(
             &mirror,
-            *MPN_CONTRACT_ID,
+            self.mpn_contract_id,
             &ZkDataLocator(vec![]),
         )
         .unwrap();
         mirror
             .update(&[bazuka::db::WriteOp::Put(
-                bazuka::db::keys::local_root(&MPN_CONTRACT_ID),
+                bazuka::db::keys::local_root(&self.mpn_contract_id),
                 bazuka::zk::ZkCompressedState {
                     state_hash: next_state,
                     state_size,
@@ -274,7 +278,7 @@ impl<
         let mut accepted = Vec::new();
         let mut transitions = Vec::new();
 
-        let root = KvStoreStateManager::<ZkHasher>::root(db, *MPN_CONTRACT_ID).unwrap();
+        let root = KvStoreStateManager::<ZkHasher>::root(db, self.mpn_contract_id).unwrap();
 
         let state = root.state_hash;
         let mut state_size = root.state_size;
@@ -287,7 +291,7 @@ impl<
             }
             let src_before = KvStoreStateManager::<ZkHasher>::get_mpn_account(
                 &mirror,
-                *MPN_CONTRACT_ID,
+                self.mpn_contract_id,
                 tx.src_index,
             )
             .unwrap();
@@ -301,7 +305,7 @@ impl<
                 let src_proof = zeekit::merkle::Proof::<{ LOG4_TREE_SIZE }>(
                     KvStoreStateManager::<ZkHasher>::prove(
                         &mirror,
-                        *MPN_CONTRACT_ID,
+                        self.mpn_contract_id,
                         ZkDataLocator(vec![]),
                         tx.src_index,
                     )
@@ -314,7 +318,7 @@ impl<
                 };
                 KvStoreStateManager::<ZkHasher>::set_mpn_account(
                     &mut mirror,
-                    *MPN_CONTRACT_ID,
+                    self.mpn_contract_id,
                     tx.src_index,
                     src_after,
                     &mut state_size,
@@ -323,14 +327,14 @@ impl<
 
                 let dst_before = KvStoreStateManager::<ZkHasher>::get_mpn_account(
                     &mirror,
-                    *MPN_CONTRACT_ID,
+                    self.mpn_contract_id,
                     tx.dst_index,
                 )
                 .unwrap();
                 let dst_proof = zeekit::merkle::Proof::<{ LOG4_TREE_SIZE }>(
                     KvStoreStateManager::<ZkHasher>::prove(
                         &mirror,
-                        *MPN_CONTRACT_ID,
+                        self.mpn_contract_id,
                         ZkDataLocator(vec![]),
                         tx.dst_index,
                     )
@@ -344,7 +348,7 @@ impl<
                 };
                 KvStoreStateManager::<ZkHasher>::set_mpn_account(
                     &mut mirror,
-                    *MPN_CONTRACT_ID,
+                    self.mpn_contract_id,
                     tx.dst_index,
                     dst_after,
                     &mut state_size,
@@ -365,13 +369,13 @@ impl<
 
         let next_state = KvStoreStateManager::<ZkHasher>::get_data(
             &mirror,
-            *MPN_CONTRACT_ID,
+            self.mpn_contract_id,
             &ZkDataLocator(vec![]),
         )
         .unwrap();
         mirror
             .update(&[bazuka::db::WriteOp::Put(
-                bazuka::db::keys::local_root(&MPN_CONTRACT_ID),
+                bazuka::db::keys::local_root(&self.mpn_contract_id),
                 bazuka::zk::ZkCompressedState {
                     state_hash: next_state,
                     state_size,
