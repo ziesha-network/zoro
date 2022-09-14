@@ -8,7 +8,7 @@ colored = "2.0.0"
 log = "0.4"
 env_logger = "0.9.0"
 
-bellman = "0.13.0"
+bellman = "0.13.1"
 bls12_381 = "0.7.0"
 
 tokio = { version = "1", features = ["rt"]}
@@ -31,3 +31,6 @@ ureq = { version = "2.4.0", features = ["json"], default-features = false }
 ff = { version = "0.12", features = ["derive", "derive_bits"] }
 zeekit = { git = "https://github.com/zeeka-network/zeekit"}
 bazuka = { git = "https://github.com/zeeka-network/bazuka", default-features = false, features = ["client", "db"] }
+
+[patch.crates-io]
+bellman = { git = "https://github.com/zeeka-network/bellwoman", branch = "gpu"}

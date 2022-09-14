@@ -8,7 +8,9 @@ use bazuka::{
     db::KvStore,
     zk::{KvStoreStateManager, MpnAccount, ZeroTransaction, ZkDataLocator},
 };
+use bellman::gpu::{Brand, Device};
 use bellman::groth16;
+use bellman::groth16::Backend;
 use bellman::groth16::Parameters;
 use bls12_381::Bls12;
 use rand::rngs::OsRng;
@@ -27,6 +29,7 @@ pub struct Bank<
     const LOG4_UPDATE_BATCH_SIZE: u8,
     const LOG4_TREE_SIZE: u8,
 > {
+    backend: Backend,
     mpn_contract_id: ContractId,
     update_params: Parameters<Bls12>,
     deposit_withdraw_params: Parameters<Bls12>,
@@ -80,6 +83,17 @@ impl<
         deposit_withdraw_params: Parameters<Bls12>,
     ) -> Self {
         Self {
+            backend: Backend::Gpu(vec![(
+                Device::by_brand(Brand::Nvidia).unwrap()[0].clone(),
+                bellman::gpu::OptParams {
+                    n_g1: 32 * 1024 * 1024,
+                    window_size_g1: 9,
+                    groups_g1: 298,
+                    n_g2: 16 * 1024 * 1024,
+                    window_size_g2: 9,
+                    groups_g2: 298,
+                },
+            )]),
             mpn_contract_id: blockchain_config.mpn_contract_id,
             update_params,
             deposit_withdraw_params,
@@ -234,8 +248,13 @@ impl<
 
         let proof = unsafe {
             std::mem::transmute::<bellman::groth16::Proof<Bls12>, bazuka::zk::groth16::Groth16Proof>(
-                groth16::create_random_proof(circuit, &self.deposit_withdraw_params, &mut OsRng)
-                    .unwrap(),
+                groth16::create_random_proof(
+                    circuit,
+                    &self.deposit_withdraw_params,
+                    &mut OsRng,
+                    self.backend.clone(),
+                )
+                .unwrap(),
             )
         };
 
@@ -403,7 +422,13 @@ impl<
 
         let proof = unsafe {
             std::mem::transmute::<bellman::groth16::Proof<Bls12>, bazuka::zk::groth16::Groth16Proof>(
-                groth16::create_random_proof(circuit, &self.update_params, &mut OsRng).unwrap(),
+                groth16::create_random_proof(
+                    circuit,
+                    &self.update_params,
+                    &mut OsRng,
+                    self.backend.clone(),
+                )
+                .unwrap(),
             )
         };
 
