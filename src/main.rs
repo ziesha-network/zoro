@@ -188,7 +188,7 @@ fn alice_shuffle() {
 fn main() {
     env_logger::init();
     println!(
-        "{} v{} - A CPU-based MPN Executor for Zeeka Cryptocurrency",
+        "{} v{} - A CPU/GPU-based MPN Executor for Zeeka Cryptocurrency",
         "Zoro!".bright_green(),
         env!("CARGO_PKG_VERSION")
     );
