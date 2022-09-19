@@ -1,6 +1,7 @@
 use crate::ZoroError;
 use std::future::Future;
 
+#[derive(Clone)]
 pub struct SyncClient {
     node: bazuka::client::PeerAddress,
     network: String,
@@ -71,5 +72,8 @@ impl SyncClient {
                 .await
                 .map(|resp| resp.puzzle.is_some())?)
         })
+    }
+    pub fn get_height(&self) -> Result<u64, ZoroError> {
+        self.call(move |client| async move { Ok(client.stats().await.map(|resp| resp.height)?) })
     }
 }

@@ -234,8 +234,6 @@ fn main() {
         if let Err(e) = || -> Result<(), ZoroError> {
             let cancel = Arc::new(RwLock::new(false));
 
-            let cancel_controller = std::thread::spawn(move || {});
-
             let db_shutter = db_shutter(&opt.db);
             let db = db_shutter.snapshot();
 
@@ -252,6 +250,28 @@ fn main() {
                 std::thread::sleep(std::time::Duration::from_millis(1000));
                 return Ok(());
             }
+
+            let curr_height = client.get_height()?;
+            println!("Started on height: {}", curr_height);
+
+            let cancel_cloned = cancel.clone();
+            let cancel_controller_client = client.clone();
+            let (cancel_controller_tx, cancel_controller_rx) = std::sync::mpsc::channel();
+            let cancel_controller = std::thread::spawn(move || loop {
+                match cancel_controller_rx.try_recv() {
+                    Ok(_) | Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        break;
+                    }
+                    Err(std::sync::mpsc::TryRecvError::Empty) => {
+                        if let Ok(height) = cancel_controller_client.get_height() {
+                            if height != curr_height {
+                                *cancel_cloned.write().unwrap() = true;
+                            }
+                        }
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(2000));
+            });
 
             let mut db_mirror = db.mirror();
             let acc = client.get_account(exec_wallet.get_address())?.account;
@@ -333,6 +353,7 @@ fn main() {
 
             client.transact(tx_delta)?;
 
+            let _ = cancel_controller_tx.send(());
             cancel_controller.join().unwrap();
 
             Ok(())
