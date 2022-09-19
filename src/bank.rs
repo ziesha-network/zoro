@@ -14,6 +14,7 @@ use bellman::groth16::Backend;
 use bellman::groth16::Parameters;
 use bls12_381::Bls12;
 use rand::rngs::OsRng;
+use std::sync::{Arc, RwLock};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -109,6 +110,7 @@ impl<
         &self,
         db: &mut K,
         txs: Vec<DepositWithdraw>,
+        cancel: Arc<RwLock<bool>>,
     ) -> Result<
         (
             Vec<DepositWithdraw>,
@@ -258,6 +260,7 @@ impl<
                     &self.deposit_withdraw_params,
                     &mut OsRng,
                     self.backend.clone(),
+                    Some(cancel),
                 )
                 .unwrap(),
             )
@@ -289,6 +292,7 @@ impl<
         &self,
         db: &mut K,
         txs: Vec<ZeroTransaction>,
+        cancel: Arc<RwLock<bool>>,
     ) -> Result<
         (
             Vec<ZeroTransaction>,
@@ -432,6 +436,7 @@ impl<
                     &self.update_params,
                     &mut OsRng,
                     self.backend.clone(),
+                    Some(cancel),
                 )
                 .unwrap(),
             )

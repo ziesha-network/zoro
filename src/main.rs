@@ -23,6 +23,7 @@ use structopt::StructOpt;
 use zeekit::BellmanFr;
 
 use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "Zoro", about = "Zeeka's MPN Executor")]
@@ -109,6 +110,7 @@ fn process_payments<K: bazuka::db::KvStore>(
         { config::LOG4_TREE_SIZE },
     >,
     db_mirror: &mut bazuka::db::RamMirrorKvStore<K>,
+    cancel: &Arc<RwLock<bool>>,
 ) -> Result<bazuka::core::ContractUpdate, ZoroError> {
     for (tx, _) in mempool
         .clone()
@@ -133,7 +135,8 @@ fn process_payments<K: bazuka::db::KvStore>(
         })
         .collect::<Vec<_>>();
 
-    let (accepted, rejected, new_root, proof) = b.deposit_withdraw(db_mirror, payments)?;
+    let (accepted, rejected, new_root, proof) =
+        b.deposit_withdraw(db_mirror, payments, cancel.clone())?;
 
     for tx in accepted.iter().chain(rejected.iter()) {
         mempool.remove(&tx.contract_payment.as_ref().unwrap());
@@ -158,9 +161,13 @@ fn process_updates<K: bazuka::db::KvStore>(
         { config::LOG4_TREE_SIZE },
     >,
     db_mirror: &mut bazuka::db::RamMirrorKvStore<K>,
+    cancel: &Arc<RwLock<bool>>,
 ) -> Result<bazuka::core::ContractUpdate, ZoroError> {
-    let (accepted, rejected, new_root, proof) =
-        b.change_state(db_mirror, mempool.clone().into_keys().collect())?;
+    let (accepted, rejected, new_root, proof) = b.change_state(
+        db_mirror,
+        mempool.clone().into_keys().collect(),
+        cancel.clone(),
+    )?;
 
     let fee_sum = accepted
         .iter()
@@ -225,6 +232,8 @@ fn main() {
 
     loop {
         if let Err(e) = || -> Result<(), ZoroError> {
+            let cancel = Arc::new(RwLock::new(false));
+
             let db_shutter = db_shutter(&opt.db);
             let db = db_shutter.snapshot();
 
@@ -269,6 +278,7 @@ fn main() {
                     &mut payment_mempool,
                     &b,
                     &mut db_mirror,
+                    &cancel,
                 )?);
                 println!(
                     "{} {}ms",
@@ -286,7 +296,12 @@ fn main() {
                     opt.update_batches
                 );
                 alice_shuffle();
-                updates.push(process_updates(&mut update_mempool, &b, &mut db_mirror)?);
+                updates.push(process_updates(
+                    &mut update_mempool,
+                    &b,
+                    &mut db_mirror,
+                    &cancel,
+                )?);
                 println!(
                     "{} {}ms",
                     "Proving took:".bright_green(),
