@@ -40,7 +40,7 @@ pub fn extract_delta(ops: Vec<bazuka::db::WriteOp>) -> bazuka::zk::ZkDeltaPairs 
     for op in ops {
         match op {
             bazuka::db::WriteOp::Put(k, v) => {
-                let mut it = k.0.split("_s_");
+                let mut it = k.0.split("-S-");
                 it.next();
                 if let Some(loc) = it.next() {
                     pairs
@@ -49,7 +49,7 @@ pub fn extract_delta(ops: Vec<bazuka::db::WriteOp>) -> bazuka::zk::ZkDeltaPairs 
                 }
             }
             bazuka::db::WriteOp::Remove(k) => {
-                let mut it = k.0.split("_s_");
+                let mut it = k.0.split("-S-");
                 it.next();
                 if let Some(loc) = it.next() {
                     pairs.0.insert(loc.parse().unwrap(), None);
