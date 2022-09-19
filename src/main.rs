@@ -45,6 +45,8 @@ struct Opt {
     payment_batches: usize,
     #[structopt(long, default_value = "1")]
     update_batches: usize,
+    #[structopt(long)]
+    gpu: bool,
 }
 
 fn load_params<C: Circuit<BellmanFr> + Default>(
@@ -211,7 +213,12 @@ fn main() {
     let client = SyncClient::new(node_addr, &opt.network);
 
     let conf = get_blockchain_config();
-    let b = bank::Bank::new(conf.clone(), update_params, deposit_withdraw_params);
+    let b = bank::Bank::new(
+        conf.clone(),
+        update_params,
+        deposit_withdraw_params,
+        opt.gpu,
+    );
 
     let mut update_mempool = HashMap::<ZeroTransaction, ()>::new();
     let mut payment_mempool = HashMap::<ContractPayment, ()>::new();
