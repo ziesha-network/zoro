@@ -234,6 +234,8 @@ fn main() {
         if let Err(e) = || -> Result<(), ZoroError> {
             let cancel = Arc::new(RwLock::new(false));
 
+            let cancel_controller = std::thread::spawn(move || {});
+
             let db_shutter = db_shutter(&opt.db);
             let db = db_shutter.snapshot();
 
@@ -330,6 +332,8 @@ fn main() {
             };
 
             client.transact(tx_delta)?;
+
+            cancel_controller.join().unwrap();
 
             Ok(())
         }() {

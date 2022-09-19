@@ -19,8 +19,10 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum BankError {
-    #[error("cannot generate zk-snark proof!")]
-    CannotProve,
+    #[error("cannot generate zk-snark proof! Error: {0}")]
+    CannotProve(#[from] bellman::SynthesisError),
+    #[error("snark proof incorrect!")]
+    IncorrectProof,
     #[error("kv-store error: {0}")]
     KvStoreError(#[from] bazuka::db::KvStoreError),
 }
@@ -261,8 +263,7 @@ impl<
                     &mut OsRng,
                     self.backend.clone(),
                     Some(cancel),
-                )
-                .unwrap(),
+                )?,
             )
         };
 
@@ -285,7 +286,7 @@ impl<
                 proof,
             ))
         } else {
-            Err(BankError::CannotProve)
+            Err(BankError::IncorrectProof)
         }
     }
     pub fn change_state<K: KvStore>(
@@ -437,8 +438,7 @@ impl<
                     &mut OsRng,
                     self.backend.clone(),
                     Some(cancel),
-                )
-                .unwrap(),
+                )?,
             )
         };
 
@@ -461,7 +461,7 @@ impl<
                 proof,
             ))
         } else {
-            Err(BankError::CannotProve)
+            Err(BankError::IncorrectProof)
         }
     }
 }
