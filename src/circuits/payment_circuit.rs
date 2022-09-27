@@ -1,4 +1,4 @@
-use bazuka::core::{ContractPayment, Money};
+use bazuka::core::{Money, MpnPayment};
 use bazuka::crypto::jubjub;
 use bazuka::zk::{MpnAccount, ZkScalar};
 use bellman::gadgets::boolean::{AllocatedBit, Boolean};
@@ -13,7 +13,7 @@ use zeekit::{common, poseidon, BellmanFr};
 
 #[derive(Debug, Clone, Default)]
 pub struct DepositWithdraw {
-    pub contract_payment: Option<ContractPayment>,
+    pub mpn_payment: Option<MpnPayment>,
     pub index: u32,
     pub pub_key: jubjub::PointAffine,
     pub amount: Money,
@@ -90,13 +90,6 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
         let mut tx_wits = Vec::new();
         let mut children = Vec::new();
         for trans in self.transitions.0.iter() {
-            // Tx index should always have at most LOG4_TREE_SIZE * 2 bits
-            let index = UnsignedInteger::alloc(
-                &mut *cs,
-                (trans.tx.index as u64).into(),
-                LOG4_TREE_SIZE as usize * 2,
-            )?;
-
             // Tx amount should always have at most 64 bits
             let amount = UnsignedInteger::alloc_64(&mut *cs, trans.tx.amount.into())?;
 
@@ -106,15 +99,9 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
             // Pub-key only needs to reside on curve if tx is enabled, which is checked in the main loop
             let pub_key = AllocatedPoint::alloc(&mut *cs, || Ok(trans.tx.pub_key))?;
 
-            tx_wits.push((
-                index.clone(),
-                amount.clone(),
-                withdraw.clone(),
-                pub_key.clone(),
-            ));
+            tx_wits.push((amount.clone(), withdraw.clone(), pub_key.clone()));
 
             children.push(AllocatedState::Children(vec![
-                AllocatedState::Value(index.into()),
                 AllocatedState::Value(amount.into()),
                 AllocatedState::Value(withdraw.into()),
                 AllocatedState::Value(pub_key.x.into()),
@@ -129,11 +116,18 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
             |lc| lc + tx_root.get_lc(),
         );
 
-        for (trans, (tx_index_wit, tx_amount_wit, tx_withdraw_wit, tx_pub_key_wit)) in
+        for (trans, (tx_amount_wit, tx_withdraw_wit, tx_pub_key_wit)) in
             self.transitions.0.iter().zip(tx_wits.into_iter())
         {
             // If enabled, transaction is validated, otherwise neglected
             let enabled_wit = Boolean::Is(AllocatedBit::alloc(&mut *cs, Some(trans.enabled))?);
+
+            // Tx index should always have at most LOG4_TREE_SIZE * 2 bits
+            let tx_index_wit = UnsignedInteger::alloc(
+                &mut *cs,
+                (trans.tx.index as u64).into(),
+                LOG4_TREE_SIZE as usize * 2,
+            )?;
 
             // Check if tx pub-key resides on the curve if tx is enabled
             tx_pub_key_wit.assert_on_curve(&mut *cs, &enabled_wit)?;

@@ -7,10 +7,10 @@ use circuits::DepositWithdraw;
 
 use bazuka::blockchain::BlockchainConfig;
 use bazuka::config::blockchain::get_blockchain_config;
-use bazuka::core::{ContractPayment, Money, PaymentDirection};
+use bazuka::core::{Money, MpnPayment, PaymentDirection};
 use bazuka::db::KvStore;
 use bazuka::db::ReadOnlyLevelDbKvStore;
-use bazuka::zk::ZeroTransaction;
+use bazuka::zk::MpnTransaction;
 use bellman::{groth16, Circuit};
 use bls12_381::Bls12;
 use client::SyncClient;
@@ -103,7 +103,7 @@ pub enum ZoroError {
 
 fn process_payments<K: bazuka::db::KvStore>(
     conf: &BlockchainConfig,
-    mempool: &mut HashMap<ContractPayment, ()>,
+    mempool: &mut HashMap<MpnPayment, ()>,
     b: &bank::Bank<
         { config::LOG4_PAYMENT_BATCH_SIZE },
         { config::LOG4_UPDATE_BATCH_SIZE },
@@ -115,7 +115,7 @@ fn process_payments<K: bazuka::db::KvStore>(
     for (tx, _) in mempool
         .clone()
         .iter()
-        .filter(|(dw, _)| &dw.contract_id != &conf.mpn_contract_id)
+        .filter(|(dw, _)| &dw.payment.contract_id != &conf.mpn_contract_id)
     {
         mempool.remove(tx);
     }
@@ -124,11 +124,11 @@ fn process_payments<K: bazuka::db::KvStore>(
         .clone()
         .into_keys()
         .map(|dw| DepositWithdraw {
-            contract_payment: Some(dw.clone()),
+            mpn_payment: Some(dw.clone()),
             index: dw.zk_address_index,
-            pub_key: dw.zk_address.0.decompress(),
-            amount: dw.amount,
-            withdraw: match dw.direction {
+            pub_key: dw.payment.zk_address.0.decompress(),
+            amount: dw.payment.amount,
+            withdraw: match dw.payment.direction {
                 PaymentDirection::Deposit(_) => false,
                 PaymentDirection::Withdraw(_) => true,
             },
@@ -139,14 +139,14 @@ fn process_payments<K: bazuka::db::KvStore>(
         b.deposit_withdraw(db_mirror, payments, cancel.clone())?;
 
     for tx in accepted.iter().chain(rejected.iter()) {
-        mempool.remove(&tx.contract_payment.as_ref().unwrap());
+        mempool.remove(&tx.mpn_payment.as_ref().unwrap());
     }
 
     Ok(bazuka::core::ContractUpdate::Payment {
         circuit_id: 0,
         payments: accepted
             .into_iter()
-            .map(|dw| dw.contract_payment.unwrap())
+            .map(|dw| dw.mpn_payment.unwrap().payment)
             .collect(),
         next_state: new_root,
         proof: bazuka::zk::ZkProof::Groth16(Box::new(proof)),
@@ -154,7 +154,7 @@ fn process_payments<K: bazuka::db::KvStore>(
 }
 
 fn process_updates<K: bazuka::db::KvStore>(
-    mempool: &mut HashMap<ZeroTransaction, ()>,
+    mempool: &mut HashMap<MpnTransaction, ()>,
     b: &bank::Bank<
         { config::LOG4_PAYMENT_BATCH_SIZE },
         { config::LOG4_UPDATE_BATCH_SIZE },
@@ -227,8 +227,8 @@ fn main() {
         opt.gpu,
     );
 
-    let mut update_mempool = HashMap::<ZeroTransaction, ()>::new();
-    let mut payment_mempool = HashMap::<ContractPayment, ()>::new();
+    let mut update_mempool = HashMap::<MpnTransaction, ()>::new();
+    let mut payment_mempool = HashMap::<MpnPayment, ()>::new();
 
     loop {
         if let Err(e) = || -> Result<(), ZoroError> {

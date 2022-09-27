@@ -1,4 +1,4 @@
-use bazuka::zk::{MpnAccount, ZeroTransaction, ZkScalar};
+use bazuka::zk::{MpnAccount, MpnTransaction, ZkScalar};
 use bellman::gadgets::boolean::{AllocatedBit, Boolean};
 use bellman::gadgets::num::AllocatedNum;
 use bellman::{Circuit, ConstraintSystem, SynthesisError};
@@ -20,7 +20,7 @@ use zeekit::{common, eddsa, poseidon, BellmanFr};
 #[derive(Debug, Clone, Default)]
 pub struct Transition<const LOG4_TREE_SIZE: u8> {
     pub enabled: bool,
-    pub tx: ZeroTransaction,
+    pub tx: MpnTransaction,
     pub src_before: MpnAccount, // src_after can be derived
     pub src_proof: merkle::Proof<LOG4_TREE_SIZE>,
     pub dst_before: MpnAccount, // dst_after can be derived

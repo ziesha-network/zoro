@@ -6,7 +6,7 @@ use bazuka::{
     core::{ContractId, ZkHasher},
     crypto::jubjub::PublicKey,
     db::KvStore,
-    zk::{KvStoreStateManager, MpnAccount, ZeroTransaction, ZkDataLocator},
+    zk::{KvStoreStateManager, MpnAccount, MpnTransaction, ZkDataLocator},
 };
 use bellman::gpu::{Brand, Device};
 use bellman::groth16;
@@ -69,17 +69,6 @@ impl<
         const LOG4_TREE_SIZE: u8,
     > Bank<LOG4_PAYMENT_BATCH_SIZE, LOG4_UPDATE_BATCH_SIZE, LOG4_TREE_SIZE>
 {
-    pub fn balances<K: KvStore>(&self, db: &K) -> Vec<(u32, u64)> {
-        let state =
-            KvStoreStateManager::<ZkHasher>::get_full_state(db, self.mpn_contract_id).unwrap();
-        let mut result = Vec::new();
-        for (loc, val) in state.data.0 {
-            if loc.0[1] == 3 {
-                result.push((loc.0[0], val.try_into().unwrap()));
-            }
-        }
-        result
-    }
     pub fn new(
         blockchain_config: BlockchainConfig,
         update_params: Parameters<Bls12>,
@@ -216,14 +205,10 @@ impl<
                     [
                         (
                             bazuka::zk::ZkDataLocator(vec![i as u32, 0]),
-                            Some(bazuka::zk::ZkScalar::from(trans.tx.index as u64)),
-                        ),
-                        (
-                            bazuka::zk::ZkDataLocator(vec![i as u32, 1]),
                             Some(bazuka::zk::ZkScalar::from(trans.tx.amount)),
                         ),
                         (
-                            bazuka::zk::ZkDataLocator(vec![i as u32, 2]),
+                            bazuka::zk::ZkDataLocator(vec![i as u32, 1]),
                             Some(bazuka::zk::ZkScalar::from(if trans.tx.withdraw {
                                 1
                             } else {
@@ -231,11 +216,11 @@ impl<
                             })),
                         ),
                         (
-                            bazuka::zk::ZkDataLocator(vec![i as u32, 3]),
+                            bazuka::zk::ZkDataLocator(vec![i as u32, 2]),
                             Some(bazuka::zk::ZkScalar::from(trans.tx.pub_key.0)),
                         ),
                         (
-                            bazuka::zk::ZkDataLocator(vec![i as u32, 4]),
+                            bazuka::zk::ZkDataLocator(vec![i as u32, 3]),
                             Some(bazuka::zk::ZkScalar::from(trans.tx.pub_key.1)),
                         ),
                     ]
@@ -292,12 +277,12 @@ impl<
     pub fn change_state<K: KvStore>(
         &self,
         db: &mut K,
-        txs: Vec<ZeroTransaction>,
+        txs: Vec<MpnTransaction>,
         cancel: Arc<RwLock<bool>>,
     ) -> Result<
         (
-            Vec<ZeroTransaction>,
-            Vec<ZeroTransaction>,
+            Vec<MpnTransaction>,
+            Vec<MpnTransaction>,
             bazuka::zk::ZkCompressedState,
             bazuka::zk::groth16::Groth16Proof,
         ),
