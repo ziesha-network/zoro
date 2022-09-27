@@ -56,6 +56,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Default
 
 #[derive(Debug, Default)]
 pub struct DepositWithdrawCircuit<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> {
+    pub height: u64,          // Public
     pub state: ZkScalar,      // Public
     pub aux_data: ZkScalar,   // Public
     pub next_state: ZkScalar, // Public
@@ -69,6 +70,10 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
         self,
         cs: &mut CS,
     ) -> Result<(), SynthesisError> {
+        // Contract height feeded as input
+        let height_wit = AllocatedNum::alloc(&mut *cs, || Ok(self.height.into()))?;
+        height_wit.inputize(&mut *cs)?;
+
         // Previous state feeded as input
         let mut state_wit = AllocatedNum::alloc(&mut *cs, || Ok(self.state.into()))?;
         state_wit.inputize(&mut *cs)?;

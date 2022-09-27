@@ -116,6 +116,7 @@ impl<
         let mut transitions = Vec::new();
         let mut rejected = Vec::new();
         let mut accepted = Vec::new();
+        let height = KvStoreStateManager::<ZkHasher>::height_of(db, self.mpn_contract_id).unwrap();
         let root = KvStoreStateManager::<ZkHasher>::root(db, self.mpn_contract_id).unwrap();
 
         let state = root.state_hash;
@@ -231,6 +232,7 @@ impl<
         let aux_data = state_builder.compress().unwrap().state_hash;
 
         let circuit = circuits::DepositWithdrawCircuit {
+            height,
             state,
             aux_data,
             next_state,
@@ -254,6 +256,7 @@ impl<
 
         if bazuka::zk::groth16::groth16_verify(
             &bazuka::config::blockchain::MPN_PAYMENT_VK,
+            height,
             state,
             aux_data,
             next_state,
@@ -293,6 +296,7 @@ impl<
         let mut transitions = Vec::new();
 
         let root = KvStoreStateManager::<ZkHasher>::root(db, self.mpn_contract_id).unwrap();
+        let height = KvStoreStateManager::<ZkHasher>::height_of(db, self.mpn_contract_id).unwrap();
 
         let state = root.state_hash;
         let mut state_size = root.state_size;
@@ -407,6 +411,7 @@ impl<
 
         let circuit = circuits::UpdateCircuit {
             state,
+            height,
             aux_data,
             next_state,
             transitions: Box::new(circuits::TransitionBatch::<
@@ -429,6 +434,7 @@ impl<
 
         if bazuka::zk::groth16::groth16_verify(
             &bazuka::config::blockchain::MPN_UPDATE_VK,
+            height,
             state,
             aux_data,
             next_state,
