@@ -48,6 +48,8 @@ struct Opt {
     update_batches: usize,
     #[structopt(long)]
     gpu: bool,
+    #[structopt(long, default_value = "")]
+    miner_token: String,
 }
 
 fn load_params<C: Circuit<BellmanFr> + Default>(
@@ -217,7 +219,7 @@ fn main() {
     >(opt.payment_circuit_params, opt.generate_params);
 
     let node_addr = bazuka::client::PeerAddress(opt.node.parse().unwrap());
-    let client = SyncClient::new(node_addr, &opt.network);
+    let client = SyncClient::new(node_addr, &opt.network, opt.miner_token.clone());
 
     let conf = get_blockchain_config();
     let b = bank::Bank::new(

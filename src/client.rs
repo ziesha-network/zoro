@@ -5,14 +5,16 @@ use std::future::Future;
 pub struct SyncClient {
     node: bazuka::client::PeerAddress,
     network: String,
+    miner_token: String,
     sk: <bazuka::core::Signer as bazuka::crypto::SignatureScheme>::Priv,
 }
 
 impl SyncClient {
-    pub fn new(node: bazuka::client::PeerAddress, network: &str) -> Self {
+    pub fn new(node: bazuka::client::PeerAddress, network: &str, miner_token: String) -> Self {
         Self {
             node,
             network: network.to_string(),
+            miner_token,
             sk: <bazuka::core::Signer as bazuka::crypto::SignatureScheme>::generate_keys(b"dummy")
                 .1,
         }
@@ -33,6 +35,7 @@ impl SyncClient {
                     self.sk.clone(),
                     self.node,
                     self.network.clone(),
+                    Some(self.miner_token.clone()),
                 );
 
                 let (res, _) = tokio::join!(
