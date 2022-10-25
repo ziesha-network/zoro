@@ -77,17 +77,25 @@ impl<
     ) -> Self {
         Self {
             backend: if gpu {
-                Backend::Gpu(vec![(
-                    Device::by_brand(Brand::Nvidia).unwrap()[0].clone(),
-                    bellman::gpu::OptParams {
-                        n_g1: 32 * 1024 * 1024,
-                        window_size_g1: 9,
-                        groups_g1: 298,
-                        n_g2: 16 * 1024 * 1024,
-                        window_size_g2: 9,
-                        groups_g2: 298,
-                    },
-                )])
+                Backend::Gpu(
+                    Device::by_brand(Brand::Nvidia)
+                        .unwrap()
+                        .into_iter()
+                        .map(|d| {
+                            (
+                                d,
+                                bellman::gpu::OptParams {
+                                    n_g1: 32 * 1024 * 1024,
+                                    window_size_g1: 9,
+                                    groups_g1: 298,
+                                    n_g2: 16 * 1024 * 1024,
+                                    window_size_g2: 9,
+                                    groups_g2: 298,
+                                },
+                            )
+                        })
+                        .collect(),
+                )
             } else {
                 Backend::Cpu
             },
