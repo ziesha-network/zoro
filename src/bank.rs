@@ -1,5 +1,5 @@
 use crate::circuits;
-use crate::circuits::DepositWithdraw;
+use crate::circuits::Deposit;
 use bazuka::zk::ZkScalar;
 use bazuka::{
     blockchain::BlockchainConfig,
@@ -35,7 +35,7 @@ pub struct Bank<
     backend: Backend,
     mpn_contract_id: ContractId,
     update_params: Parameters<Bls12>,
-    deposit_withdraw_params: Parameters<Bls12>,
+    deposit_params: Parameters<Bls12>,
 }
 
 pub fn extract_delta(ops: Vec<bazuka::db::WriteOp>) -> bazuka::zk::ZkDeltaPairs {
@@ -72,7 +72,7 @@ impl<
     pub fn new(
         blockchain_config: BlockchainConfig,
         update_params: Parameters<Bls12>,
-        deposit_withdraw_params: Parameters<Bls12>,
+        deposit_params: Parameters<Bls12>,
         gpu: bool,
     ) -> Self {
         Self {
@@ -101,19 +101,19 @@ impl<
             },
             mpn_contract_id: blockchain_config.mpn_contract_id,
             update_params,
-            deposit_withdraw_params,
+            deposit_params,
         }
     }
 
-    pub fn deposit_withdraw<K: KvStore>(
+    pub fn deposit<K: KvStore>(
         &self,
         db: &mut K,
-        txs: Vec<DepositWithdraw>,
+        txs: Vec<Deposit>,
         cancel: Arc<RwLock<bool>>,
     ) -> Result<
         (
-            Vec<DepositWithdraw>,
-            Vec<DepositWithdraw>,
+            Vec<Deposit>,
+            Vec<Deposit>,
             bazuka::zk::ZkCompressedState,
             bazuka::zk::groth16::Groth16Proof,
         ),
@@ -140,17 +140,11 @@ impl<
                 tx.index,
             )
             .unwrap();
-            if (acc.address != Default::default() && tx.pub_key != acc.address)
-                || (tx.withdraw && acc.balance < tx.amount)
-            {
+            if (acc.address != Default::default() && tx.pub_key != acc.address) {
                 rejected.push(tx.clone());
                 continue;
             } else {
-                let new_balance = if tx.withdraw {
-                    acc.balance - tx.amount
-                } else {
-                    acc.balance + tx.amount
-                };
+                let new_balance = acc.balance + tx.amount;
                 let updated_acc = MpnAccount {
                     address: tx.pub_key,
                     balance: new_balance,
@@ -176,7 +170,7 @@ impl<
                 )
                 .unwrap();
 
-                transitions.push(circuits::DepositWithdrawTransition {
+                transitions.push(circuits::DepositTransition {
                     enabled: true,
                     tx: tx.clone(),
                     before: acc,
@@ -214,15 +208,11 @@ impl<
                     [
                         (
                             bazuka::zk::ZkDataLocator(vec![i as u32, 0]),
-                            Some(bazuka::zk::ZkScalar::from(trans.tx.amount)),
+                            Some(bazuka::zk::ZkScalar::from(1)),
                         ),
                         (
                             bazuka::zk::ZkDataLocator(vec![i as u32, 1]),
-                            Some(bazuka::zk::ZkScalar::from(if trans.tx.withdraw {
-                                1
-                            } else {
-                                0
-                            })),
+                            Some(bazuka::zk::ZkScalar::from(trans.tx.amount)),
                         ),
                         (
                             bazuka::zk::ZkDataLocator(vec![i as u32, 2]),
@@ -239,12 +229,12 @@ impl<
         }
         let aux_data = state_builder.compress().unwrap().state_hash;
 
-        let circuit = circuits::DepositWithdrawCircuit {
+        let circuit = circuits::DepositCircuit {
             height,
             state,
             aux_data,
             next_state,
-            transitions: Box::new(circuits::DepositWithdrawTransitionBatch::<
+            transitions: Box::new(circuits::DepositTransitionBatch::<
                 LOG4_PAYMENT_BATCH_SIZE,
                 LOG4_TREE_SIZE,
             >::new(transitions)),
@@ -254,7 +244,7 @@ impl<
             std::mem::transmute::<bellman::groth16::Proof<Bls12>, bazuka::zk::groth16::Groth16Proof>(
                 groth16::create_random_proof(
                     circuit,
-                    &self.deposit_withdraw_params,
+                    &self.deposit_params,
                     &mut OsRng,
                     self.backend.clone(),
                     Some(cancel),

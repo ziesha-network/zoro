@@ -3,11 +3,11 @@ mod circuits;
 mod client;
 mod config;
 
-use circuits::DepositWithdraw;
+use circuits::Deposit;
 
 use bazuka::blockchain::BlockchainConfig;
 use bazuka::config::blockchain::get_blockchain_config;
-use bazuka::core::{Money, MpnPayment, PaymentDirection};
+use bazuka::core::{Money, MpnDeposit, MpnWithdraw};
 use bazuka::db::KvStore;
 use bazuka::db::ReadOnlyLevelDbKvStore;
 use bazuka::zk::MpnTransaction;
@@ -125,20 +125,15 @@ fn process_payments<K: bazuka::db::KvStore>(
     let payments = mempool
         .clone()
         .into_keys()
-        .map(|dw| DepositWithdraw {
+        .map(|dw| Deposit {
             mpn_payment: Some(dw.clone()),
             index: dw.zk_address_index,
             pub_key: dw.payment.zk_address.0.decompress(),
             amount: dw.payment.amount,
-            withdraw: match dw.payment.direction {
-                PaymentDirection::Deposit(_) => false,
-                PaymentDirection::Withdraw(_) => true,
-            },
         })
         .collect::<Vec<_>>();
 
-    let (accepted, rejected, new_root, proof) =
-        b.deposit_withdraw(db_mirror, payments, cancel.clone())?;
+    let (accepted, rejected, new_root, proof) = b.deposit(db_mirror, payments, cancel.clone())?;
 
     for tx in accepted.iter().chain(rejected.iter()) {
         mempool.remove(&tx.mpn_payment.as_ref().unwrap());
@@ -211,23 +206,15 @@ fn main() {
         circuits::UpdateCircuit<{ config::LOG4_UPDATE_BATCH_SIZE }, { config::LOG4_TREE_SIZE }>,
     >(opt.update_circuit_params, opt.generate_params);
 
-    let deposit_withdraw_params = load_params::<
-        circuits::DepositWithdrawCircuit<
-            { config::LOG4_PAYMENT_BATCH_SIZE },
-            { config::LOG4_TREE_SIZE },
-        >,
+    let depositw_params = load_params::<
+        circuits::DepositCircuit<{ config::LOG4_PAYMENT_BATCH_SIZE }, { config::LOG4_TREE_SIZE }>,
     >(opt.payment_circuit_params, opt.generate_params);
 
     let node_addr = bazuka::client::PeerAddress(opt.node.parse().unwrap());
     let client = SyncClient::new(node_addr, &opt.network, opt.miner_token.clone());
 
     let conf = get_blockchain_config();
-    let b = bank::Bank::new(
-        conf.clone(),
-        update_params,
-        deposit_withdraw_params,
-        opt.gpu,
-    );
+    let b = bank::Bank::new(conf.clone(), update_params, deposit_params, opt.gpu);
 
     let mut update_mempool = HashMap::<MpnTransaction, ()>::new();
     let mut payment_mempool = HashMap::<MpnPayment, ()>::new();

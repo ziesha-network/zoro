@@ -1,4 +1,4 @@
-use bazuka::core::{Money, MpnPayment};
+use bazuka::core::{Money, MpnDeposit};
 use bazuka::crypto::jubjub;
 use bazuka::zk::{MpnAccount, ZkScalar};
 use bellman::gadgets::boolean::{AllocatedBit, Boolean};
@@ -12,59 +12,58 @@ use zeekit::reveal::{reveal, AllocatedState};
 use zeekit::{common, poseidon, BellmanFr};
 
 #[derive(Debug, Clone, Default)]
-pub struct DepositWithdraw {
+pub struct Deposit {
     pub mpn_payment: Option<MpnPayment>,
     pub index: u32,
     pub pub_key: jubjub::PointAffine,
     pub amount: Money,
-    pub withdraw: bool,
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct DepositWithdrawTransition<const LOG4_TREE_SIZE: u8> {
+pub struct DepositTransition<const LOG4_TREE_SIZE: u8> {
     pub enabled: bool,
-    pub tx: DepositWithdraw,
+    pub tx: Deposit,
     pub before: MpnAccount,
     pub proof: merkle::Proof<LOG4_TREE_SIZE>,
 }
 
 #[derive(Debug, Clone)]
-pub struct DepositWithdrawTransitionBatch<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8>(
-    Vec<DepositWithdrawTransition<LOG4_TREE_SIZE>>,
+pub struct DepositTransitionBatch<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8>(
+    Vec<DepositTransition<LOG4_TREE_SIZE>>,
 );
 impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8>
-    DepositWithdrawTransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>
+    DepositTransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>
 {
-    pub fn new(mut ts: Vec<DepositWithdrawTransition<LOG4_TREE_SIZE>>) -> Self {
+    pub fn new(mut ts: Vec<DepositTransition<LOG4_TREE_SIZE>>) -> Self {
         while ts.len() < 1 << (2 * LOG4_BATCH_SIZE) {
-            ts.push(DepositWithdrawTransition::default());
+            ts.push(DepositTransition::default());
         }
         Self(ts)
     }
 }
 impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Default
-    for DepositWithdrawTransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>
+    for DepositTransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>
 {
     fn default() -> Self {
         Self(
             (0..1 << (2 * LOG4_BATCH_SIZE))
-                .map(|_| DepositWithdrawTransition::default())
+                .map(|_| DepositTransition::default())
                 .collect::<Vec<_>>(),
         )
     }
 }
 
 #[derive(Debug, Default)]
-pub struct DepositWithdrawCircuit<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> {
+pub struct DepositCircuit<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> {
     pub height: u64,          // Public
     pub state: ZkScalar,      // Public
     pub aux_data: ZkScalar,   // Public
     pub next_state: ZkScalar, // Public
-    pub transitions: Box<DepositWithdrawTransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>>, // Secret :)
+    pub transitions: Box<DepositTransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>>, // Secret :)
 }
 
 impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
-    for DepositWithdrawCircuit<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>
+    for DepositCircuit<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>
 {
     fn synthesize<CS: ConstraintSystem<BellmanFr>>(
         self,
@@ -91,26 +90,28 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
             log4_size: LOG4_BATCH_SIZE,
         };
 
-        // Uncompress all the DepositWithdraw txs that were compressed inside aux_witness
+        // Uncompress all the Deposit txs that were compressed inside aux_witness
         let mut tx_wits = Vec::new();
         let mut children = Vec::new();
         for trans in self.transitions.0.iter() {
+            // If enabled, transaction is validated, otherwise neglected
+            let enabled = AllocatedBit::alloc(&mut *cs, Some(trans.enabled))?;
+
             // Tx amount should always have at most 64 bits
             let amount = UnsignedInteger::alloc_64(&mut *cs, trans.tx.amount.into())?;
-
-            // If withdraw is 1, then money is withdrawn from the account instead of being deposited
-            let withdraw = AllocatedBit::alloc(&mut *cs, Some(trans.tx.withdraw))?;
 
             // Pub-key only needs to reside on curve if tx is enabled, which is checked in the main loop
             let pub_key = AllocatedPoint::alloc(&mut *cs, || Ok(trans.tx.pub_key))?;
 
-            tx_wits.push((amount.clone(), withdraw.clone(), pub_key.clone()));
+            tx_wits.push((enabled.clone(), amount.clone(), pub_key.clone()));
 
             children.push(AllocatedState::Children(vec![
+                AllocatedState::Value(enabled.into()),
                 AllocatedState::Value(amount.into()),
-                AllocatedState::Value(withdraw.into()),
-                AllocatedState::Value(pub_key.x.into()),
-                AllocatedState::Value(pub_key.y.into()),
+                AllocatedState::Children(vec![
+                    AllocatedState::Value(pub_key.x.into()),
+                    AllocatedState::Value(pub_key.y.into()),
+                ]),
             ]));
         }
         let tx_root = reveal(&mut *cs, &state_model, &AllocatedState::Children(children))?;
@@ -121,12 +122,9 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
             |lc| lc + tx_root.get_lc(),
         );
 
-        for (trans, (tx_amount_wit, tx_withdraw_wit, tx_pub_key_wit)) in
+        for (trans, (tx_enabled_wit, tx_amount_wit, tx_pub_key_wit)) in
             self.transitions.0.iter().zip(tx_wits.into_iter())
         {
-            // If enabled, transaction is validated, otherwise neglected
-            let enabled_wit = Boolean::Is(AllocatedBit::alloc(&mut *cs, Some(trans.enabled))?);
-
             // Tx index should always have at most LOG4_TREE_SIZE * 2 bits
             let tx_index_wit = UnsignedInteger::alloc(
                 &mut *cs,
@@ -183,15 +181,8 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
                 &state_wit.clone().into(),
             )?;
 
-            // New balance is increased/decreased by tx amount based on withdraw-bit
             let src_balance_lc = Number::from(src_balance_wit);
             let tx_amount_lc = Number::from(tx_amount_wit);
-            let new_balance_wit = common::mux(
-                &mut *cs,
-                &Boolean::Is(tx_withdraw_wit.clone()),
-                &(src_balance_lc.clone() + tx_amount_lc.clone()),
-                &(src_balance_lc - tx_amount_lc),
-            )?;
 
             // Calculate next-state hash and update state if tx is enabled
             let new_hash_wit = poseidon::poseidon(
@@ -200,7 +191,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
                     &src_nonce_wit.into(),
                     &tx_pub_key_wit.x.clone().into(),
                     &tx_pub_key_wit.y.clone().into(),
-                    &new_balance_wit.into(),
+                    &(src_balance_lc.clone() + tx_amount_lc.clone()),
                 ],
             )?;
             let next_state_wit =

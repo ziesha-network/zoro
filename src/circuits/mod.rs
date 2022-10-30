@@ -1,6 +1,6 @@
-mod payment_circuit;
+mod deposit_circuit;
 mod update_circuit;
-pub use payment_circuit::*;
+pub use deposit_circuit::*;
 pub use update_circuit::*;
 
 #[cfg(test)]
