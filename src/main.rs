@@ -109,7 +109,8 @@ fn process_deposits<K: bazuka::db::KvStore>(
     conf: &BlockchainConfig,
     mempool: &mut HashMap<MpnDeposit, ()>,
     b: &bank::Bank<
-        { config::LOG4_PAYMENT_BATCH_SIZE },
+        { config::LOG4_DEPOSIT_BATCH_SIZE },
+        { config::LOG4_WITHDRAW_BATCH_SIZE },
         { config::LOG4_UPDATE_BATCH_SIZE },
         { config::LOG4_TREE_SIZE },
     >,
@@ -156,7 +157,8 @@ fn process_withdraws<K: bazuka::db::KvStore>(
     conf: &BlockchainConfig,
     mempool: &mut HashMap<MpnWithdraw, ()>,
     b: &bank::Bank<
-        { config::LOG4_PAYMENT_BATCH_SIZE },
+        { config::LOG4_DEPOSIT_BATCH_SIZE },
+        { config::LOG4_WITHDRAW_BATCH_SIZE },
         { config::LOG4_UPDATE_BATCH_SIZE },
         { config::LOG4_TREE_SIZE },
     >,
@@ -205,7 +207,8 @@ fn process_withdraws<K: bazuka::db::KvStore>(
 fn process_updates<K: bazuka::db::KvStore>(
     mempool: &mut HashMap<MpnTransaction, ()>,
     b: &bank::Bank<
-        { config::LOG4_PAYMENT_BATCH_SIZE },
+        { config::LOG4_DEPOSIT_BATCH_SIZE },
+        { config::LOG4_WITHDRAW_BATCH_SIZE },
         { config::LOG4_UPDATE_BATCH_SIZE },
         { config::LOG4_TREE_SIZE },
     >,
@@ -259,11 +262,11 @@ fn main() {
     >(opt.update_circuit_params, opt.generate_params);
 
     let deposit_params = load_params::<
-        circuits::DepositCircuit<{ config::LOG4_PAYMENT_BATCH_SIZE }, { config::LOG4_TREE_SIZE }>,
+        circuits::DepositCircuit<{ config::LOG4_DEPOSIT_BATCH_SIZE }, { config::LOG4_TREE_SIZE }>,
     >(opt.deposit_circuit_params, opt.generate_params);
 
     let withdraw_params = load_params::<
-        circuits::WithdrawCircuit<{ config::LOG4_PAYMENT_BATCH_SIZE }, { config::LOG4_TREE_SIZE }>,
+        circuits::WithdrawCircuit<{ config::LOG4_WITHDRAW_BATCH_SIZE }, { config::LOG4_TREE_SIZE }>,
     >(opt.withdraw_circuit_params, opt.generate_params);
 
     let node_addr = bazuka::client::PeerAddress(opt.node.parse().unwrap());

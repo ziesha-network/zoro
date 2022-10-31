@@ -28,7 +28,8 @@ pub enum BankError {
 }
 
 pub struct Bank<
-    const LOG4_PAYMENT_BATCH_SIZE: u8,
+    const LOG4_DEPOSIT_BATCH_SIZE: u8,
+    const LOG4_WITHDRAW_BATCH_SIZE: u8,
     const LOG4_UPDATE_BATCH_SIZE: u8,
     const LOG4_TREE_SIZE: u8,
 > {
@@ -65,10 +66,12 @@ pub fn extract_delta(ops: Vec<bazuka::db::WriteOp>) -> bazuka::zk::ZkDeltaPairs 
 }
 
 impl<
-        const LOG4_PAYMENT_BATCH_SIZE: u8,
+        const LOG4_DEPOSIT_BATCH_SIZE: u8,
+        const LOG4_WITHDRAW_BATCH_SIZE: u8,
         const LOG4_UPDATE_BATCH_SIZE: u8,
         const LOG4_TREE_SIZE: u8,
-    > Bank<LOG4_PAYMENT_BATCH_SIZE, LOG4_UPDATE_BATCH_SIZE, LOG4_TREE_SIZE>
+    >
+    Bank<LOG4_DEPOSIT_BATCH_SIZE, LOG4_WITHDRAW_BATCH_SIZE, LOG4_UPDATE_BATCH_SIZE, LOG4_TREE_SIZE>
 {
     pub fn new(
         blockchain_config: BlockchainConfig,
@@ -134,7 +137,7 @@ impl<
         let mut state_size = root.state_size;
 
         for tx in txs.into_iter() {
-            if transitions.len() == 1 << (2 * LOG4_PAYMENT_BATCH_SIZE) {
+            if transitions.len() == 1 << (2 * LOG4_WITHDRAW_BATCH_SIZE) {
                 break;
             }
             let acc = KvStoreStateManager::<ZkHasher>::get_mpn_account(
@@ -211,7 +214,7 @@ impl<
                     bazuka::zk::ZkStateModel::Scalar, // Calldata
                 ],
             }),
-            log4_size: LOG4_PAYMENT_BATCH_SIZE as u8,
+            log4_size: LOG4_WITHDRAW_BATCH_SIZE as u8,
         };
         let mut state_builder =
             bazuka::zk::ZkStateBuilder::<bazuka::core::ZkHasher>::new(state_model.clone());
@@ -254,7 +257,7 @@ impl<
             aux_data,
             next_state,
             transitions: Box::new(circuits::WithdrawTransitionBatch::<
-                LOG4_PAYMENT_BATCH_SIZE,
+                LOG4_WITHDRAW_BATCH_SIZE,
                 LOG4_TREE_SIZE,
             >::new(transitions)),
         };
@@ -321,7 +324,7 @@ impl<
         let mut state_size = root.state_size;
 
         for tx in txs.into_iter() {
-            if transitions.len() == 1 << (2 * LOG4_PAYMENT_BATCH_SIZE) {
+            if transitions.len() == 1 << (2 * LOG4_DEPOSIT_BATCH_SIZE) {
                 break;
             }
             let acc = KvStoreStateManager::<ZkHasher>::get_mpn_account(
@@ -394,7 +397,7 @@ impl<
                     bazuka::zk::ZkStateModel::Scalar, // Calldata
                 ],
             }),
-            log4_size: LOG4_PAYMENT_BATCH_SIZE as u8,
+            log4_size: LOG4_DEPOSIT_BATCH_SIZE as u8,
         };
         let mut state_builder =
             bazuka::zk::ZkStateBuilder::<bazuka::core::ZkHasher>::new(state_model.clone());
@@ -433,7 +436,7 @@ impl<
             aux_data,
             next_state,
             transitions: Box::new(circuits::DepositTransitionBatch::<
-                LOG4_PAYMENT_BATCH_SIZE,
+                LOG4_DEPOSIT_BATCH_SIZE,
                 LOG4_TREE_SIZE,
             >::new(transitions)),
         };
