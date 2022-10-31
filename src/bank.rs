@@ -146,8 +146,11 @@ impl<
             if acc.address != Default::default() && tx.pub_key != acc.address {
                 rejected.push(tx.clone());
                 continue;
+            } else if tx.amount > acc.balance {
+                rejected.push(tx.clone());
+                continue;
             } else {
-                let new_balance = acc.balance + tx.amount;
+                let new_balance = acc.balance - tx.amount;
                 let updated_acc = MpnAccount {
                     address: tx.pub_key,
                     balance: new_balance,
@@ -205,16 +208,7 @@ impl<
                     bazuka::zk::ZkStateModel::Scalar, // Enabled
                     bazuka::zk::ZkStateModel::Scalar, // Amount
                     bazuka::zk::ZkStateModel::Scalar, // Fingerprint
-                    bazuka::zk::ZkStateModel::Struct {
-                        field_types: vec![
-                            bazuka::zk::ZkStateModel::Scalar,
-                            bazuka::zk::ZkStateModel::Scalar,
-                            bazuka::zk::ZkStateModel::Scalar,
-                            bazuka::zk::ZkStateModel::Scalar,
-                            bazuka::zk::ZkStateModel::Scalar,
-                            bazuka::zk::ZkStateModel::Scalar,
-                        ],
-                    }, // Calldata
+                    bazuka::zk::ZkStateModel::Scalar, // Calldata
                 ],
             }),
             log4_size: LOG4_PAYMENT_BATCH_SIZE as u8,
@@ -222,6 +216,15 @@ impl<
         let mut state_builder =
             bazuka::zk::ZkStateBuilder::<bazuka::core::ZkHasher>::new(state_model.clone());
         for (i, trans) in transitions.iter().enumerate() {
+            use bazuka::zk::ZkHasher;
+            let calldata = bazuka::core::ZkHasher::hash(&[
+                bazuka::zk::ZkScalar::from(trans.tx.pub_key.0),
+                bazuka::zk::ZkScalar::from(trans.tx.pub_key.1),
+                bazuka::zk::ZkScalar::from(trans.tx.nonce as u64),
+                bazuka::zk::ZkScalar::from(trans.tx.sig.r.0),
+                bazuka::zk::ZkScalar::from(trans.tx.sig.r.1),
+                bazuka::zk::ZkScalar::from(trans.tx.sig.s),
+            ]);
             state_builder
                 .batch_set(&bazuka::zk::ZkDeltaPairs(
                     [
@@ -237,30 +240,7 @@ impl<
                             bazuka::zk::ZkDataLocator(vec![i as u32, 2]),
                             Some(trans.tx.fingerprint),
                         ),
-                        (
-                            bazuka::zk::ZkDataLocator(vec![i as u32, 3, 0]),
-                            Some(bazuka::zk::ZkScalar::from(trans.tx.pub_key.0)),
-                        ),
-                        (
-                            bazuka::zk::ZkDataLocator(vec![i as u32, 3, 1]),
-                            Some(bazuka::zk::ZkScalar::from(trans.tx.pub_key.1)),
-                        ),
-                        (
-                            bazuka::zk::ZkDataLocator(vec![i as u32, 3, 2]),
-                            Some(bazuka::zk::ZkScalar::from(trans.tx.nonce as u64)),
-                        ),
-                        (
-                            bazuka::zk::ZkDataLocator(vec![i as u32, 3, 3]),
-                            Some(bazuka::zk::ZkScalar::from(trans.tx.sig.r.0)),
-                        ),
-                        (
-                            bazuka::zk::ZkDataLocator(vec![i as u32, 3, 4]),
-                            Some(bazuka::zk::ZkScalar::from(trans.tx.sig.r.1)),
-                        ),
-                        (
-                            bazuka::zk::ZkDataLocator(vec![i as u32, 3, 5]),
-                            Some(bazuka::zk::ZkScalar::from(trans.tx.sig.s)),
-                        ),
+                        (bazuka::zk::ZkDataLocator(vec![i as u32, 3]), Some(calldata)),
                     ]
                     .into(),
                 ))
@@ -292,7 +272,7 @@ impl<
         };
 
         if bazuka::zk::groth16::groth16_verify(
-            &bazuka::config::blockchain::MPN_PAYMENT_VK,
+            &bazuka::config::blockchain::MPN_WITHDRAW_VK,
             height,
             state,
             aux_data,
@@ -411,19 +391,20 @@ impl<
                 field_types: vec![
                     bazuka::zk::ZkStateModel::Scalar, // Enabled
                     bazuka::zk::ZkStateModel::Scalar, // Amount
-                    bazuka::zk::ZkStateModel::Struct {
-                        field_types: vec![
-                            bazuka::zk::ZkStateModel::Scalar,
-                            bazuka::zk::ZkStateModel::Scalar,
-                        ],
-                    }, // Calldata
+                    bazuka::zk::ZkStateModel::Scalar, // Calldata
                 ],
             }),
             log4_size: LOG4_PAYMENT_BATCH_SIZE as u8,
         };
         let mut state_builder =
             bazuka::zk::ZkStateBuilder::<bazuka::core::ZkHasher>::new(state_model.clone());
+
         for (i, trans) in transitions.iter().enumerate() {
+            use bazuka::zk::ZkHasher;
+            let calldata = bazuka::core::ZkHasher::hash(&[
+                bazuka::zk::ZkScalar::from(trans.tx.pub_key.0),
+                bazuka::zk::ZkScalar::from(trans.tx.pub_key.1),
+            ]);
             state_builder
                 .batch_set(&bazuka::zk::ZkDeltaPairs(
                     [
@@ -436,12 +417,8 @@ impl<
                             Some(bazuka::zk::ZkScalar::from(trans.tx.amount)),
                         ),
                         (
-                            bazuka::zk::ZkDataLocator(vec![i as u32, 2, 0]),
-                            Some(bazuka::zk::ZkScalar::from(trans.tx.pub_key.0)),
-                        ),
-                        (
-                            bazuka::zk::ZkDataLocator(vec![i as u32, 2, 1]),
-                            Some(bazuka::zk::ZkScalar::from(trans.tx.pub_key.1)),
+                            bazuka::zk::ZkDataLocator(vec![i as u32, 2]),
+                            Some(bazuka::zk::ZkScalar::from(calldata)),
                         ),
                     ]
                     .into(),
@@ -474,7 +451,7 @@ impl<
         };
 
         if bazuka::zk::groth16::groth16_verify(
-            &bazuka::config::blockchain::MPN_PAYMENT_VK,
+            &bazuka::config::blockchain::MPN_DEPOSIT_VK,
             height,
             state,
             aux_data,

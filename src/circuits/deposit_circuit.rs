@@ -90,12 +90,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
                 field_types: vec![
                     bazuka::zk::ZkStateModel::Scalar, // Enabled
                     bazuka::zk::ZkStateModel::Scalar, // Amount
-                    bazuka::zk::ZkStateModel::Struct {
-                        field_types: vec![
-                            bazuka::zk::ZkStateModel::Scalar,
-                            bazuka::zk::ZkStateModel::Scalar,
-                        ],
-                    }, // Calldata
+                    bazuka::zk::ZkStateModel::Scalar, // Calldata
                 ],
             }),
             log4_size: LOG4_BATCH_SIZE,
@@ -119,14 +114,20 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
                 amount.clone(),
                 pub_key.clone(),
             ));
+            let pub_key_hash =
+                poseidon::poseidon(&mut *cs, &[&pub_key.x.into(), &pub_key.y.into()])?;
+
+            let calldata = common::mux(
+                &mut *cs,
+                &enabled.clone().into(),
+                &Number::zero(),
+                &pub_key_hash,
+            )?;
 
             children.push(AllocatedState::Children(vec![
                 AllocatedState::Value(enabled.into()),
                 AllocatedState::Value(amount.into()),
-                AllocatedState::Children(vec![
-                    AllocatedState::Value(pub_key.x.into()),
-                    AllocatedState::Value(pub_key.y.into()),
-                ]),
+                AllocatedState::Value(calldata.into()),
             ]));
         }
         let tx_root = reveal(&mut *cs, &state_model, &AllocatedState::Children(children))?;

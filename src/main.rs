@@ -183,7 +183,7 @@ fn process_withdraws<K: bazuka::db::KvStore>(
             fingerprint: dw.payment.fingerprint(),
             nonce: dw.zk_nonce,
             sig: dw.zk_sig,
-            amount: dw.payment.amount,
+            amount: dw.payment.amount + dw.payment.fee,
         })
         .collect::<Vec<_>>();
 
@@ -265,7 +265,7 @@ fn main() {
     >(opt.deposit_circuit_params, opt.generate_params);
 
     let withdraw_params = load_params::<
-        circuits::DepositCircuit<{ config::LOG4_PAYMENT_BATCH_SIZE }, { config::LOG4_TREE_SIZE }>,
+        circuits::WithdrawCircuit<{ config::LOG4_PAYMENT_BATCH_SIZE }, { config::LOG4_TREE_SIZE }>,
     >(opt.withdraw_circuit_params, opt.generate_params);
 
     let node_addr = bazuka::client::PeerAddress(opt.node.parse().unwrap());

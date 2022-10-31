@@ -18,7 +18,7 @@ pub struct Withdraw {
     pub index: u32,
     pub pub_key: jubjub::PointAffine,
     pub fingerprint: ZkScalar,
-    pub nonce: u32,
+    pub nonce: u64,
     pub sig: jubjub::Signature,
     pub amount: Money,
 }
@@ -95,16 +95,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
                     bazuka::zk::ZkStateModel::Scalar, // Enabled
                     bazuka::zk::ZkStateModel::Scalar, // Amount
                     bazuka::zk::ZkStateModel::Scalar, // Fingerprint
-                    bazuka::zk::ZkStateModel::Struct {
-                        field_types: vec![
-                            bazuka::zk::ZkStateModel::Scalar, // Pub-x
-                            bazuka::zk::ZkStateModel::Scalar, // Pub-y
-                            bazuka::zk::ZkStateModel::Scalar, // Nonce
-                            bazuka::zk::ZkStateModel::Scalar, // Sig-r-x
-                            bazuka::zk::ZkStateModel::Scalar, // Sig-r-y
-                            bazuka::zk::ZkStateModel::Scalar, // Sig-s
-                        ],
-                    }, // Calldata
+                    bazuka::zk::ZkStateModel::Scalar, // Calldata
                 ],
             }),
             log4_size: LOG4_BATCH_SIZE,
@@ -125,7 +116,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
 
             // Pub-key only needs to reside on curve if tx is enabled, which is checked in the main loop
             let pub_key = AllocatedPoint::alloc(&mut *cs, || Ok(trans.tx.pub_key))?;
-            let nonce = AllocatedNum::alloc(&mut *cs, || Ok((trans.tx.nonce as u64).into()))?;
+            let nonce = AllocatedNum::alloc(&mut *cs, || Ok(trans.tx.nonce.into()))?;
             let sig_r = AllocatedPoint::alloc(&mut *cs, || Ok(trans.tx.sig.r))?;
             let sig_s = AllocatedNum::alloc(&mut *cs, || Ok(trans.tx.sig.s.into()))?;
 
@@ -139,18 +130,30 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
                 sig_s.clone(),
             ));
 
+            let calldata_hash = poseidon::poseidon(
+                &mut *cs,
+                &[
+                    &pub_key.x.into(),
+                    &pub_key.y.into(),
+                    &nonce.into(),
+                    &sig_r.x.into(),
+                    &sig_r.y.into(),
+                    &sig_s.into(),
+                ],
+            )?;
+
+            let calldata = common::mux(
+                &mut *cs,
+                &enabled.clone().into(),
+                &Number::zero(),
+                &calldata_hash,
+            )?;
+
             children.push(AllocatedState::Children(vec![
                 AllocatedState::Value(enabled.into()),
                 AllocatedState::Value(amount.into()),
                 AllocatedState::Value(fingerprint.into()),
-                AllocatedState::Children(vec![
-                    AllocatedState::Value(pub_key.x.into()),
-                    AllocatedState::Value(pub_key.y.into()),
-                    AllocatedState::Value(nonce.into()),
-                    AllocatedState::Value(sig_r.x.into()),
-                    AllocatedState::Value(sig_r.y.into()),
-                    AllocatedState::Value(sig_s.into()),
-                ]),
+                AllocatedState::Value(calldata.into()),
             ]));
         }
         let tx_root = reveal(&mut *cs, &state_model, &AllocatedState::Children(children))?;
@@ -259,7 +262,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
                     &src_nonce_wit.into(),
                     &tx_pub_key_wit.x.clone().into(),
                     &tx_pub_key_wit.y.clone().into(),
-                    &(src_balance_lc.clone() + tx_amount_lc.clone()),
+                    &(src_balance_lc.clone() - tx_amount_lc.clone()),
                 ],
             )?;
             let next_state_wit =
