@@ -146,10 +146,13 @@ impl<
                 tx.index,
             )
             .unwrap();
-            if acc.address != Default::default() && tx.pub_key != acc.address {
-                rejected.push(tx.clone());
-                continue;
-            } else if tx.amount > acc.balance {
+
+            // TODO: Check for wrong calldata
+            // TODO: Check for wrong signature
+            if (acc.address != Default::default() && tx.pub_key != acc.address)
+                || tx.nonce != src_before.nonce
+                || tx.amount > acc.balance
+            {
                 rejected.push(tx.clone());
                 continue;
             } else {
@@ -157,7 +160,7 @@ impl<
                 let updated_acc = MpnAccount {
                     address: tx.pub_key,
                     balance: new_balance,
-                    nonce: acc.nonce,
+                    nonce: acc.nonce + 1,
                 };
 
                 let proof = zeekit::merkle::Proof::<{ LOG4_TREE_SIZE }>(
