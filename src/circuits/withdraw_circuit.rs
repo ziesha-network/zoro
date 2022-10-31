@@ -16,6 +16,9 @@ pub struct Withdraw {
     pub mpn_withdraw: Option<MpnWithdraw>,
     pub index: u32,
     pub pub_key: jubjub::PointAffine,
+    pub fingerprint: ZkScalar,
+    pub nonce: u32,
+    pub sig: jubjub::Signature,
     pub amount: Money,
 }
 

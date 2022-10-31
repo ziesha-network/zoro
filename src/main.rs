@@ -180,6 +180,9 @@ fn process_withdraws<K: bazuka::db::KvStore>(
             mpn_withdraw: Some(dw.clone()),
             index: dw.zk_address_index,
             pub_key: dw.zk_address.0.decompress(),
+            fingerprint: dw.payment.fingerprint(),
+            nonce: dw.zk_nonce,
+            sig: dw.zk_sig,
             amount: dw.payment.amount,
         })
         .collect::<Vec<_>>();
