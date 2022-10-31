@@ -6,6 +6,7 @@ use bellman::gadgets::num::AllocatedNum;
 use bellman::{Circuit, ConstraintSystem, SynthesisError};
 use zeekit::common::Number;
 use zeekit::common::UnsignedInteger;
+use zeekit::eddsa;
 use zeekit::eddsa::AllocatedPoint;
 use zeekit::merkle;
 use zeekit::reveal::{reveal, AllocatedState};
@@ -93,10 +94,15 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
                 field_types: vec![
                     bazuka::zk::ZkStateModel::Scalar, // Enabled
                     bazuka::zk::ZkStateModel::Scalar, // Amount
+                    bazuka::zk::ZkStateModel::Scalar, // Fingerprint
                     bazuka::zk::ZkStateModel::Struct {
                         field_types: vec![
-                            bazuka::zk::ZkStateModel::Scalar,
-                            bazuka::zk::ZkStateModel::Scalar,
+                            bazuka::zk::ZkStateModel::Scalar, // Pub-x
+                            bazuka::zk::ZkStateModel::Scalar, // Pub-y
+                            bazuka::zk::ZkStateModel::Scalar, // Nonce
+                            bazuka::zk::ZkStateModel::Scalar, // Sig-r-x
+                            bazuka::zk::ZkStateModel::Scalar, // Sig-r-y
+                            bazuka::zk::ZkStateModel::Scalar, // Sig-s
                         ],
                     }, // Calldata
                 ],
@@ -114,21 +120,36 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
             // Tx amount should always have at most 64 bits
             let amount = UnsignedInteger::alloc_64(&mut *cs, trans.tx.amount.into())?;
 
+            // Tx amount should always have at most 64 bits
+            let fingerprint = AllocatedNum::alloc(&mut *cs, || Ok(trans.tx.fingerprint.into()))?;
+
             // Pub-key only needs to reside on curve if tx is enabled, which is checked in the main loop
             let pub_key = AllocatedPoint::alloc(&mut *cs, || Ok(trans.tx.pub_key))?;
+            let nonce = AllocatedNum::alloc(&mut *cs, || Ok((trans.tx.nonce as u64).into()))?;
+            let sig_r = AllocatedPoint::alloc(&mut *cs, || Ok(trans.tx.sig.r))?;
+            let sig_s = AllocatedNum::alloc(&mut *cs, || Ok(trans.tx.sig.s.into()))?;
 
             tx_wits.push((
                 Boolean::Is(enabled.clone()),
                 amount.clone(),
+                fingerprint.clone(),
                 pub_key.clone(),
+                nonce.clone(),
+                sig_r.clone(),
+                sig_s.clone(),
             ));
 
             children.push(AllocatedState::Children(vec![
                 AllocatedState::Value(enabled.into()),
                 AllocatedState::Value(amount.into()),
+                AllocatedState::Value(fingerprint.into()),
                 AllocatedState::Children(vec![
                     AllocatedState::Value(pub_key.x.into()),
                     AllocatedState::Value(pub_key.y.into()),
+                    AllocatedState::Value(nonce.into()),
+                    AllocatedState::Value(sig_r.x.into()),
+                    AllocatedState::Value(sig_r.y.into()),
+                    AllocatedState::Value(sig_s.into()),
                 ]),
             ]));
         }
@@ -140,8 +161,18 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
             |lc| lc + tx_root.get_lc(),
         );
 
-        for (trans, (enabled_wit, tx_amount_wit, tx_pub_key_wit)) in
-            self.transitions.0.iter().zip(tx_wits.into_iter())
+        for (
+            trans,
+            (
+                enabled_wit,
+                tx_amount_wit,
+                fingerprint_wit,
+                tx_pub_key_wit,
+                tx_nonce_wit,
+                tx_sig_r_wit,
+                tx_sig_s_wit,
+            ),
+        ) in self.transitions.0.iter().zip(tx_wits.into_iter())
         {
             // Tx index should always have at most LOG4_TREE_SIZE * 2 bits
             let tx_index_wit = UnsignedInteger::alloc(
@@ -152,6 +183,25 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
 
             // Check if tx pub-key resides on the curve if tx is enabled
             tx_pub_key_wit.assert_on_curve(&mut *cs, &enabled_wit)?;
+
+            let tx_hash_wit = poseidon::poseidon(
+                &mut *cs,
+                &[
+                    &fingerprint_wit.clone().into(),
+                    &tx_nonce_wit.clone().into(),
+                ],
+            )?;
+            // Check if sig_r resides on curve
+            tx_sig_r_wit.assert_on_curve(&mut *cs, &enabled_wit)?;
+            // Check EdDSA signature
+            eddsa::verify_eddsa(
+                &mut *cs,
+                &enabled_wit,
+                &tx_pub_key_wit,
+                &tx_hash_wit,
+                &tx_sig_r_wit,
+                &tx_sig_s_wit,
+            )?;
 
             let src_nonce_wit = AllocatedNum::alloc(&mut *cs, || Ok(trans.before.nonce.into()))?;
 
