@@ -227,6 +227,14 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
                 ],
             )?;
 
+            // Check tx nonce is equal with account nonce to prevent double spending
+            cs.enforce(
+                || "",
+                |lc| lc + tx_nonce_wit.get_variable(),
+                |lc| lc + CS::one(),
+                |lc| lc + src_nonce_wit.get_variable(),
+            );
+
             let mut proof_wits = Vec::new();
             for b in trans.proof.0.clone() {
                 proof_wits.push([
@@ -259,7 +267,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
             let new_hash_wit = poseidon::poseidon(
                 &mut *cs,
                 &[
-                    &src_nonce_wit.into(),
+                    &(Number::from(src_nonce_wit) + Number::constant::<CS>(BellmanFr::one())),
                     &tx_pub_key_wit.x.clone().into(),
                     &tx_pub_key_wit.y.clone().into(),
                     &(src_balance_lc.clone() - tx_amount_lc.clone()),
