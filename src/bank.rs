@@ -204,8 +204,13 @@ impl<
                 field_types: vec![
                     bazuka::zk::ZkStateModel::Scalar, // Enabled
                     bazuka::zk::ZkStateModel::Scalar, // Amount
+                    bazuka::zk::ZkStateModel::Scalar, // Fingerprint
                     bazuka::zk::ZkStateModel::Struct {
                         field_types: vec![
+                            bazuka::zk::ZkStateModel::Scalar,
+                            bazuka::zk::ZkStateModel::Scalar,
+                            bazuka::zk::ZkStateModel::Scalar,
+                            bazuka::zk::ZkStateModel::Scalar,
                             bazuka::zk::ZkStateModel::Scalar,
                             bazuka::zk::ZkStateModel::Scalar,
                         ],
@@ -229,12 +234,32 @@ impl<
                             Some(bazuka::zk::ZkScalar::from(trans.tx.amount)),
                         ),
                         (
-                            bazuka::zk::ZkDataLocator(vec![i as u32, 2, 0]),
+                            bazuka::zk::ZkDataLocator(vec![i as u32, 2]),
+                            Some(trans.tx.fingerprint),
+                        ),
+                        (
+                            bazuka::zk::ZkDataLocator(vec![i as u32, 3, 0]),
                             Some(bazuka::zk::ZkScalar::from(trans.tx.pub_key.0)),
                         ),
                         (
-                            bazuka::zk::ZkDataLocator(vec![i as u32, 2, 1]),
+                            bazuka::zk::ZkDataLocator(vec![i as u32, 3, 1]),
                             Some(bazuka::zk::ZkScalar::from(trans.tx.pub_key.1)),
+                        ),
+                        (
+                            bazuka::zk::ZkDataLocator(vec![i as u32, 3, 2]),
+                            Some(bazuka::zk::ZkScalar::from(trans.tx.nonce as u64)),
+                        ),
+                        (
+                            bazuka::zk::ZkDataLocator(vec![i as u32, 3, 3]),
+                            Some(bazuka::zk::ZkScalar::from(trans.tx.sig.r.0)),
+                        ),
+                        (
+                            bazuka::zk::ZkDataLocator(vec![i as u32, 3, 4]),
+                            Some(bazuka::zk::ZkScalar::from(trans.tx.sig.r.1)),
+                        ),
+                        (
+                            bazuka::zk::ZkDataLocator(vec![i as u32, 3, 5]),
+                            Some(bazuka::zk::ZkScalar::from(trans.tx.sig.s)),
                         ),
                     ]
                     .into(),
