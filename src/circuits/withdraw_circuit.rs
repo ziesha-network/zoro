@@ -1,4 +1,4 @@
-use bazuka::core::{Money, MpnDeposit};
+use bazuka::core::{Money, MpnWithdraw};
 use bazuka::crypto::jubjub;
 use bazuka::zk::{MpnAccount, ZkScalar};
 use bellman::gadgets::boolean::{AllocatedBit, Boolean};
@@ -12,58 +12,58 @@ use zeekit::reveal::{reveal, AllocatedState};
 use zeekit::{common, poseidon, BellmanFr};
 
 #[derive(Debug, Clone, Default)]
-pub struct Deposit {
-    pub mpn_deposit: Option<MpnDeposit>,
+pub struct Withdraw {
+    pub mpn_withdraw: Option<MpnWithdraw>,
     pub index: u32,
     pub pub_key: jubjub::PointAffine,
     pub amount: Money,
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct DepositTransition<const LOG4_TREE_SIZE: u8> {
+pub struct WithdrawTransition<const LOG4_TREE_SIZE: u8> {
     pub enabled: bool,
-    pub tx: Deposit,
+    pub tx: Withdraw,
     pub before: MpnAccount,
     pub proof: merkle::Proof<LOG4_TREE_SIZE>,
 }
 
 #[derive(Debug, Clone)]
-pub struct DepositTransitionBatch<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8>(
-    Vec<DepositTransition<LOG4_TREE_SIZE>>,
+pub struct WithdrawTransitionBatch<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8>(
+    Vec<WithdrawTransition<LOG4_TREE_SIZE>>,
 );
 impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8>
-    DepositTransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>
+    WithdrawTransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>
 {
-    pub fn new(mut ts: Vec<DepositTransition<LOG4_TREE_SIZE>>) -> Self {
+    pub fn new(mut ts: Vec<WithdrawTransition<LOG4_TREE_SIZE>>) -> Self {
         while ts.len() < 1 << (2 * LOG4_BATCH_SIZE) {
-            ts.push(DepositTransition::default());
+            ts.push(WithdrawTransition::default());
         }
         Self(ts)
     }
 }
 impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Default
-    for DepositTransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>
+    for WithdrawTransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>
 {
     fn default() -> Self {
         Self(
             (0..1 << (2 * LOG4_BATCH_SIZE))
-                .map(|_| DepositTransition::default())
+                .map(|_| WithdrawTransition::default())
                 .collect::<Vec<_>>(),
         )
     }
 }
 
 #[derive(Debug, Default)]
-pub struct DepositCircuit<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> {
+pub struct WithdrawCircuit<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> {
     pub height: u64,          // Public
     pub state: ZkScalar,      // Public
     pub aux_data: ZkScalar,   // Public
     pub next_state: ZkScalar, // Public
-    pub transitions: Box<DepositTransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>>, // Secret :)
+    pub transitions: Box<WithdrawTransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>>, // Secret :)
 }
 
 impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
-    for DepositCircuit<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>
+    for WithdrawCircuit<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>
 {
     fn synthesize<CS: ConstraintSystem<BellmanFr>>(
         self,
@@ -101,7 +101,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
             log4_size: LOG4_BATCH_SIZE,
         };
 
-        // Uncompress all the Deposit txs that were compressed inside aux_witness
+        // Uncompress all the Withdraw txs that were compressed inside aux_witness
         let mut tx_wits = Vec::new();
         let mut children = Vec::new();
         for trans in self.transitions.0.iter() {
