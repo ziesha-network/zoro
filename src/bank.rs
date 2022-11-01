@@ -150,7 +150,7 @@ impl<
             // TODO: Check for wrong calldata
             // TODO: Check for wrong signature
             if (acc.address != Default::default() && tx.pub_key != acc.address)
-                || tx.nonce != src_before.nonce
+                || tx.nonce != acc.nonce
                 || tx.amount > acc.balance
             {
                 rejected.push(tx.clone());

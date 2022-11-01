@@ -422,7 +422,7 @@ fn main() {
                 },
                 sig: bazuka::core::Signature::Unsigned,
             };
-            exec_wallet.sign(&mut update);
+            exec_wallet.sign_tx(&mut update);
 
             let ops = db_mirror.to_ops();
             let delta = bank::extract_delta(ops);
