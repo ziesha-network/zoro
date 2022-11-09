@@ -255,7 +255,7 @@ fn main() {
     );
     let opt = Opt::from_args();
 
-    let exec_wallet = bazuka::wallet::TxBuilder::new(opt.seed.as_bytes().to_vec());
+    let exec_wallet = bazuka::wallet::TxBuilder::new(&opt.seed.as_bytes().to_vec());
 
     let update_params = load_params::<
         circuits::UpdateCircuit<{ config::LOG4_UPDATE_BATCH_SIZE }, { config::LOG4_TREE_SIZE }>,
