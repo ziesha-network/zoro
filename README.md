@@ -1,10 +1,10 @@
 # ⚔️ Zoro
 
-Zoro is the SNARK circuit implementation of Zeeka's Main Payment Network contract. This readme tries to explain the circuit in detail, for someone who is not an expert in Zero-Knowledge proofs.
+Zoro is the SNARK circuit implementation of Ziesha's Main Payment Network contract. This readme tries to explain the circuit in detail, for someone who is not an expert in Zero-Knowledge proofs.
 
 ### Prime-Field elements
 
-Prime Field elements are integers that reside in the range `[0..p)` where `p` is a prime number. For different configurations of different proving systems, the value of `p` is different. E.g for proving systems based on Bls12-381 elliptic-curves (Which is the curve used by Zeeka Network), `p` is:
+Prime Field elements are integers that reside in the range `[0..p)` where `p` is a prime number. For different configurations of different proving systems, the value of `p` is different. E.g for proving systems based on Bls12-381 elliptic-curves (Which is the curve used by Ziesha Network), `p` is:
 
 ```
 0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001
@@ -253,14 +253,14 @@ a.x^2 + y^2 = 1 + d.x^2.y^2
 
 `x` and `y` are scalars that reside in a Prime-Field. If the Prime-Field of the EdDSA curve is different from the Scalar Field of our proving system, the we must somehow implement Prime-Field operations within the Prime-Field of our proving system, which is a very hard thing to do (Since we must implement the Modulus (%) operation using mathematical constraints). But if the Prime-Field of the EdDSA curve is same as Prime-Field of the proving system, then there is no need to implement Mod operation in our circuit, because all numbers are by default mod-ed into the Prime-Field of the EdDSA curve.
 
-We mentioned that Zeeka uses Bls12-381 curve as the main curve in its proving system. There is a certain kind of Twisted Edwards curve available called [JubJub](https://z.cash/technology/jubjub/) which is defined on the Bls12-381's Scalar Field, allowing it to be easily integrated into a SNARK circuit. JubJub is a Twisted Edwards curve with following parameters.
+We mentioned that Ziesha uses Bls12-381 curve as the main curve in its proving system. There is a certain kind of Twisted Edwards curve available called [JubJub](https://z.cash/technology/jubjub/) which is defined on the Bls12-381's Scalar Field, allowing it to be easily integrated into a SNARK circuit. JubJub is a Twisted Edwards curve with following parameters.
 
 ```
 A = -1
 D = -(10240/10241)
 ```
 
-Zeeka's zero-Knowledge transactions are signed using EdDSA signatures that are built on JubJub elliptic curve.
+Ziesha's zero-Knowledge transactions are signed using EdDSA signatures that are built on JubJub elliptic curve.
 
 #### Verification of Sparse Merkle Trees proofs
 

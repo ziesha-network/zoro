@@ -28,8 +28,8 @@ bincode = "1.3.3"
 ureq = { version = "2.4.0", features = ["json"], default-features = false }
 
 ff = { version = "0.12", features = ["derive", "derive_bits"] }
-zeekit = { git = "https://github.com/zeeka-network/zeekit"}
-bazuka = { git = "https://github.com/zeeka-network/bazuka", default-features = false, features = ["client", "db"] }
+zeekit = { git = "https://github.com/ziesha-network/zeekit"}
+bazuka = { git = "https://github.com/ziesha-network/bazuka", default-features = false, features = ["client", "db"] }
 
 [patch.crates-io]
-bellman = { git = "https://github.com/zeeka-network/bellwoman", branch = "gpu"}
+bellman = { git = "https://github.com/ziesha-network/bellwoman", branch = "gpu"}

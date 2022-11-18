@@ -24,7 +24,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 #[derive(Debug, StructOpt)]
-#[structopt(name = "Zoro", about = "Zeeka's MPN Executor")]
+#[structopt(name = "Zoro", about = "Ziesha's MPN Executor")]
 struct Opt {
     #[structopt(long)]
     seed: String,
@@ -249,7 +249,7 @@ fn alice_shuffle() {
 fn main() {
     env_logger::init();
     println!(
-        "{} v{} - A CPU/GPU-based MPN Executor for Zeeka Cryptocurrency",
+        "{} v{} - A CPU/GPU-based MPN Executor for Ziesha Cryptocurrency",
         "Zoro!".bright_green(),
         env!("CARGO_PKG_VERSION")
     );
