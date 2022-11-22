@@ -92,10 +92,10 @@ impl<
                                 bellman::gpu::OptParams {
                                     n_g1: 32 * 1024 * 1024,
                                     window_size_g1: 9,
-                                    groups_g1: 298,
+                                    groups_g1: 723,
                                     n_g2: 16 * 1024 * 1024,
                                     window_size_g2: 9,
-                                    groups_g2: 298,
+                                    groups_g2: 723,
                                 },
                             )
                         })
