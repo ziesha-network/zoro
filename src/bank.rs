@@ -152,7 +152,7 @@ impl<
             if (acc.address != Default::default() && tx.pub_key != acc.address)
                 || tx.nonce != acc.nonce
                 || tx.amount > acc.balance
-                || tx.index > 0x3ffffff
+                || tx.index > 0x3fffffff
             {
                 rejected.push(tx.clone());
                 continue;
@@ -331,7 +331,7 @@ impl<
             if transitions.len() == 1 << (2 * LOG4_DEPOSIT_BATCH_SIZE) {
                 break;
             }
-            if tx.index > 0x3ffffff {
+            if tx.index > 0x3fffffff {
                 rejected.push(tx.clone());
                 continue;
             }
@@ -527,8 +527,8 @@ impl<
             )
             .unwrap();
             if tx.nonce != src_before.nonce
-                || tx.src_index > 0x3ffffff
-                || tx.dst_index > 0x3ffffff
+                || tx.src_index > 0x3fffffff
+                || tx.dst_index > 0x3fffffff
                 || tx.src_index == tx.dst_index
                 || !tx.dst_pub_key.is_on_curve()
                 || (dst_before.address.is_on_curve()
