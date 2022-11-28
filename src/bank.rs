@@ -331,15 +331,17 @@ impl<
             if transitions.len() == 1 << (2 * LOG4_DEPOSIT_BATCH_SIZE) {
                 break;
             }
+            if tx.index > 0x3ffffff {
+                rejected.push(tx.clone());
+                continue;
+            }
             let acc = KvStoreStateManager::<ZkHasher>::get_mpn_account(
                 &mirror,
                 self.mpn_contract_id,
                 tx.index,
             )
             .unwrap();
-            if acc.address != Default::default() && tx.pub_key != acc.address
-                || tx.index > 0x3ffffff
-            {
+            if acc.address != Default::default() && tx.pub_key != acc.address {
                 rejected.push(tx.clone());
                 continue;
             } else {
