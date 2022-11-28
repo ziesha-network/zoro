@@ -515,7 +515,17 @@ impl<
                 tx.src_index,
             )
             .unwrap();
+            let dst_before = KvStoreStateManager::<ZkHasher>::get_mpn_account(
+                &mirror,
+                self.mpn_contract_id,
+                tx.dst_index,
+            )
+            .unwrap();
             if tx.nonce != src_before.nonce
+                || tx.src_index == tx.dst_index
+                || !tx.dst_pub_key.is_on_curve()
+                || (dst_before.address.is_on_curve()
+                    && dst_before.address != tx.dst_pub_key.decompress())
                 || !tx.verify(&PublicKey(src_before.address.compress()))
                 || src_before.balance < tx.fee + tx.amount
             {
@@ -545,12 +555,6 @@ impl<
                 )
                 .unwrap();
 
-                let dst_before = KvStoreStateManager::<ZkHasher>::get_mpn_account(
-                    &mirror,
-                    self.mpn_contract_id,
-                    tx.dst_index,
-                )
-                .unwrap();
                 let dst_proof = zeekit::merkle::Proof::<{ LOG4_TREE_SIZE }>(
                     KvStoreStateManager::<ZkHasher>::prove(
                         &mirror,
