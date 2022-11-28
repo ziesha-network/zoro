@@ -152,6 +152,7 @@ impl<
             if (acc.address != Default::default() && tx.pub_key != acc.address)
                 || tx.nonce != acc.nonce
                 || tx.amount > acc.balance
+                || tx.index > 0x3ffffff
             {
                 rejected.push(tx.clone());
                 continue;
@@ -336,7 +337,9 @@ impl<
                 tx.index,
             )
             .unwrap();
-            if acc.address != Default::default() && tx.pub_key != acc.address {
+            if acc.address != Default::default() && tx.pub_key != acc.address
+                || tx.index > 0x3ffffff
+            {
                 rejected.push(tx.clone());
                 continue;
             } else {
@@ -522,6 +525,8 @@ impl<
             )
             .unwrap();
             if tx.nonce != src_before.nonce
+                || tx.src_index > 0x3ffffff
+                || tx.dst_index > 0x3ffffff
                 || tx.src_index == tx.dst_index
                 || !tx.dst_pub_key.is_on_curve()
                 || (dst_before.address.is_on_curve()
