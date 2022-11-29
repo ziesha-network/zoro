@@ -125,7 +125,7 @@ fn process_deposits<K: bazuka::db::KvStore>(
         mempool.remove(tx);
     }
 
-    let deposits = mempool
+    let mut deposits = mempool
         .clone()
         .into_keys()
         .map(|dw| Deposit {
@@ -135,6 +135,7 @@ fn process_deposits<K: bazuka::db::KvStore>(
             amount: dw.payment.amount,
         })
         .collect::<Vec<_>>();
+    deposits.sort_unstable_by_key(|t| t.mpn_deposit.as_ref().unwrap().payment.nonce);
 
     let (accepted, rejected, new_root, proof) = b.deposit(db_mirror, deposits, cancel.clone())?;
 
@@ -173,7 +174,7 @@ fn process_withdraws<K: bazuka::db::KvStore>(
         mempool.remove(tx);
     }
 
-    let withdraws = mempool
+    let mut withdraws = mempool
         .clone()
         .into_keys()
         .map(|dw| Withdraw {
@@ -186,6 +187,7 @@ fn process_withdraws<K: bazuka::db::KvStore>(
             amount: dw.payment.amount + dw.payment.fee,
         })
         .collect::<Vec<_>>();
+    withdraws.sort_unstable_by_key(|t| t.nonce);
 
     let (accepted, rejected, new_root, proof) = b.withdraw(db_mirror, withdraws, cancel.clone())?;
 
@@ -215,11 +217,9 @@ fn process_updates<K: bazuka::db::KvStore>(
     db_mirror: &mut bazuka::db::RamMirrorKvStore<K>,
     cancel: &Arc<RwLock<bool>>,
 ) -> Result<bazuka::core::ContractUpdate, ZoroError> {
-    let (accepted, rejected, new_root, proof) = b.change_state(
-        db_mirror,
-        mempool.clone().into_keys().collect(),
-        cancel.clone(),
-    )?;
+    let mut txs: Vec<_> = mempool.clone().into_keys().collect();
+    txs.sort_unstable_by_key(|t| t.nonce);
+    let (accepted, rejected, new_root, proof) = b.change_state(db_mirror, txs, cancel.clone())?;
 
     let fee_sum = accepted
         .iter()
@@ -331,6 +331,9 @@ fn main() {
             let mut db_mirror = db.mirror();
             let acc = client.get_account(exec_wallet.get_address())?.account;
 
+            update_mempool.clear();
+            deposit_mempool.clear();
+            withdraw_mempool.clear();
             let mempool = client.get_zero_mempool()?;
             for update in mempool.updates.iter() {
                 update_mempool.insert(update.clone(), ());
