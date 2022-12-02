@@ -15,6 +15,7 @@ use bellman::{groth16, Circuit};
 use bls12_381::Bls12;
 use client::SyncClient;
 use colored::Colorize;
+use rayon::prelude::*;
 use std::fs::File;
 use std::path::PathBuf;
 use structopt::StructOpt;
@@ -116,7 +117,7 @@ fn process_deposits<K: bazuka::db::KvStore>(
     >,
     db_mirror: &mut bazuka::db::RamMirrorKvStore<K>,
     cancel: &Arc<RwLock<bool>>,
-) -> Result<bazuka::core::ContractUpdate, ZoroError> {
+) -> Result<(bazuka::core::ContractUpdate, Box<dyn bank::Provable>), ZoroError> {
     for (tx, _) in mempool
         .clone()
         .iter()
@@ -143,15 +144,18 @@ fn process_deposits<K: bazuka::db::KvStore>(
         mempool.remove(&tx.mpn_deposit.as_ref().unwrap());
     }
 
-    Ok(bazuka::core::ContractUpdate::Deposit {
-        deposit_circuit_id: 0,
-        deposits: accepted
-            .into_iter()
-            .map(|dw| dw.mpn_deposit.unwrap().payment)
-            .collect(),
-        next_state: new_root,
-        proof: bazuka::zk::ZkProof::Groth16(Box::new(proof)),
-    })
+    Ok((
+        bazuka::core::ContractUpdate::Deposit {
+            deposit_circuit_id: 0,
+            deposits: accepted
+                .into_iter()
+                .map(|dw| dw.mpn_deposit.unwrap().payment)
+                .collect(),
+            next_state: new_root,
+            proof: bazuka::zk::ZkProof::Groth16(Box::new(Default::default())),
+        },
+        Box::new(proof),
+    ))
 }
 
 fn process_withdraws<K: bazuka::db::KvStore>(
@@ -165,7 +169,7 @@ fn process_withdraws<K: bazuka::db::KvStore>(
     >,
     db_mirror: &mut bazuka::db::RamMirrorKvStore<K>,
     cancel: &Arc<RwLock<bool>>,
-) -> Result<bazuka::core::ContractUpdate, ZoroError> {
+) -> Result<(bazuka::core::ContractUpdate, Box<dyn bank::Provable>), ZoroError> {
     for (tx, _) in mempool
         .clone()
         .iter()
@@ -195,15 +199,18 @@ fn process_withdraws<K: bazuka::db::KvStore>(
         mempool.remove(&tx.mpn_withdraw.as_ref().unwrap());
     }
 
-    Ok(bazuka::core::ContractUpdate::Withdraw {
-        withdraw_circuit_id: 0,
-        withdraws: accepted
-            .into_iter()
-            .map(|dw| dw.mpn_withdraw.unwrap().payment)
-            .collect(),
-        next_state: new_root,
-        proof: bazuka::zk::ZkProof::Groth16(Box::new(proof)),
-    })
+    Ok((
+        bazuka::core::ContractUpdate::Withdraw {
+            withdraw_circuit_id: 0,
+            withdraws: accepted
+                .into_iter()
+                .map(|dw| dw.mpn_withdraw.unwrap().payment)
+                .collect(),
+            next_state: new_root,
+            proof: bazuka::zk::ZkProof::Groth16(Box::new(Default::default())),
+        },
+        Box::new(proof),
+    ))
 }
 
 fn process_updates<K: bazuka::db::KvStore>(
@@ -216,7 +223,7 @@ fn process_updates<K: bazuka::db::KvStore>(
     >,
     db_mirror: &mut bazuka::db::RamMirrorKvStore<K>,
     cancel: &Arc<RwLock<bool>>,
-) -> Result<bazuka::core::ContractUpdate, ZoroError> {
+) -> Result<(bazuka::core::ContractUpdate, Box<dyn bank::Provable>), ZoroError> {
     let mut txs: Vec<_> = mempool.clone().into_keys().collect();
     txs.sort_unstable_by_key(|t| t.nonce);
     let (accepted, rejected, new_root, proof) = b.change_state(db_mirror, txs, cancel.clone())?;
@@ -229,12 +236,15 @@ fn process_updates<K: bazuka::db::KvStore>(
         mempool.remove(&tx);
     }
 
-    Ok(bazuka::core::ContractUpdate::FunctionCall {
-        fee: fee_sum.into(),
-        function_id: 0,
-        next_state: new_root,
-        proof: bazuka::zk::ZkProof::Groth16(Box::new(proof)),
-    })
+    Ok((
+        bazuka::core::ContractUpdate::FunctionCall {
+            fee: fee_sum.into(),
+            function_id: 0,
+            next_state: new_root,
+            proof: bazuka::zk::ZkProof::Groth16(Box::new(Default::default())),
+        },
+        Box::new(proof),
+    ))
 }
 
 fn alice_shuffle() {
@@ -348,14 +358,12 @@ fn main() {
             let mut updates = Vec::new();
 
             for i in 0..opt.deposit_batches {
-                let start = std::time::Instant::now();
                 println!(
                     "{} Deposit-Transactions ({}/{})...",
                     "Processing:".bright_yellow(),
                     i + 1,
                     opt.deposit_batches
                 );
-                alice_shuffle();
                 updates.push(process_deposits(
                     &conf,
                     &mut deposit_mempool,
@@ -363,22 +371,15 @@ fn main() {
                     &mut db_mirror,
                     &cancel,
                 )?);
-                println!(
-                    "{} {}ms",
-                    "Proving took:".bright_green(),
-                    (std::time::Instant::now() - start).as_millis()
-                );
             }
 
             for i in 0..opt.withdraw_batches {
-                let start = std::time::Instant::now();
                 println!(
                     "{} Withdraw-Transactions ({}/{})...",
                     "Processing:".bright_yellow(),
                     i + 1,
                     opt.withdraw_batches
                 );
-                alice_shuffle();
                 updates.push(process_withdraws(
                     &conf,
                     &mut withdraw_mempool,
@@ -386,33 +387,51 @@ fn main() {
                     &mut db_mirror,
                     &cancel,
                 )?);
-                println!(
-                    "{} {}ms",
-                    "Proving took:".bright_green(),
-                    (std::time::Instant::now() - start).as_millis()
-                );
             }
 
             for i in 0..opt.update_batches {
-                let start = std::time::Instant::now();
                 println!(
                     "{} Zero-Transactions ({}/{})...",
                     "Processing:".bright_yellow(),
                     i + 1,
                     opt.update_batches
                 );
-                alice_shuffle();
                 updates.push(process_updates(
                     &mut update_mempool,
                     &b,
                     &mut db_mirror,
                     &cancel,
                 )?);
-                println!(
-                    "{} {}ms",
-                    "Proving took:".bright_green(),
-                    (std::time::Instant::now() - start).as_millis()
-                );
+            }
+
+            let (mut updates, provers): (
+                Vec<bazuka::core::ContractUpdate>,
+                Vec<Box<dyn bank::Provable>>,
+            ) = updates.into_iter().unzip();
+
+            let start = std::time::Instant::now();
+            alice_shuffle();
+            let proofs: Vec<bazuka::zk::groth16::Groth16Proof> = provers
+                .into_par_iter()
+                .map(|p| p.prove())
+                .collect::<Result<Vec<bazuka::zk::groth16::Groth16Proof>, bank::BankError>>()?;
+            println!(
+                "{} {}ms",
+                "Proving took:".bright_green(),
+                (std::time::Instant::now() - start).as_millis()
+            );
+            for (upd, p) in updates.iter_mut().zip(proofs.into_iter()) {
+                match upd {
+                    bazuka::core::ContractUpdate::Deposit { proof, .. } => {
+                        *proof = bazuka::zk::ZkProof::Groth16(Box::new(p));
+                    }
+                    bazuka::core::ContractUpdate::Withdraw { proof, .. } => {
+                        *proof = bazuka::zk::ZkProof::Groth16(Box::new(p));
+                    }
+                    bazuka::core::ContractUpdate::FunctionCall { proof, .. } => {
+                        *proof = bazuka::zk::ZkProof::Groth16(Box::new(p));
+                    }
+                }
             }
 
             let mut update = bazuka::core::Transaction {

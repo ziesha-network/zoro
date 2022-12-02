@@ -53,7 +53,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Default
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct UpdateCircuit<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> {
     pub height: u64,                                                        // Public
     pub state: ZkScalar,                                                    // Public
