@@ -14,7 +14,7 @@ use bellman::groth16::Backend;
 use bellman::groth16::Parameters;
 use bls12_381::Bls12;
 use rand::rngs::OsRng;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -82,7 +82,7 @@ impl<
     ) -> Self {
         Self {
             backend: if gpu {
-                Backend::Gpu(
+                Backend::Gpu(Arc::new(Mutex::new(
                     Device::by_brand(Brand::Nvidia)
                         .unwrap()
                         .into_iter()
@@ -100,7 +100,7 @@ impl<
                             )
                         })
                         .collect(),
-                )
+                )))
             } else {
                 Backend::Cpu
             },
