@@ -1,5 +1,5 @@
 use crate::circuits;
-use crate::circuits::{Deposit, Withdraw};
+use crate::circuits::{Deposit, DepositCircuit, UpdateCircuit, Withdraw, WithdrawCircuit};
 use bazuka::zk::ZkScalar;
 use bazuka::{
     blockchain::BlockchainConfig,
@@ -12,10 +12,12 @@ use bellman::gpu::{Brand, Device};
 use bellman::groth16;
 use bellman::groth16::Backend;
 use bellman::groth16::Parameters;
+use bellman::Circuit;
 use bls12_381::Bls12;
 use rand::rngs::OsRng;
 use std::sync::{Arc, Mutex, RwLock};
 use thiserror::Error;
+use zeekit::BellmanFr;
 
 #[derive(Error, Debug)]
 pub enum BankError {
@@ -38,6 +40,53 @@ pub struct Bank<
     update_params: Parameters<Bls12>,
     deposit_params: Parameters<Bls12>,
     withdraw_params: Parameters<Bls12>,
+}
+
+pub struct SnarkWork<C: Circuit<BellmanFr> + Clone> {
+    circuit: C,
+    params: Parameters<Bls12>,
+    backend: Backend,
+    cancel: Option<Arc<RwLock<bool>>>,
+    verifier: bazuka::zk::groth16::Groth16VerifyingKey,
+    height: u64,
+    state: ZkScalar,
+    aux_data: ZkScalar,
+    next_state: ZkScalar,
+}
+unsafe impl<C: Circuit<BellmanFr> + Clone> std::marker::Send for SnarkWork<C> {}
+unsafe impl<C: Circuit<BellmanFr> + Clone> std::marker::Sync for SnarkWork<C> {}
+
+pub trait Provable: std::marker::Send + std::marker::Sync {
+    fn prove(&self) -> Result<bazuka::zk::groth16::Groth16Proof, BankError>;
+}
+
+impl<C: Circuit<BellmanFr> + Clone> Provable for SnarkWork<C> {
+    fn prove(&self) -> Result<bazuka::zk::groth16::Groth16Proof, BankError> {
+        let proof = unsafe {
+            std::mem::transmute::<bellman::groth16::Proof<Bls12>, bazuka::zk::groth16::Groth16Proof>(
+                groth16::create_random_proof(
+                    self.circuit.clone(),
+                    &self.params,
+                    &mut OsRng,
+                    self.backend.clone(),
+                    self.cancel.clone(),
+                )?,
+            )
+        };
+
+        if bazuka::zk::groth16::groth16_verify(
+            &self.verifier,
+            self.height,
+            self.state,
+            self.aux_data,
+            self.next_state,
+            &proof,
+        ) {
+            Ok(proof)
+        } else {
+            Err(BankError::IncorrectProof)
+        }
+    }
 }
 
 pub fn extract_delta(ops: Vec<bazuka::db::WriteOp>) -> bazuka::zk::ZkDeltaPairs {
@@ -121,7 +170,7 @@ impl<
             Vec<Withdraw>,
             Vec<Withdraw>,
             bazuka::zk::ZkCompressedState,
-            bazuka::zk::groth16::Groth16Proof,
+            SnarkWork<WithdrawCircuit<{ LOG4_WITHDRAW_BATCH_SIZE }, { LOG4_TREE_SIZE }>>,
         ),
         BankError,
     > {
@@ -266,40 +315,27 @@ impl<
             >::new(transitions)),
         };
 
-        let proof = unsafe {
-            std::mem::transmute::<bellman::groth16::Proof<Bls12>, bazuka::zk::groth16::Groth16Proof>(
-                groth16::create_random_proof(
-                    circuit,
-                    &self.withdraw_params,
-                    &mut OsRng,
-                    self.backend.clone(),
-                    Some(cancel),
-                )?,
-            )
-        };
-
-        if bazuka::zk::groth16::groth16_verify(
-            &bazuka::config::blockchain::MPN_WITHDRAW_VK,
-            height,
-            state,
-            aux_data,
-            next_state,
-            &proof,
-        ) {
-            let ops = mirror.to_ops();
-            db.update(&ops)?;
-            Ok((
-                accepted,
-                rejected,
-                bazuka::zk::ZkCompressedState {
-                    state_hash: next_state,
-                    state_size,
-                },
-                proof,
-            ))
-        } else {
-            Err(BankError::IncorrectProof)
-        }
+        let ops = mirror.to_ops();
+        db.update(&ops)?;
+        Ok((
+            accepted,
+            rejected,
+            bazuka::zk::ZkCompressedState {
+                state_hash: next_state,
+                state_size,
+            },
+            SnarkWork::<WithdrawCircuit<{ LOG4_WITHDRAW_BATCH_SIZE }, { LOG4_TREE_SIZE }>> {
+                circuit,
+                params: self.withdraw_params.clone(),
+                backend: self.backend.clone(),
+                cancel: Some(cancel),
+                verifier: bazuka::config::blockchain::MPN_WITHDRAW_VK.clone(),
+                height,
+                state,
+                aux_data,
+                next_state,
+            },
+        ))
     }
 
     pub fn deposit<K: KvStore>(
@@ -312,7 +348,7 @@ impl<
             Vec<Deposit>,
             Vec<Deposit>,
             bazuka::zk::ZkCompressedState,
-            bazuka::zk::groth16::Groth16Proof,
+            SnarkWork<DepositCircuit<{ LOG4_DEPOSIT_BATCH_SIZE }, { LOG4_TREE_SIZE }>>,
         ),
         BankError,
     > {
@@ -449,40 +485,28 @@ impl<
             >::new(transitions)),
         };
 
-        let proof = unsafe {
-            std::mem::transmute::<bellman::groth16::Proof<Bls12>, bazuka::zk::groth16::Groth16Proof>(
-                groth16::create_random_proof(
-                    circuit,
-                    &self.deposit_params,
-                    &mut OsRng,
-                    self.backend.clone(),
-                    Some(cancel),
-                )?,
-            )
-        };
+        let ops = mirror.to_ops();
+        db.update(&ops)?;
 
-        if bazuka::zk::groth16::groth16_verify(
-            &bazuka::config::blockchain::MPN_DEPOSIT_VK,
-            height,
-            state,
-            aux_data,
-            next_state,
-            &proof,
-        ) {
-            let ops = mirror.to_ops();
-            db.update(&ops)?;
-            Ok((
-                accepted,
-                rejected,
-                bazuka::zk::ZkCompressedState {
-                    state_hash: next_state,
-                    state_size,
-                },
-                proof,
-            ))
-        } else {
-            Err(BankError::IncorrectProof)
-        }
+        Ok((
+            accepted,
+            rejected,
+            bazuka::zk::ZkCompressedState {
+                state_hash: next_state,
+                state_size,
+            },
+            SnarkWork::<DepositCircuit<{ LOG4_DEPOSIT_BATCH_SIZE }, { LOG4_TREE_SIZE }>> {
+                circuit,
+                params: self.deposit_params.clone(),
+                backend: self.backend.clone(),
+                cancel: Some(cancel),
+                verifier: bazuka::config::blockchain::MPN_DEPOSIT_VK.clone(),
+                height,
+                state,
+                aux_data,
+                next_state,
+            },
+        ))
     }
     pub fn change_state<K: KvStore>(
         &self,
@@ -494,7 +518,7 @@ impl<
             Vec<MpnTransaction>,
             Vec<MpnTransaction>,
             bazuka::zk::ZkCompressedState,
-            bazuka::zk::groth16::Groth16Proof,
+            SnarkWork<UpdateCircuit<{ LOG4_UPDATE_BATCH_SIZE }, { LOG4_TREE_SIZE }>>,
         ),
         BankError,
     > {
@@ -632,40 +656,26 @@ impl<
                 LOG4_TREE_SIZE,
             >::new(transitions)),
         };
-
-        let proof = unsafe {
-            std::mem::transmute::<bellman::groth16::Proof<Bls12>, bazuka::zk::groth16::Groth16Proof>(
-                groth16::create_random_proof(
-                    circuit,
-                    &self.update_params,
-                    &mut OsRng,
-                    self.backend.clone(),
-                    Some(cancel),
-                )?,
-            )
-        };
-
-        if bazuka::zk::groth16::groth16_verify(
-            &bazuka::config::blockchain::MPN_UPDATE_VK,
-            height,
-            state,
-            aux_data,
-            next_state,
-            &proof,
-        ) {
-            let ops = mirror.to_ops();
-            db.update(&ops)?;
-            Ok((
-                accepted,
-                rejected,
-                bazuka::zk::ZkCompressedState {
-                    state_hash: next_state,
-                    state_size,
-                },
-                proof,
-            ))
-        } else {
-            Err(BankError::IncorrectProof)
-        }
+        let ops = mirror.to_ops();
+        db.update(&ops)?;
+        Ok((
+            accepted,
+            rejected,
+            bazuka::zk::ZkCompressedState {
+                state_hash: next_state,
+                state_size,
+            },
+            SnarkWork::<UpdateCircuit<{ LOG4_UPDATE_BATCH_SIZE }, { LOG4_TREE_SIZE }>> {
+                circuit,
+                params: self.update_params.clone(),
+                backend: self.backend.clone(),
+                cancel: Some(cancel),
+                verifier: bazuka::config::blockchain::MPN_UPDATE_VK.clone(),
+                height,
+                state,
+                aux_data,
+                next_state,
+            },
+        ))
     }
 }
