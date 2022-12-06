@@ -21,7 +21,6 @@ use std::path::PathBuf;
 use structopt::StructOpt;
 use zeekit::BellmanFr;
 
-use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 #[derive(Debug, StructOpt)]
@@ -108,7 +107,7 @@ pub enum ZoroError {
 
 fn process_deposits<K: bazuka::db::KvStore>(
     conf: &BlockchainConfig,
-    mempool: &mut HashMap<MpnDeposit, ()>,
+    mempool: &[MpnDeposit],
     b: &bank::Bank<
         { config::LOG4_DEPOSIT_BATCH_SIZE },
         { config::LOG4_WITHDRAW_BATCH_SIZE },
@@ -118,17 +117,9 @@ fn process_deposits<K: bazuka::db::KvStore>(
     db_mirror: &mut bazuka::db::RamMirrorKvStore<K>,
     cancel: &Arc<RwLock<bool>>,
 ) -> Result<(bazuka::core::ContractUpdate, Box<dyn bank::Provable>), ZoroError> {
-    for (tx, _) in mempool
-        .clone()
-        .iter()
-        .filter(|(dw, _)| &dw.payment.contract_id != &conf.mpn_contract_id)
-    {
-        mempool.remove(tx);
-    }
-
     let mut deposits = mempool
-        .clone()
-        .into_keys()
+        .iter()
+        .filter(|dw| dw.payment.contract_id == conf.mpn_contract_id)
         .map(|dw| Deposit {
             mpn_deposit: Some(dw.clone()),
             index: dw.zk_address_index,
@@ -138,11 +129,11 @@ fn process_deposits<K: bazuka::db::KvStore>(
         .collect::<Vec<_>>();
     deposits.sort_unstable_by_key(|t| t.mpn_deposit.as_ref().unwrap().payment.nonce);
 
-    let (accepted, rejected, new_root, proof) = b.deposit(db_mirror, deposits, cancel.clone())?;
+    let (accepted, _rejected, new_root, proof) = b.deposit(db_mirror, deposits, cancel.clone())?;
 
-    for tx in accepted.iter().chain(rejected.iter()) {
-        mempool.remove(&tx.mpn_deposit.as_ref().unwrap());
-    }
+    //for tx in accepted.iter().chain(rejected.iter()) {
+    //    mempool.remove(&tx.mpn_deposit.as_ref().unwrap());
+    //}
 
     Ok((
         bazuka::core::ContractUpdate::Deposit {
@@ -160,7 +151,7 @@ fn process_deposits<K: bazuka::db::KvStore>(
 
 fn process_withdraws<K: bazuka::db::KvStore>(
     conf: &BlockchainConfig,
-    mempool: &mut HashMap<MpnWithdraw, ()>,
+    mempool: &[MpnWithdraw],
     b: &bank::Bank<
         { config::LOG4_DEPOSIT_BATCH_SIZE },
         { config::LOG4_WITHDRAW_BATCH_SIZE },
@@ -170,34 +161,27 @@ fn process_withdraws<K: bazuka::db::KvStore>(
     db_mirror: &mut bazuka::db::RamMirrorKvStore<K>,
     cancel: &Arc<RwLock<bool>>,
 ) -> Result<(bazuka::core::ContractUpdate, Box<dyn bank::Provable>), ZoroError> {
-    for (tx, _) in mempool
-        .clone()
-        .iter()
-        .filter(|(dw, _)| &dw.payment.contract_id != &conf.mpn_contract_id)
-    {
-        mempool.remove(tx);
-    }
-
     let mut withdraws = mempool
-        .clone()
-        .into_keys()
+        .iter()
+        .filter(|dw| dw.payment.contract_id == conf.mpn_contract_id)
         .map(|dw| Withdraw {
             mpn_withdraw: Some(dw.clone()),
             index: dw.zk_address_index,
             pub_key: dw.zk_address.0.decompress(),
             fingerprint: dw.payment.fingerprint(),
             nonce: dw.zk_nonce,
-            sig: dw.zk_sig,
+            sig: dw.zk_sig.clone(),
             amount: dw.payment.amount + dw.payment.fee,
         })
         .collect::<Vec<_>>();
     withdraws.sort_unstable_by_key(|t| t.nonce);
 
-    let (accepted, rejected, new_root, proof) = b.withdraw(db_mirror, withdraws, cancel.clone())?;
+    let (accepted, _rejected, new_root, proof) =
+        b.withdraw(db_mirror, withdraws, cancel.clone())?;
 
-    for tx in accepted.iter().chain(rejected.iter()) {
-        mempool.remove(&tx.mpn_withdraw.as_ref().unwrap());
-    }
+    //for tx in accepted.iter().chain(rejected.iter()) {
+    //    mempool.remove(&tx.mpn_withdraw.as_ref().unwrap());
+    //}
 
     Ok((
         bazuka::core::ContractUpdate::Withdraw {
@@ -214,7 +198,7 @@ fn process_withdraws<K: bazuka::db::KvStore>(
 }
 
 fn process_updates<K: bazuka::db::KvStore>(
-    mempool: &mut HashMap<MpnTransaction, ()>,
+    mempool: &[MpnTransaction],
     b: &bank::Bank<
         { config::LOG4_DEPOSIT_BATCH_SIZE },
         { config::LOG4_WITHDRAW_BATCH_SIZE },
@@ -224,17 +208,17 @@ fn process_updates<K: bazuka::db::KvStore>(
     db_mirror: &mut bazuka::db::RamMirrorKvStore<K>,
     cancel: &Arc<RwLock<bool>>,
 ) -> Result<(bazuka::core::ContractUpdate, Box<dyn bank::Provable>), ZoroError> {
-    let mut txs: Vec<_> = mempool.clone().into_keys().collect();
+    let mut txs: Vec<_> = mempool.iter().cloned().collect();
     txs.sort_unstable_by_key(|t| t.nonce);
-    let (accepted, rejected, new_root, proof) = b.change_state(db_mirror, txs, cancel.clone())?;
+    let (accepted, _rejected, new_root, proof) = b.change_state(db_mirror, txs, cancel.clone())?;
 
     let fee_sum = accepted
         .iter()
         .map(|tx| Into::<u64>::into(tx.fee))
         .sum::<u64>();
-    for tx in accepted.into_iter().chain(rejected.into_iter()) {
-        mempool.remove(&tx);
-    }
+    //for tx in accepted.into_iter().chain(rejected.into_iter()) {
+    //    mempool.remove(&tx);
+    //}
 
     Ok((
         bazuka::core::ContractUpdate::FunctionCall {
@@ -291,10 +275,6 @@ fn main() {
         opt.gpu,
     );
 
-    let mut update_mempool = HashMap::<MpnTransaction, ()>::new();
-    let mut deposit_mempool = HashMap::<MpnDeposit, ()>::new();
-    let mut withdraw_mempool = HashMap::<MpnWithdraw, ()>::new();
-
     loop {
         if let Err(e) = || -> Result<(), ZoroError> {
             let cancel = Arc::new(RwLock::new(false));
@@ -341,19 +321,7 @@ fn main() {
             let mut db_mirror = db.mirror();
             let acc = client.get_account(exec_wallet.get_address())?.account;
 
-            update_mempool.clear();
-            deposit_mempool.clear();
-            withdraw_mempool.clear();
             let mempool = client.get_zero_mempool()?;
-            for update in mempool.updates.iter() {
-                update_mempool.insert(update.clone(), ());
-            }
-            for deposit in mempool.deposits.iter() {
-                deposit_mempool.insert(deposit.clone(), ());
-            }
-            for withdraw in mempool.withdraws.iter() {
-                withdraw_mempool.insert(withdraw.clone(), ());
-            }
 
             let mut updates = Vec::new();
 
@@ -366,7 +334,7 @@ fn main() {
                 );
                 updates.push(process_deposits(
                     &conf,
-                    &mut deposit_mempool,
+                    &mempool.deposits,
                     &b,
                     &mut db_mirror,
                     &cancel,
@@ -382,7 +350,7 @@ fn main() {
                 );
                 updates.push(process_withdraws(
                     &conf,
-                    &mut withdraw_mempool,
+                    &mempool.withdraws,
                     &b,
                     &mut db_mirror,
                     &cancel,
@@ -397,7 +365,7 @@ fn main() {
                     opt.update_batches
                 );
                 updates.push(process_updates(
-                    &mut update_mempool,
+                    &mempool.updates,
                     &b,
                     &mut db_mirror,
                     &cancel,
