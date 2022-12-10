@@ -21,6 +21,7 @@ use std::path::PathBuf;
 use structopt::StructOpt;
 use zeekit::BellmanFr;
 
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 #[derive(Debug, StructOpt)]
@@ -131,10 +132,10 @@ fn process_deposits<K: bazuka::db::KvStore>(
     let mut deposits = Vec::new();
     let mut nonces: HashMap<bazuka::core::Address, u32> = HashMap::new();
     for d in mpn_deposits {
-        let pay = d.mpn_deposit.clone().unwrap();
+        let pay = d.mpn_deposit.clone().unwrap().payment;
         let addr = bazuka::core::Address::PublicKey(pay.src.clone());
         if let Some(prev_nonce) = nonces.get(&addr) {
-            if nonce != prev_nonce + 1 {
+            if pay.nonce != prev_nonce + 1 {
                 continue;
             }
         }
