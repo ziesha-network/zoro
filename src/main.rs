@@ -117,7 +117,7 @@ fn process_deposits<K: bazuka::db::KvStore>(
     db_mirror: &mut bazuka::db::RamMirrorKvStore<K>,
     cancel: &Arc<RwLock<bool>>,
 ) -> Result<(bazuka::core::ContractUpdate, Box<dyn bank::Provable>), ZoroError> {
-    let mut deposits = mempool
+    let mut mpn_deposits = mempool
         .iter()
         .filter(|dw| dw.payment.contract_id == conf.mpn_contract_id)
         .map(|dw| Deposit {
@@ -127,7 +127,20 @@ fn process_deposits<K: bazuka::db::KvStore>(
             amount: dw.payment.amount,
         })
         .collect::<Vec<_>>();
-    deposits.sort_unstable_by_key(|t| t.mpn_deposit.as_ref().unwrap().payment.nonce);
+    mpn_deposits.sort_unstable_by_key(|t| t.mpn_deposit.as_ref().unwrap().payment.nonce);
+    let mut deposits = Vec::new();
+    let mut nonces: HashMap<bazuka::core::Address, u32> = HashMap::new();
+    for d in mpn_deposits {
+        let pay = d.mpn_deposit.clone().unwrap();
+        let addr = bazuka::core::Address::PublicKey(pay.src.clone());
+        if let Some(prev_nonce) = nonces.get(&addr) {
+            if nonce != prev_nonce + 1 {
+                continue;
+            }
+        }
+        nonces.insert(addr, pay.nonce);
+        deposits.push(d);
+    }
 
     let (accepted, _rejected, new_root, proof) = b.deposit(db_mirror, deposits, cancel.clone())?;
 
