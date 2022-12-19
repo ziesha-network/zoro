@@ -17,7 +17,7 @@ use zeekit::{common, eddsa, poseidon, BellmanFr};
 // 5. dst_after := update_acc(dst_after, tx)
 // 6. root_after_dst := calc_new_root(dst_after, dst_proof)
 // 7. Check next_state == root_after_dst
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Transition<const LOG4_TREE_SIZE: u8> {
     pub enabled: bool,
     pub tx: MpnTransaction,
@@ -27,7 +27,7 @@ pub struct Transition<const LOG4_TREE_SIZE: u8> {
     pub dst_proof: merkle::Proof<LOG4_TREE_SIZE>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TransitionBatch<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8>(
     Vec<Transition<LOG4_TREE_SIZE>>,
 );
@@ -53,7 +53,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Default
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct UpdateCircuit<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> {
     pub height: u64,                                                        // Public
     pub state: ZkScalar,                                                    // Public

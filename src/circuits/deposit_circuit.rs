@@ -11,7 +11,7 @@ use zeekit::merkle;
 use zeekit::reveal::{reveal, AllocatedState};
 use zeekit::{common, poseidon, BellmanFr};
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Deposit {
     pub mpn_deposit: Option<MpnDeposit>,
     pub index: u32,
@@ -19,7 +19,7 @@ pub struct Deposit {
     pub amount: Money,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct DepositTransition<const LOG4_TREE_SIZE: u8> {
     pub enabled: bool,
     pub tx: Deposit,
@@ -27,7 +27,7 @@ pub struct DepositTransition<const LOG4_TREE_SIZE: u8> {
     pub proof: merkle::Proof<LOG4_TREE_SIZE>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DepositTransitionBatch<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8>(
     Vec<DepositTransition<LOG4_TREE_SIZE>>,
 );
@@ -53,7 +53,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Default
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DepositCircuit<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> {
     pub height: u64,          // Public
     pub state: ZkScalar,      // Public
