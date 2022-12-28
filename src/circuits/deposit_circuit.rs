@@ -25,6 +25,7 @@ pub struct DepositTransition<const LOG4_TREE_SIZE: u8> {
     pub enabled: bool,
     pub tx: Deposit,
     pub before: MpnAccount,
+    pub before_balances_hash: ZkScalar,
     pub before_balance: (TokenId, Money),
     pub proof: merkle::Proof<LOG4_TREE_SIZE>,
     pub balance_proof: merkle::Proof<3>,
@@ -92,6 +93,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
             item_type: Box::new(bazuka::zk::ZkStateModel::Struct {
                 field_types: vec![
                     bazuka::zk::ZkStateModel::Scalar, // Enabled
+                    bazuka::zk::ZkStateModel::Scalar, // Token-id
                     bazuka::zk::ZkStateModel::Scalar, // Amount
                     bazuka::zk::ZkStateModel::Scalar, // Calldata
                 ],
@@ -107,6 +109,11 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
             let enabled = AllocatedBit::alloc(&mut *cs, Some(trans.enabled))?;
 
             // Tx amount should always have at most 64 bits
+            let token_id = AllocatedNum::alloc(&mut *cs, || {
+                Ok(Into::<ZkScalar>::into(trans.tx.amount.0).into())
+            })?;
+
+            // Tx amount should always have at most 64 bits
             let amount = UnsignedInteger::alloc_64(&mut *cs, trans.tx.amount.1.into())?;
 
             // Pub-key only needs to reside on curve if tx is enabled, which is checked in the main loop
@@ -114,6 +121,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
 
             tx_wits.push((
                 Boolean::Is(enabled.clone()),
+                token_id.clone(),
                 amount.clone(),
                 pub_key.clone(),
             ));
@@ -129,6 +137,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
 
             children.push(AllocatedState::Children(vec![
                 AllocatedState::Value(enabled.into()),
+                AllocatedState::Value(token_id.into()),
                 AllocatedState::Value(amount.into()),
                 AllocatedState::Value(calldata.into()),
             ]));
@@ -141,7 +150,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
             |lc| lc + tx_root.get_lc(),
         );
 
-        for (trans, (enabled_wit, tx_amount_wit, tx_pub_key_wit)) in
+        for (trans, (enabled_wit, tx_token_id_wit, tx_amount_wit, tx_pub_key_wit)) in
             self.transitions.0.iter().zip(tx_wits.into_iter())
         {
             // Tx index should always have at most LOG4_TREE_SIZE * 2 bits
@@ -151,6 +160,9 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
                 LOG4_TREE_SIZE as usize * 2,
             )?;
 
+            let tx_token_index_wit =
+                UnsignedInteger::alloc(&mut *cs, (trans.tx.token_index as u64).into(), 3 * 2)?;
+
             // Check if tx pub-key resides on the curve if tx is enabled
             tx_pub_key_wit.assert_on_curve(&mut *cs, &enabled_wit)?;
 
@@ -159,11 +171,44 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
             // Account address doesn't necessarily need to reside on curve as it might be empty
             let src_addr_wit = AllocatedPoint::alloc(&mut *cs, || Ok(trans.before.address))?;
 
+            let src_balances_hash_wit =
+                AllocatedNum::alloc(&mut *cs, || Ok(trans.before_balances_hash.into()))?;
+
+            let src_token_id_wit = AllocatedNum::alloc(&mut *cs, || {
+                Ok(Into::<ZkScalar>::into(trans.before_balance.0).into())
+            })?;
+
             // We don't need to make sure account balance is 64 bits. If everything works as expected
             // nothing like this should happen.
             let src_balance_wit = AllocatedNum::alloc(&mut *cs, || {
                 Ok(Into::<u64>::into(trans.before_balance.1).into())
             })?;
+
+            let src_token_balance_hash_wit = poseidon::poseidon(
+                &mut *cs,
+                &[
+                    &src_token_id_wit.clone().into(),
+                    &src_balance_wit.clone().into(),
+                ],
+            )?;
+
+            let mut src_balance_proof_wits = Vec::new();
+            for b in trans.balance_proof.0.clone() {
+                src_balance_proof_wits.push([
+                    AllocatedNum::alloc(&mut *cs, || Ok(b[0].into()))?,
+                    AllocatedNum::alloc(&mut *cs, || Ok(b[1].into()))?,
+                    AllocatedNum::alloc(&mut *cs, || Ok(b[2].into()))?,
+                ]);
+            }
+
+            merkle::check_proof_poseidon4(
+                &mut *cs,
+                &enabled_wit,
+                &tx_token_index_wit.clone().into(),
+                &src_token_balance_hash_wit,
+                &src_balance_proof_wits,
+                &src_balances_hash_wit.clone().into(),
+            )?;
 
             let src_hash_wit = poseidon::poseidon(
                 &mut *cs,
@@ -171,7 +216,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
                     &src_nonce_wit.clone().into(),
                     &src_addr_wit.x.clone().into(),
                     &src_addr_wit.y.clone().into(),
-                    &src_balance_wit.clone().into(),
+                    &src_balances_hash_wit.clone().into(),
                 ],
             )?;
 
@@ -183,6 +228,17 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
                     AllocatedNum::alloc(&mut *cs, || Ok(b[2].into()))?,
                 ]);
             }
+
+            // Token-id of account slot can either be empty or equal with tx token-id
+            let is_src_token_id_null = Number::from(src_token_id_wit.clone()).is_zero(&mut *cs)?;
+            let is_src_token_id_and_tx_token_id_equal = Number::from(src_token_id_wit.clone())
+                .is_equal(&mut *cs, &tx_token_id_wit.into())?;
+            let token_id_valid = common::boolean_or(
+                &mut *cs,
+                &is_src_token_id_null,
+                &is_src_token_id_and_tx_token_id_equal,
+            )?;
+            common::assert_true(&mut *cs, &token_id_valid);
 
             // Address of account slot can either be empty or equal with tx destination
             let is_src_addr_null = src_addr_wit.is_null(&mut *cs)?;
@@ -203,6 +259,21 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
             let src_balance_lc = Number::from(src_balance_wit);
             let tx_amount_lc = Number::from(tx_amount_wit);
 
+            let new_balances_hash_wit = poseidon::poseidon(
+                &mut *cs,
+                &[
+                    &src_token_id_wit.clone().into(),
+                    &(src_balance_lc.clone() + tx_amount_lc.clone()),
+                ],
+            )?;
+
+            let new_balances_hash_wit = merkle::calc_root_poseidon4(
+                &mut *cs,
+                &tx_token_index_wit,
+                &new_balances_hash_wit,
+                &src_balance_proof_wits,
+            )?;
+
             // Calculate next-state hash and update state if tx is enabled
             let new_hash_wit = poseidon::poseidon(
                 &mut *cs,
@@ -210,7 +281,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
                     &src_nonce_wit.into(),
                     &tx_pub_key_wit.x.clone().into(),
                     &tx_pub_key_wit.y.clone().into(),
-                    &(src_balance_lc.clone() + tx_amount_lc.clone()),
+                    &new_balances_hash_wit,
                 ],
             )?;
             let next_state_wit =

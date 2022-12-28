@@ -480,7 +480,8 @@ impl<
                 transitions.push(circuits::DepositTransition {
                     enabled: true,
                     tx: tx.clone(),
-                    before: acc,
+                    before: acc.clone(),
+                    before_balances_hash: acc.tokens_hash::<ZkHasher>(),
                     before_balance: acc_token.clone(),
                     proof,
                     balance_proof,
