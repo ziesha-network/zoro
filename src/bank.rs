@@ -196,23 +196,57 @@ impl<
             )
             .unwrap();
 
+            let (acc_token, acc_fee_token) = if let Some((acc_token, acc_fee_token)) = acc
+                .tokens
+                .get(&tx.token_index)
+                .zip(acc.tokens.get(&tx.fee_token_index))
+            {
+                (acc_token.clone(), acc_fee_token.clone())
+            } else {
+                rejected.push(tx.clone());
+                continue;
+            };
+
             // TODO: Check for wrong calldata
             // TODO: Check for wrong signature
             if (acc.address != Default::default() && tx.pub_key != acc.address)
                 || tx.nonce != acc.nonce
-                || tx.amount > acc.balance
+                || tx.amount.0 != acc_token.0
+                || tx.fee.0 != acc_fee_token.0
+                || tx.amount.1 > acc_token.1
+                || tx.fee.1 > acc_fee_token.1
                 || tx.index > 0x3fffffff
             {
                 rejected.push(tx.clone());
                 continue;
             } else {
-                let new_balance = acc.balance - tx.amount;
-                let updated_acc = MpnAccount {
+                let mut updated_acc = MpnAccount {
                     address: tx.pub_key,
-                    balance: new_balance,
+                    tokens: acc.tokens.clone(),
                     nonce: acc.nonce + 1,
                 };
 
+                updated_acc.tokens.get_mut(&tx.token_index).unwrap().1 -= tx.amount.1;
+                updated_acc.tokens.get_mut(&tx.fee_token_index).unwrap().1 -= tx.fee.1;
+
+                let token_balance_proof = zeekit::merkle::Proof::<3>(
+                    KvStoreStateManager::<ZkHasher>::prove(
+                        &mirror,
+                        self.mpn_contract_id,
+                        ZkDataLocator(vec![tx.index, 3]),
+                        tx.token_index,
+                    )
+                    .unwrap(),
+                );
+                let fee_balance_proof = zeekit::merkle::Proof::<3>(
+                    KvStoreStateManager::<ZkHasher>::prove(
+                        &mirror,
+                        self.mpn_contract_id,
+                        ZkDataLocator(vec![tx.index, 3]),
+                        tx.fee_token_index,
+                    )
+                    .unwrap(),
+                );
                 let proof = zeekit::merkle::Proof::<{ LOG4_TREE_SIZE }>(
                     KvStoreStateManager::<ZkHasher>::prove(
                         &mirror,
@@ -236,7 +270,11 @@ impl<
                     enabled: true,
                     tx: tx.clone(),
                     before: acc,
+                    before_token_balance: acc_token.clone(),
+                    before_fee_balance: acc_fee_token.clone(),
                     proof,
+                    token_balance_proof,
+                    fee_balance_proof,
                 });
                 accepted.push(tx);
             }
@@ -263,6 +301,9 @@ impl<
                 field_types: vec![
                     bazuka::zk::ZkStateModel::Scalar, // Enabled
                     bazuka::zk::ZkStateModel::Scalar, // Amount
+                    bazuka::zk::ZkStateModel::Scalar, // Amount token-id
+                    bazuka::zk::ZkStateModel::Scalar, // Fee
+                    bazuka::zk::ZkStateModel::Scalar, // Fee token-id
                     bazuka::zk::ZkStateModel::Scalar, // Fingerprint
                     bazuka::zk::ZkStateModel::Scalar, // Calldata
                 ],
@@ -285,18 +326,30 @@ impl<
                 .batch_set(&bazuka::zk::ZkDeltaPairs(
                     [
                         (
-                            bazuka::zk::ZkDataLocator(vec![i as u32, 0]),
+                            bazuka::zk::ZkDataLocator(vec![i as u64, 0]),
                             Some(bazuka::zk::ZkScalar::from(1)),
                         ),
                         (
-                            bazuka::zk::ZkDataLocator(vec![i as u32, 1]),
-                            Some(bazuka::zk::ZkScalar::from(trans.tx.amount)),
+                            bazuka::zk::ZkDataLocator(vec![i as u64, 1]),
+                            Some(trans.tx.amount.0.into()),
                         ),
                         (
-                            bazuka::zk::ZkDataLocator(vec![i as u32, 2]),
+                            bazuka::zk::ZkDataLocator(vec![i as u64, 1]),
+                            Some(trans.tx.amount.1.into()),
+                        ),
+                        (
+                            bazuka::zk::ZkDataLocator(vec![i as u64, 1]),
+                            Some(trans.tx.fee.0.into()),
+                        ),
+                        (
+                            bazuka::zk::ZkDataLocator(vec![i as u64, 1]),
+                            Some(trans.tx.fee.1.into()),
+                        ),
+                        (
+                            bazuka::zk::ZkDataLocator(vec![i as u64, 2]),
                             Some(trans.tx.fingerprint),
                         ),
-                        (bazuka::zk::ZkDataLocator(vec![i as u32, 3]), Some(calldata)),
+                        (bazuka::zk::ZkDataLocator(vec![i as u64, 3]), Some(calldata)),
                     ]
                     .into(),
                 ))
@@ -377,17 +430,34 @@ impl<
                 tx.index,
             )
             .unwrap();
-            if acc.address != Default::default() && tx.pub_key != acc.address {
+            let acc_token = if let Some(acc_token) = acc.tokens.get(&tx.token_index) {
+                acc_token.clone()
+            } else {
+                rejected.push(tx.clone());
+                continue;
+            };
+            if (acc.address != Default::default() && tx.pub_key != acc.address)
+                || acc_token.0 != tx.amount.0
+            {
                 rejected.push(tx.clone());
                 continue;
             } else {
-                let new_balance = acc.balance + tx.amount;
-                let updated_acc = MpnAccount {
+                let mut updated_acc = MpnAccount {
                     address: tx.pub_key,
-                    balance: new_balance,
+                    tokens: acc.tokens.clone(),
                     nonce: acc.nonce,
                 };
+                updated_acc.tokens.get_mut(&tx.token_index).unwrap().1 += tx.amount.1;
 
+                let balance_proof = zeekit::merkle::Proof::<3>(
+                    KvStoreStateManager::<ZkHasher>::prove(
+                        &mirror,
+                        self.mpn_contract_id,
+                        ZkDataLocator(vec![tx.index, 3]),
+                        tx.token_index,
+                    )
+                    .unwrap(),
+                );
                 let proof = zeekit::merkle::Proof::<{ LOG4_TREE_SIZE }>(
                     KvStoreStateManager::<ZkHasher>::prove(
                         &mirror,
@@ -411,7 +481,9 @@ impl<
                     enabled: true,
                     tx: tx.clone(),
                     before: acc,
+                    before_balance: acc_token.clone(),
                     proof,
+                    balance_proof,
                 });
                 accepted.push(tx);
             }
@@ -437,6 +509,7 @@ impl<
             item_type: Box::new(bazuka::zk::ZkStateModel::Struct {
                 field_types: vec![
                     bazuka::zk::ZkStateModel::Scalar, // Enabled
+                    bazuka::zk::ZkStateModel::Scalar, // Token-id
                     bazuka::zk::ZkStateModel::Scalar, // Amount
                     bazuka::zk::ZkStateModel::Scalar, // Calldata
                 ],
@@ -456,15 +529,19 @@ impl<
                 .batch_set(&bazuka::zk::ZkDeltaPairs(
                     [
                         (
-                            bazuka::zk::ZkDataLocator(vec![i as u32, 0]),
+                            bazuka::zk::ZkDataLocator(vec![i as u64, 0]),
                             Some(bazuka::zk::ZkScalar::from(1)),
                         ),
                         (
-                            bazuka::zk::ZkDataLocator(vec![i as u32, 1]),
-                            Some(bazuka::zk::ZkScalar::from(trans.tx.amount)),
+                            bazuka::zk::ZkDataLocator(vec![i as u64, 1]),
+                            Some(trans.tx.amount.0.into()),
                         ),
                         (
-                            bazuka::zk::ZkDataLocator(vec![i as u32, 2]),
+                            bazuka::zk::ZkDataLocator(vec![i as u64, 2]),
+                            Some(trans.tx.amount.1.into()),
+                        ),
+                        (
+                            bazuka::zk::ZkDataLocator(vec![i as u64, 3]),
                             Some(bazuka::zk::ZkScalar::from(calldata)),
                         ),
                     ]
@@ -550,6 +627,18 @@ impl<
                 tx.dst_index,
             )
             .unwrap();
+            let (src_token, src_fee_token, dst_token) =
+                if let Some(((src_token, src_fee_token), dst_token)) = src_before
+                    .tokens
+                    .get(&tx.src_token_index)
+                    .zip(src_before.tokens.get(&tx.src_fee_token_index))
+                    .zip(dst_before.tokens.get(&tx.dst_token_index))
+                {
+                    (src_token.clone(), src_fee_token.clone(), dst_token.clone())
+                } else {
+                    rejected.push(tx.clone());
+                    continue;
+                };
             if tx.nonce != src_before.nonce
                 || tx.src_index > 0x3fffffff
                 || tx.dst_index > 0x3fffffff
@@ -558,7 +647,9 @@ impl<
                 || (dst_before.address.is_on_curve()
                     && dst_before.address != tx.dst_pub_key.decompress())
                 || !tx.verify(&PublicKey(src_before.address.compress()))
-                || src_before.balance < tx.fee + tx.amount
+                || src_token.0 != dst_token.0
+                || src_token.1 < tx.amount
+                || src_fee_token.1 < tx.fee
             {
                 rejected.push(tx.clone());
                 continue;
@@ -572,11 +663,31 @@ impl<
                     )
                     .unwrap(),
                 );
-                let src_after = MpnAccount {
+                let src_balance_proof = zeekit::merkle::Proof::<3>(
+                    KvStoreStateManager::<ZkHasher>::prove(
+                        &mirror,
+                        self.mpn_contract_id,
+                        ZkDataLocator(vec![tx.src_index, 3]),
+                        tx.src_token_index,
+                    )
+                    .unwrap(),
+                );
+                let src_fee_balance_proof = zeekit::merkle::Proof::<3>(
+                    KvStoreStateManager::<ZkHasher>::prove(
+                        &mirror,
+                        self.mpn_contract_id,
+                        ZkDataLocator(vec![]),
+                        tx.src_fee_token_index,
+                    )
+                    .unwrap(),
+                );
+                let mut src_after = MpnAccount {
                     address: src_before.address.clone(),
-                    balance: src_before.balance - tx.fee - tx.amount,
+                    tokens: src_before.tokens.clone(),
                     nonce: src_before.nonce + 1,
                 };
+                src_after.tokens.get_mut(&tx.src_token_index).unwrap().1 -= tx.amount;
+                src_after.tokens.get_mut(&tx.src_fee_token_index).unwrap().1 -= tx.fee;
                 KvStoreStateManager::<ZkHasher>::set_mpn_account(
                     &mut mirror,
                     self.mpn_contract_id,
@@ -595,12 +706,22 @@ impl<
                     )
                     .unwrap(),
                 );
+                let dst_balance_proof = zeekit::merkle::Proof::<3>(
+                    KvStoreStateManager::<ZkHasher>::prove(
+                        &mirror,
+                        self.mpn_contract_id,
+                        ZkDataLocator(vec![tx.dst_index, 3]),
+                        tx.dst_token_index,
+                    )
+                    .unwrap(),
+                );
 
-                let dst_after = MpnAccount {
+                let mut dst_after = MpnAccount {
                     address: tx.dst_pub_key.0.decompress(),
-                    balance: dst_before.balance + tx.amount,
+                    tokens: dst_before.tokens.clone(),
                     nonce: dst_before.nonce,
                 };
+                dst_after.tokens.get_mut(&tx.dst_token_index).unwrap().1 += tx.amount;
                 KvStoreStateManager::<ZkHasher>::set_mpn_account(
                     &mut mirror,
                     self.mpn_contract_id,
@@ -617,6 +738,12 @@ impl<
                     src_proof,
                     dst_before,
                     dst_proof,
+                    src_balance_proof,
+                    src_fee_balance_proof,
+                    dst_balance_proof,
+                    src_before_balance: src_token.clone(),
+                    src_before_fee_balance: src_fee_token.clone(),
+                    dst_before_balance: dst_token.clone(),
                 });
                 accepted.push(tx);
             }

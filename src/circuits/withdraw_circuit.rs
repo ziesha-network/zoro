@@ -1,4 +1,4 @@
-use bazuka::core::{Money, MpnWithdraw};
+use bazuka::core::{Money, MpnWithdraw, TokenId};
 use bazuka::crypto::jubjub;
 use bazuka::zk::{MpnAccount, ZkScalar};
 use bellman::gadgets::boolean::{AllocatedBit, Boolean};
@@ -15,12 +15,15 @@ use zeekit::{common, poseidon, BellmanFr};
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Withdraw {
     pub mpn_withdraw: Option<MpnWithdraw>,
-    pub index: u32,
+    pub index: u64,
+    pub token_index: u64,
+    pub fee_token_index: u64,
     pub pub_key: jubjub::PointAffine,
     pub fingerprint: ZkScalar,
     pub nonce: u64,
     pub sig: jubjub::Signature,
-    pub amount: Money,
+    pub amount: (TokenId, Money),
+    pub fee: (TokenId, Money),
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -28,7 +31,11 @@ pub struct WithdrawTransition<const LOG4_TREE_SIZE: u8> {
     pub enabled: bool,
     pub tx: Withdraw,
     pub before: MpnAccount,
+    pub before_token_balance: (TokenId, Money),
+    pub before_fee_balance: (TokenId, Money),
     pub proof: merkle::Proof<LOG4_TREE_SIZE>,
+    pub token_balance_proof: merkle::Proof<3>,
+    pub fee_balance_proof: merkle::Proof<3>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -109,7 +116,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
             let enabled = AllocatedBit::alloc(&mut *cs, Some(trans.enabled))?;
 
             // Tx amount should always have at most 64 bits
-            let amount = UnsignedInteger::alloc_64(&mut *cs, trans.tx.amount.into())?;
+            let amount = UnsignedInteger::alloc_64(&mut *cs, trans.tx.amount.1.into())?;
 
             // Tx amount should always have at most 64 bits
             let fingerprint = AllocatedNum::alloc(&mut *cs, || Ok(trans.tx.fingerprint.into()))?;
@@ -214,7 +221,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
             // We don't need to make sure account balance is 64 bits. If everything works as expected
             // nothing like this should happen.
             let src_balance_wit = AllocatedNum::alloc(&mut *cs, || {
-                Ok(Into::<u64>::into(trans.before.balance).into())
+                Ok(Into::<u64>::into(trans.before_token_balance.1).into())
             })?;
 
             let src_hash_wit = poseidon::poseidon(

@@ -124,8 +124,9 @@ fn process_deposits<K: bazuka::db::KvStore>(
         .map(|dw| Deposit {
             mpn_deposit: Some(dw.clone()),
             index: dw.zk_address_index,
+            token_index: dw.zk_token_index,
             pub_key: dw.zk_address.0.decompress(),
-            amount: dw.payment.amount,
+            amount: (dw.payment.token, dw.payment.amount),
         })
         .collect::<Vec<_>>();
     mpn_deposits.sort_unstable_by_key(|t| t.mpn_deposit.as_ref().unwrap().payment.nonce);
@@ -181,11 +182,14 @@ fn process_withdraws<K: bazuka::db::KvStore>(
         .map(|dw| Withdraw {
             mpn_withdraw: Some(dw.clone()),
             index: dw.zk_address_index,
+            token_index: dw.zk_token_index,
+            fee_token_index: dw.zk_fee_token_index,
             pub_key: dw.zk_address.0.decompress(),
             fingerprint: dw.payment.fingerprint(),
             nonce: dw.zk_nonce,
             sig: dw.zk_sig.clone(),
-            amount: dw.payment.amount + dw.payment.fee,
+            amount: (dw.payment.token, dw.payment.amount),
+            fee: (dw.payment.fee_token, dw.payment.fee),
         })
         .collect::<Vec<_>>();
     withdraws.sort_unstable_by_key(|t| t.nonce);
@@ -237,6 +241,7 @@ fn process_updates<K: bazuka::db::KvStore>(
     Ok((
         bazuka::core::ContractUpdate::FunctionCall {
             fee: fee_sum.into(),
+            fee_token: bazuka::core::TokenId::Ziesha,
             function_id: 0,
             next_state: new_root,
             proof: bazuka::zk::ZkProof::Groth16(Box::new(Default::default())),

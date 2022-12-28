@@ -1,3 +1,4 @@
+use bazuka::core::{Money, TokenId};
 use bazuka::zk::{MpnAccount, MpnTransaction, ZkScalar};
 use bellman::gadgets::boolean::{AllocatedBit, Boolean};
 use bellman::gadgets::num::AllocatedNum;
@@ -22,9 +23,15 @@ pub struct Transition<const LOG4_TREE_SIZE: u8> {
     pub enabled: bool,
     pub tx: MpnTransaction,
     pub src_before: MpnAccount, // src_after can be derived
+    pub src_before_balance: (TokenId, Money),
+    pub src_before_fee_balance: (TokenId, Money),
     pub src_proof: merkle::Proof<LOG4_TREE_SIZE>,
+    pub src_balance_proof: merkle::Proof<3>,
+    pub src_fee_balance_proof: merkle::Proof<3>,
     pub dst_before: MpnAccount, // dst_after can be derived
+    pub dst_before_balance: (TokenId, Money),
     pub dst_proof: merkle::Proof<LOG4_TREE_SIZE>,
+    pub dst_balance_proof: merkle::Proof<3>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -101,7 +108,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
 
             // We need bits of sender balance for the LTE operation
             let src_balance_wit =
-                UnsignedInteger::alloc_64(&mut *cs, trans.src_before.balance.into())?;
+                UnsignedInteger::alloc_64(&mut *cs, trans.src_before_balance.1.into())?;
 
             let src_hash_wit = poseidon::poseidon(
                 &mut *cs,
@@ -204,7 +211,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
             // We also don't need to make sure dst balance is 64 bits. If everything works as expected
             // nothing like this should happen.
             let dst_balance_wit = AllocatedNum::alloc(&mut *cs, || {
-                Ok(Into::<u64>::into(trans.dst_before.balance).into())
+                Ok(Into::<u64>::into(trans.dst_before_balance.1).into())
             })?;
 
             let dst_hash_wit = poseidon::poseidon(

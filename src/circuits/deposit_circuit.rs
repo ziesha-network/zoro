@@ -1,4 +1,4 @@
-use bazuka::core::{Money, MpnDeposit};
+use bazuka::core::{Money, MpnDeposit, TokenId};
 use bazuka::crypto::jubjub;
 use bazuka::zk::{MpnAccount, ZkScalar};
 use bellman::gadgets::boolean::{AllocatedBit, Boolean};
@@ -14,9 +14,10 @@ use zeekit::{common, poseidon, BellmanFr};
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Deposit {
     pub mpn_deposit: Option<MpnDeposit>,
-    pub index: u32,
+    pub index: u64,
+    pub token_index: u64,
     pub pub_key: jubjub::PointAffine,
-    pub amount: Money,
+    pub amount: (TokenId, Money),
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -24,7 +25,9 @@ pub struct DepositTransition<const LOG4_TREE_SIZE: u8> {
     pub enabled: bool,
     pub tx: Deposit,
     pub before: MpnAccount,
+    pub before_balance: (TokenId, Money),
     pub proof: merkle::Proof<LOG4_TREE_SIZE>,
+    pub balance_proof: merkle::Proof<3>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -104,7 +107,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
             let enabled = AllocatedBit::alloc(&mut *cs, Some(trans.enabled))?;
 
             // Tx amount should always have at most 64 bits
-            let amount = UnsignedInteger::alloc_64(&mut *cs, trans.tx.amount.into())?;
+            let amount = UnsignedInteger::alloc_64(&mut *cs, trans.tx.amount.1.into())?;
 
             // Pub-key only needs to reside on curve if tx is enabled, which is checked in the main loop
             let pub_key = AllocatedPoint::alloc(&mut *cs, || Ok(trans.tx.pub_key))?;
@@ -159,7 +162,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
             // We don't need to make sure account balance is 64 bits. If everything works as expected
             // nothing like this should happen.
             let src_balance_wit = AllocatedNum::alloc(&mut *cs, || {
-                Ok(Into::<u64>::into(trans.before.balance).into())
+                Ok(Into::<u64>::into(trans.before_balance.1).into())
             })?;
 
             let src_hash_wit = poseidon::poseidon(
