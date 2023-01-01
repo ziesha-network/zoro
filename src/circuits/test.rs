@@ -1,5 +1,5 @@
 use super::*;
-use crate::bank::{Provable, Bank};
+use crate::bank::{Bank, Provable};
 use bazuka::core::ContractId;
 use bazuka::db::{KvStore, RamKvStore};
 use bazuka::zk::{ZkCompressedState, ZkContract, ZkStateModel};
@@ -62,5 +62,8 @@ fn test_deposit_empty() {
     let p = groth16::generate_random_parameters::<Bls12, _, _>(c, &mut OsRng).unwrap();
     let b = Bank::<1, 0, 0, 1>::new(mpn_contract_id, false, true);
     b.deposit(&mut db, p.clone(), vec![], Arc::new(RwLock::new(false)))
-        .unwrap().3.prove().unwrap();
+        .unwrap()
+        .3
+        .prove()
+        .unwrap();
 }
