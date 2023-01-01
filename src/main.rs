@@ -107,6 +107,7 @@ pub enum ZoroError {
 }
 
 fn process_deposits<K: bazuka::db::KvStore>(
+    params: &groth16::Parameters<Bls12>,
     conf: &BlockchainConfig,
     mempool: &[MpnDeposit],
     b: &bank::Bank<
@@ -144,7 +145,8 @@ fn process_deposits<K: bazuka::db::KvStore>(
         deposits.push(d);
     }
 
-    let (accepted, _rejected, new_root, proof) = b.deposit(db_mirror, deposits, cancel.clone())?;
+    let (accepted, _rejected, new_root, proof) =
+        b.deposit(db_mirror, params.clone(), deposits, cancel.clone())?;
 
     //for tx in accepted.iter().chain(rejected.iter()) {
     //    mempool.remove(&tx.mpn_deposit.as_ref().unwrap());
@@ -165,6 +167,7 @@ fn process_deposits<K: bazuka::db::KvStore>(
 }
 
 fn process_withdraws<K: bazuka::db::KvStore>(
+    params: &groth16::Parameters<Bls12>,
     conf: &BlockchainConfig,
     mempool: &[MpnWithdraw],
     b: &bank::Bank<
@@ -195,7 +198,7 @@ fn process_withdraws<K: bazuka::db::KvStore>(
     withdraws.sort_unstable_by_key(|t| t.nonce);
 
     let (accepted, _rejected, new_root, proof) =
-        b.withdraw(db_mirror, withdraws, cancel.clone())?;
+        b.withdraw(db_mirror, params.clone(), withdraws, cancel.clone())?;
 
     //for tx in accepted.iter().chain(rejected.iter()) {
     //    mempool.remove(&tx.mpn_withdraw.as_ref().unwrap());
@@ -216,6 +219,7 @@ fn process_withdraws<K: bazuka::db::KvStore>(
 }
 
 fn process_updates<K: bazuka::db::KvStore>(
+    params: &groth16::Parameters<Bls12>,
     mempool: &[MpnTransaction],
     b: &bank::Bank<
         { config::LOG4_DEPOSIT_BATCH_SIZE },
@@ -228,7 +232,8 @@ fn process_updates<K: bazuka::db::KvStore>(
 ) -> Result<(bazuka::core::ContractUpdate, Box<dyn bank::Provable>), ZoroError> {
     let mut txs: Vec<_> = mempool.iter().cloned().collect();
     txs.sort_unstable_by_key(|t| t.nonce);
-    let (accepted, _rejected, new_root, proof) = b.change_state(db_mirror, txs, cancel.clone())?;
+    let (accepted, _rejected, new_root, proof) =
+        b.change_state(db_mirror, params.clone(), txs, cancel.clone())?;
 
     let fee_sum = accepted
         .iter()
@@ -286,14 +291,7 @@ fn main() {
     let client = SyncClient::new(node_addr, &opt.network, opt.miner_token.clone());
 
     let conf = get_blockchain_config();
-    let b = bank::Bank::new(
-        conf.clone(),
-        update_params,
-        deposit_params,
-        withdraw_params,
-        opt.gpu,
-        false,
-    );
+    let b = bank::Bank::new(conf.clone(), opt.gpu, false);
 
     loop {
         if let Err(e) = || -> Result<(), ZoroError> {
@@ -353,6 +351,7 @@ fn main() {
                     opt.deposit_batches
                 );
                 updates.push(process_deposits(
+                    &deposit_params,
                     &conf,
                     &mempool.deposits,
                     &b,
@@ -369,6 +368,7 @@ fn main() {
                     opt.withdraw_batches
                 );
                 updates.push(process_withdraws(
+                    &withdraw_params,
                     &conf,
                     &mempool.withdraws,
                     &b,
@@ -385,6 +385,7 @@ fn main() {
                     opt.update_batches
                 );
                 updates.push(process_updates(
+                    &update_params,
                     &mempool.updates,
                     &b,
                     &mut db_mirror,

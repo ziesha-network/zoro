@@ -37,9 +37,6 @@ pub struct Bank<
 > {
     backend: Backend,
     mpn_contract_id: ContractId,
-    update_params: Parameters<Bls12>,
-    deposit_params: Parameters<Bls12>,
-    withdraw_params: Parameters<Bls12>,
     debug: bool,
 }
 
@@ -123,14 +120,7 @@ impl<
     >
     Bank<LOG4_DEPOSIT_BATCH_SIZE, LOG4_WITHDRAW_BATCH_SIZE, LOG4_UPDATE_BATCH_SIZE, LOG4_TREE_SIZE>
 {
-    pub fn new(
-        blockchain_config: BlockchainConfig,
-        update_params: Parameters<Bls12>,
-        deposit_params: Parameters<Bls12>,
-        withdraw_params: Parameters<Bls12>,
-        gpu: bool,
-        debug: bool,
-    ) -> Self {
+    pub fn new(blockchain_config: BlockchainConfig, gpu: bool, debug: bool) -> Self {
         Self {
             debug,
             backend: if gpu {
@@ -157,15 +147,13 @@ impl<
                 Backend::Cpu
             },
             mpn_contract_id: blockchain_config.mpn_contract_id,
-            update_params,
-            deposit_params,
-            withdraw_params,
         }
     }
 
     pub fn withdraw<K: KvStore>(
         &self,
         db: &mut K,
+        params: Parameters<Bls12>,
         txs: Vec<Withdraw>,
         cancel: Arc<RwLock<bool>>,
     ) -> Result<
@@ -382,7 +370,7 @@ impl<
             },
             SnarkWork::<WithdrawCircuit<{ LOG4_WITHDRAW_BATCH_SIZE }, { LOG4_TREE_SIZE }>> {
                 circuit,
-                params: self.withdraw_params.clone(),
+                params: params.clone(),
                 backend: self.backend.clone(),
                 cancel: Some(cancel),
                 verifier: if self.debug {
@@ -390,7 +378,7 @@ impl<
                         std::mem::transmute::<
                             bellman::groth16::VerifyingKey<Bls12>,
                             bazuka::zk::groth16::Groth16VerifyingKey,
-                        >(self.withdraw_params.vk.clone())
+                        >(params.vk.clone())
                     }
                 } else {
                     bazuka::config::blockchain::MPN_WITHDRAW_VK.clone()
@@ -406,6 +394,7 @@ impl<
     pub fn deposit<K: KvStore>(
         &self,
         db: &mut K,
+        params: Parameters<Bls12>,
         txs: Vec<Deposit>,
         cancel: Arc<RwLock<bool>>,
     ) -> Result<
@@ -587,7 +576,7 @@ impl<
             },
             SnarkWork::<DepositCircuit<{ LOG4_DEPOSIT_BATCH_SIZE }, { LOG4_TREE_SIZE }>> {
                 circuit,
-                params: self.deposit_params.clone(),
+                params: params.clone(),
                 backend: self.backend.clone(),
                 cancel: Some(cancel),
                 verifier: if self.debug {
@@ -595,7 +584,7 @@ impl<
                         std::mem::transmute::<
                             bellman::groth16::VerifyingKey<Bls12>,
                             bazuka::zk::groth16::Groth16VerifyingKey,
-                        >(self.deposit_params.vk.clone())
+                        >(params.vk.clone())
                     }
                 } else {
                     bazuka::config::blockchain::MPN_DEPOSIT_VK.clone()
@@ -610,6 +599,7 @@ impl<
     pub fn change_state<K: KvStore>(
         &self,
         db: &mut K,
+        params: Parameters<Bls12>,
         txs: Vec<MpnTransaction>,
         cancel: Arc<RwLock<bool>>,
     ) -> Result<
@@ -816,7 +806,7 @@ impl<
             },
             SnarkWork::<UpdateCircuit<{ LOG4_UPDATE_BATCH_SIZE }, { LOG4_TREE_SIZE }>> {
                 circuit,
-                params: self.update_params.clone(),
+                params: params.clone(),
                 backend: self.backend.clone(),
                 cancel: Some(cancel),
                 verifier: if self.debug {
@@ -824,7 +814,7 @@ impl<
                         std::mem::transmute::<
                             bellman::groth16::VerifyingKey<Bls12>,
                             bazuka::zk::groth16::Groth16VerifyingKey,
-                        >(self.update_params.vk.clone())
+                        >(params.vk.clone())
                     }
                 } else {
                     bazuka::config::blockchain::MPN_UPDATE_VK.clone()
