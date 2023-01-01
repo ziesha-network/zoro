@@ -2,7 +2,6 @@ use crate::circuits;
 use crate::circuits::{Deposit, DepositCircuit, UpdateCircuit, Withdraw, WithdrawCircuit};
 use bazuka::zk::ZkScalar;
 use bazuka::{
-    blockchain::BlockchainConfig,
     core::{ContractId, ZkHasher},
     crypto::jubjub::PublicKey,
     db::KvStore,
@@ -120,7 +119,7 @@ impl<
     >
     Bank<LOG4_DEPOSIT_BATCH_SIZE, LOG4_WITHDRAW_BATCH_SIZE, LOG4_UPDATE_BATCH_SIZE, LOG4_TREE_SIZE>
 {
-    pub fn new(blockchain_config: BlockchainConfig, gpu: bool, debug: bool) -> Self {
+    pub fn new(mpn_contract_id: ContractId, gpu: bool, debug: bool) -> Self {
         Self {
             debug,
             backend: if gpu {
@@ -146,7 +145,7 @@ impl<
             } else {
                 Backend::Cpu
             },
-            mpn_contract_id: blockchain_config.mpn_contract_id,
+            mpn_contract_id,
         }
     }
 

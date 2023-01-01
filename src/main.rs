@@ -291,7 +291,7 @@ fn main() {
     let client = SyncClient::new(node_addr, &opt.network, opt.miner_token.clone());
 
     let conf = get_blockchain_config();
-    let b = bank::Bank::new(conf.clone(), opt.gpu, false);
+    let b = bank::Bank::new(conf.mpn_contract_id, opt.gpu, false);
 
     loop {
         if let Err(e) = || -> Result<(), ZoroError> {
