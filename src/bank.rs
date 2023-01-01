@@ -40,6 +40,7 @@ pub struct Bank<
     update_params: Parameters<Bls12>,
     deposit_params: Parameters<Bls12>,
     withdraw_params: Parameters<Bls12>,
+    debug: bool,
 }
 
 pub struct SnarkWork<C: Circuit<BellmanFr> + Clone> {
@@ -128,8 +129,10 @@ impl<
         deposit_params: Parameters<Bls12>,
         withdraw_params: Parameters<Bls12>,
         gpu: bool,
+        debug: bool,
     ) -> Self {
         Self {
+            debug,
             backend: if gpu {
                 Backend::Gpu(Arc::new(Mutex::new(
                     Device::by_brand(Brand::Nvidia)
@@ -382,7 +385,16 @@ impl<
                 params: self.withdraw_params.clone(),
                 backend: self.backend.clone(),
                 cancel: Some(cancel),
-                verifier: bazuka::config::blockchain::MPN_WITHDRAW_VK.clone(),
+                verifier: if self.debug {
+                    unsafe {
+                        std::mem::transmute::<
+                            bellman::groth16::VerifyingKey<Bls12>,
+                            bazuka::zk::groth16::Groth16VerifyingKey,
+                        >(self.withdraw_params.vk.clone())
+                    }
+                } else {
+                    bazuka::config::blockchain::MPN_WITHDRAW_VK.clone()
+                },
                 height,
                 state,
                 aux_data,
@@ -578,7 +590,16 @@ impl<
                 params: self.deposit_params.clone(),
                 backend: self.backend.clone(),
                 cancel: Some(cancel),
-                verifier: bazuka::config::blockchain::MPN_DEPOSIT_VK.clone(),
+                verifier: if self.debug {
+                    unsafe {
+                        std::mem::transmute::<
+                            bellman::groth16::VerifyingKey<Bls12>,
+                            bazuka::zk::groth16::Groth16VerifyingKey,
+                        >(self.deposit_params.vk.clone())
+                    }
+                } else {
+                    bazuka::config::blockchain::MPN_DEPOSIT_VK.clone()
+                },
                 height,
                 state,
                 aux_data,
@@ -798,7 +819,16 @@ impl<
                 params: self.update_params.clone(),
                 backend: self.backend.clone(),
                 cancel: Some(cancel),
-                verifier: bazuka::config::blockchain::MPN_UPDATE_VK.clone(),
+                verifier: if self.debug {
+                    unsafe {
+                        std::mem::transmute::<
+                            bellman::groth16::VerifyingKey<Bls12>,
+                            bazuka::zk::groth16::Groth16VerifyingKey,
+                        >(self.update_params.vk.clone())
+                    }
+                } else {
+                    bazuka::config::blockchain::MPN_UPDATE_VK.clone()
+                },
                 height,
                 state,
                 aux_data,

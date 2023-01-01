@@ -292,6 +292,7 @@ fn main() {
         deposit_params,
         withdraw_params,
         opt.gpu,
+        false,
     );
 
     loop {
