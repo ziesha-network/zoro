@@ -324,22 +324,22 @@ impl<
                             Some(trans.tx.amount.0.into()),
                         ),
                         (
-                            bazuka::zk::ZkDataLocator(vec![i as u64, 1]),
+                            bazuka::zk::ZkDataLocator(vec![i as u64, 2]),
                             Some(trans.tx.amount.1.into()),
                         ),
                         (
-                            bazuka::zk::ZkDataLocator(vec![i as u64, 1]),
+                            bazuka::zk::ZkDataLocator(vec![i as u64, 3]),
                             Some(trans.tx.fee.0.into()),
                         ),
                         (
-                            bazuka::zk::ZkDataLocator(vec![i as u64, 1]),
+                            bazuka::zk::ZkDataLocator(vec![i as u64, 4]),
                             Some(trans.tx.fee.1.into()),
                         ),
                         (
-                            bazuka::zk::ZkDataLocator(vec![i as u64, 2]),
+                            bazuka::zk::ZkDataLocator(vec![i as u64, 5]),
                             Some(trans.tx.fingerprint),
                         ),
-                        (bazuka::zk::ZkDataLocator(vec![i as u64, 3]), Some(calldata)),
+                        (bazuka::zk::ZkDataLocator(vec![i as u64, 6]), Some(calldata)),
                     ]
                     .into(),
                 ))

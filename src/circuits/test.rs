@@ -50,18 +50,38 @@ fn fresh_db(log4_tree_size: u8, log4_token_size: u8) -> (RamKvStore, ContractId)
 }
 
 #[test]
-fn test_update_empty() {
-    let c = UpdateCircuit::<1, 1>::default();
-    let _p = groth16::generate_random_parameters::<Bls12, _, _>(c, &mut OsRng).unwrap();
-}
-
-#[test]
 fn test_deposit_empty() {
     let (mut db, mpn_contract_id) = fresh_db(1, 1);
     let c = DepositCircuit::<1, 1>::default();
     let p = groth16::generate_random_parameters::<Bls12, _, _>(c, &mut OsRng).unwrap();
     let b = Bank::<1, 0, 0, 1>::new(mpn_contract_id, false, true);
     b.deposit(&mut db, p.clone(), vec![], Arc::new(RwLock::new(false)))
+        .unwrap()
+        .3
+        .prove()
+        .unwrap();
+}
+
+#[test]
+fn test_update_empty() {
+    let (mut db, mpn_contract_id) = fresh_db(1, 1);
+    let c = UpdateCircuit::<1, 1>::default();
+    let p = groth16::generate_random_parameters::<Bls12, _, _>(c, &mut OsRng).unwrap();
+    let b = Bank::<0, 0, 1, 1>::new(mpn_contract_id, false, true);
+    b.change_state(&mut db, p.clone(), vec![], Arc::new(RwLock::new(false)))
+        .unwrap()
+        .3
+        .prove()
+        .unwrap();
+}
+
+#[test]
+fn test_withdraw_empty() {
+    let (mut db, mpn_contract_id) = fresh_db(1, 1);
+    let c = WithdrawCircuit::<1, 1>::default();
+    let p = groth16::generate_random_parameters::<Bls12, _, _>(c, &mut OsRng).unwrap();
+    let b = Bank::<0, 1, 0, 1>::new(mpn_contract_id, false, true);
+    b.withdraw(&mut db, p.clone(), vec![], Arc::new(RwLock::new(false)))
         .unwrap()
         .3
         .prove()

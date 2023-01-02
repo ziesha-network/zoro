@@ -100,7 +100,10 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
             item_type: Box::new(bazuka::zk::ZkStateModel::Struct {
                 field_types: vec![
                     bazuka::zk::ZkStateModel::Scalar, // Enabled
+                    bazuka::zk::ZkStateModel::Scalar, // Amount token-id
                     bazuka::zk::ZkStateModel::Scalar, // Amount
+                    bazuka::zk::ZkStateModel::Scalar, // Fee token-id
+                    bazuka::zk::ZkStateModel::Scalar, // fee
                     bazuka::zk::ZkStateModel::Scalar, // Fingerprint
                     bazuka::zk::ZkStateModel::Scalar, // Calldata
                 ],
@@ -115,8 +118,19 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
             // If enabled, transaction is validated, otherwise neglected
             let enabled = AllocatedBit::alloc(&mut *cs, Some(trans.enabled))?;
 
+            let amount_token_id = AllocatedNum::alloc(&mut *cs, || {
+                Ok(Into::<ZkScalar>::into(trans.tx.amount.0).into())
+            })?;
+
             // Tx amount should always have at most 64 bits
             let amount = UnsignedInteger::alloc_64(&mut *cs, trans.tx.amount.1.into())?;
+
+            let fee_token_id = AllocatedNum::alloc(&mut *cs, || {
+                Ok(Into::<ZkScalar>::into(trans.tx.fee.0).into())
+            })?;
+
+            // Tx amount should always have at most 64 bits
+            let fee = UnsignedInteger::alloc_64(&mut *cs, trans.tx.fee.1.into())?;
 
             // Tx amount should always have at most 64 bits
             let fingerprint = AllocatedNum::alloc(&mut *cs, || Ok(trans.tx.fingerprint.into()))?;
@@ -130,6 +144,9 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
             tx_wits.push((
                 Boolean::Is(enabled.clone()),
                 amount.clone(),
+                amount_token_id.clone(),
+                fee.clone(),
+                fee_token_id.clone(),
                 fingerprint.clone(),
                 pub_key.clone(),
                 nonce.clone(),
@@ -159,6 +176,9 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
             children.push(AllocatedState::Children(vec![
                 AllocatedState::Value(enabled.into()),
                 AllocatedState::Value(amount.into()),
+                AllocatedState::Value(amount_token_id.into()),
+                AllocatedState::Value(fee.into()),
+                AllocatedState::Value(fee_token_id.into()),
                 AllocatedState::Value(fingerprint.into()),
                 AllocatedState::Value(calldata.into()),
             ]));
@@ -175,7 +195,10 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
             trans,
             (
                 enabled_wit,
+                tx_amount_token_id_wit,
                 tx_amount_wit,
+                tx_fee_token_id_wit,
+                tx_fee_wit,
                 fingerprint_wit,
                 tx_pub_key_wit,
                 tx_nonce_wit,
