@@ -115,6 +115,7 @@ fn process_deposits<K: bazuka::db::KvStore>(
         { config::LOG4_WITHDRAW_BATCH_SIZE },
         { config::LOG4_UPDATE_BATCH_SIZE },
         { config::LOG4_TREE_SIZE },
+        { config::LOG4_TOKENS_TREE_SIZE },
     >,
     db_mirror: &mut bazuka::db::RamMirrorKvStore<K>,
     cancel: &Arc<RwLock<bool>>,
@@ -175,6 +176,7 @@ fn process_withdraws<K: bazuka::db::KvStore>(
         { config::LOG4_WITHDRAW_BATCH_SIZE },
         { config::LOG4_UPDATE_BATCH_SIZE },
         { config::LOG4_TREE_SIZE },
+        { config::LOG4_TOKENS_TREE_SIZE },
     >,
     db_mirror: &mut bazuka::db::RamMirrorKvStore<K>,
     cancel: &Arc<RwLock<bool>>,
@@ -226,6 +228,7 @@ fn process_updates<K: bazuka::db::KvStore>(
         { config::LOG4_WITHDRAW_BATCH_SIZE },
         { config::LOG4_UPDATE_BATCH_SIZE },
         { config::LOG4_TREE_SIZE },
+        { config::LOG4_TOKENS_TREE_SIZE },
     >,
     db_mirror: &mut bazuka::db::RamMirrorKvStore<K>,
     cancel: &Arc<RwLock<bool>>,
@@ -276,15 +279,27 @@ fn main() {
     let exec_wallet = bazuka::wallet::TxBuilder::new(&opt.seed.as_bytes().to_vec());
 
     let update_params = load_params::<
-        circuits::UpdateCircuit<{ config::LOG4_UPDATE_BATCH_SIZE }, { config::LOG4_TREE_SIZE }>,
+        circuits::UpdateCircuit<
+            { config::LOG4_UPDATE_BATCH_SIZE },
+            { config::LOG4_TREE_SIZE },
+            { config::LOG4_TOKENS_TREE_SIZE },
+        >,
     >(opt.update_circuit_params, opt.generate_params);
 
     let deposit_params = load_params::<
-        circuits::DepositCircuit<{ config::LOG4_DEPOSIT_BATCH_SIZE }, { config::LOG4_TREE_SIZE }>,
+        circuits::DepositCircuit<
+            { config::LOG4_DEPOSIT_BATCH_SIZE },
+            { config::LOG4_TREE_SIZE },
+            { config::LOG4_TOKENS_TREE_SIZE },
+        >,
     >(opt.deposit_circuit_params, opt.generate_params);
 
     let withdraw_params = load_params::<
-        circuits::WithdrawCircuit<{ config::LOG4_WITHDRAW_BATCH_SIZE }, { config::LOG4_TREE_SIZE }>,
+        circuits::WithdrawCircuit<
+            { config::LOG4_WITHDRAW_BATCH_SIZE },
+            { config::LOG4_TREE_SIZE },
+            { config::LOG4_TOKENS_TREE_SIZE },
+        >,
     >(opt.withdraw_circuit_params, opt.generate_params);
 
     let node_addr = bazuka::client::PeerAddress(opt.node.parse().unwrap());

@@ -21,32 +21,34 @@ pub struct Deposit {
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-pub struct DepositTransition<const LOG4_TREE_SIZE: u8> {
+pub struct DepositTransition<const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE_SIZE: u8> {
     pub enabled: bool,
     pub tx: Deposit,
     pub before: MpnAccount,
     pub before_balances_hash: ZkScalar,
     pub before_balance: (TokenId, Money),
     pub proof: merkle::Proof<LOG4_TREE_SIZE>,
-    pub balance_proof: merkle::Proof<3>,
+    pub balance_proof: merkle::Proof<LOG4_TOKENS_TREE_SIZE>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct DepositTransitionBatch<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8>(
-    Vec<DepositTransition<LOG4_TREE_SIZE>>,
-);
-impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8>
-    DepositTransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>
+pub struct DepositTransitionBatch<
+    const LOG4_BATCH_SIZE: u8,
+    const LOG4_TREE_SIZE: u8,
+    const LOG4_TOKENS_TREE_SIZE: u8,
+>(Vec<DepositTransition<LOG4_TREE_SIZE, LOG4_TOKENS_TREE_SIZE>>);
+impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE_SIZE: u8>
+    DepositTransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE, LOG4_TOKENS_TREE_SIZE>
 {
-    pub fn new(mut ts: Vec<DepositTransition<LOG4_TREE_SIZE>>) -> Self {
+    pub fn new(mut ts: Vec<DepositTransition<LOG4_TREE_SIZE, LOG4_TOKENS_TREE_SIZE>>) -> Self {
         while ts.len() < 1 << (2 * LOG4_BATCH_SIZE) {
             ts.push(DepositTransition::default());
         }
         Self(ts)
     }
 }
-impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Default
-    for DepositTransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>
+impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE_SIZE: u8> Default
+    for DepositTransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE, LOG4_TOKENS_TREE_SIZE>
 {
     fn default() -> Self {
         Self(
@@ -58,16 +60,21 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Default
 }
 
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
-pub struct DepositCircuit<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> {
+pub struct DepositCircuit<
+    const LOG4_BATCH_SIZE: u8,
+    const LOG4_TREE_SIZE: u8,
+    const LOG4_TOKENS_TREE_SIZE: u8,
+> {
     pub height: u64,          // Public
     pub state: ZkScalar,      // Public
     pub aux_data: ZkScalar,   // Public
     pub next_state: ZkScalar, // Public
-    pub transitions: Box<DepositTransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>>, // Secret :)
+    pub transitions:
+        Box<DepositTransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE, LOG4_TOKENS_TREE_SIZE>>, // Secret :)
 }
 
-impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
-    for DepositCircuit<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>
+impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE_SIZE: u8>
+    Circuit<BellmanFr> for DepositCircuit<LOG4_BATCH_SIZE, LOG4_TREE_SIZE, LOG4_TOKENS_TREE_SIZE>
 {
     fn synthesize<CS: ConstraintSystem<BellmanFr>>(
         self,
@@ -160,8 +167,11 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
                 LOG4_TREE_SIZE as usize * 2,
             )?;
 
-            let tx_token_index_wit =
-                UnsignedInteger::alloc(&mut *cs, (trans.tx.token_index as u64).into(), 3 * 2)?;
+            let tx_token_index_wit = UnsignedInteger::alloc(
+                &mut *cs,
+                (trans.tx.token_index as u64).into(),
+                LOG4_TOKENS_TREE_SIZE as usize * 2,
+            )?;
 
             // Check if tx pub-key resides on the curve if tx is enabled
             tx_pub_key_wit.assert_on_curve(&mut *cs, &enabled_wit)?;
@@ -232,7 +242,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
             // Token-id of account slot can either be empty or equal with tx token-id
             let is_src_token_id_null = Number::from(src_token_id_wit.clone()).is_zero(&mut *cs)?;
             let is_src_token_id_and_tx_token_id_equal = Number::from(src_token_id_wit.clone())
-                .is_equal(&mut *cs, &tx_token_id_wit.into())?;
+                .is_equal(&mut *cs, &tx_token_id_wit.clone().into())?;
             let token_id_valid = common::boolean_or(
                 &mut *cs,
                 &is_src_token_id_null,
@@ -262,7 +272,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
             let new_balances_hash_wit = poseidon::poseidon(
                 &mut *cs,
                 &[
-                    &src_token_id_wit.clone().into(),
+                    &tx_token_id_wit.clone().into(),
                     &(src_balance_lc.clone() + tx_amount_lc.clone()),
                 ],
             )?;

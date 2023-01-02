@@ -27,33 +27,35 @@ pub struct Withdraw {
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-pub struct WithdrawTransition<const LOG4_TREE_SIZE: u8> {
+pub struct WithdrawTransition<const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE_SIZE: u8> {
     pub enabled: bool,
     pub tx: Withdraw,
     pub before: MpnAccount,
     pub before_token_balance: (TokenId, Money),
     pub before_fee_balance: (TokenId, Money),
     pub proof: merkle::Proof<LOG4_TREE_SIZE>,
-    pub token_balance_proof: merkle::Proof<3>,
-    pub fee_balance_proof: merkle::Proof<3>,
+    pub token_balance_proof: merkle::Proof<LOG4_TOKENS_TREE_SIZE>,
+    pub fee_balance_proof: merkle::Proof<LOG4_TOKENS_TREE_SIZE>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct WithdrawTransitionBatch<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8>(
-    Vec<WithdrawTransition<LOG4_TREE_SIZE>>,
-);
-impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8>
-    WithdrawTransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>
+pub struct WithdrawTransitionBatch<
+    const LOG4_BATCH_SIZE: u8,
+    const LOG4_TREE_SIZE: u8,
+    const LOG4_TOKENS_TREE_SIZE: u8,
+>(Vec<WithdrawTransition<LOG4_TREE_SIZE, LOG4_TOKENS_TREE_SIZE>>);
+impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE_SIZE: u8>
+    WithdrawTransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE, LOG4_TOKENS_TREE_SIZE>
 {
-    pub fn new(mut ts: Vec<WithdrawTransition<LOG4_TREE_SIZE>>) -> Self {
+    pub fn new(mut ts: Vec<WithdrawTransition<LOG4_TREE_SIZE, LOG4_TOKENS_TREE_SIZE>>) -> Self {
         while ts.len() < 1 << (2 * LOG4_BATCH_SIZE) {
             ts.push(WithdrawTransition::default());
         }
         Self(ts)
     }
 }
-impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Default
-    for WithdrawTransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>
+impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE_SIZE: u8> Default
+    for WithdrawTransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE, LOG4_TOKENS_TREE_SIZE>
 {
     fn default() -> Self {
         Self(
@@ -65,16 +67,21 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Default
 }
 
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
-pub struct WithdrawCircuit<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> {
+pub struct WithdrawCircuit<
+    const LOG4_BATCH_SIZE: u8,
+    const LOG4_TREE_SIZE: u8,
+    const LOG4_TOKENS_TREE_SIZE: u8,
+> {
     pub height: u64,          // Public
     pub state: ZkScalar,      // Public
     pub aux_data: ZkScalar,   // Public
     pub next_state: ZkScalar, // Public
-    pub transitions: Box<WithdrawTransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>>, // Secret :)
+    pub transitions:
+        Box<WithdrawTransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE, LOG4_TOKENS_TREE_SIZE>>, // Secret :)
 }
 
-impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8> Circuit<BellmanFr>
-    for WithdrawCircuit<LOG4_BATCH_SIZE, LOG4_TREE_SIZE>
+impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE_SIZE: u8>
+    Circuit<BellmanFr> for WithdrawCircuit<LOG4_BATCH_SIZE, LOG4_TREE_SIZE, LOG4_TOKENS_TREE_SIZE>
 {
     fn synthesize<CS: ConstraintSystem<BellmanFr>>(
         self,

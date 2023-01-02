@@ -2,7 +2,7 @@ use crate::circuits;
 use crate::circuits::{Deposit, DepositCircuit, UpdateCircuit, Withdraw, WithdrawCircuit};
 use bazuka::zk::ZkScalar;
 use bazuka::{
-    core::{ContractId, ZkHasher},
+    core::{ContractId, Money, ZkHasher},
     crypto::jubjub::PublicKey,
     db::KvStore,
     zk::{KvStoreStateManager, MpnAccount, MpnTransaction, ZkDataLocator},
@@ -33,6 +33,7 @@ pub struct Bank<
     const LOG4_WITHDRAW_BATCH_SIZE: u8,
     const LOG4_UPDATE_BATCH_SIZE: u8,
     const LOG4_TREE_SIZE: u8,
+    const LOG4_TOKENS_TREE_SIZE: u8,
 > {
     backend: Backend,
     mpn_contract_id: ContractId,
@@ -116,8 +117,15 @@ impl<
         const LOG4_WITHDRAW_BATCH_SIZE: u8,
         const LOG4_UPDATE_BATCH_SIZE: u8,
         const LOG4_TREE_SIZE: u8,
+        const LOG4_TOKENS_TREE_SIZE: u8,
     >
-    Bank<LOG4_DEPOSIT_BATCH_SIZE, LOG4_WITHDRAW_BATCH_SIZE, LOG4_UPDATE_BATCH_SIZE, LOG4_TREE_SIZE>
+    Bank<
+        LOG4_DEPOSIT_BATCH_SIZE,
+        LOG4_WITHDRAW_BATCH_SIZE,
+        LOG4_UPDATE_BATCH_SIZE,
+        LOG4_TREE_SIZE,
+        LOG4_TOKENS_TREE_SIZE,
+    >
 {
     pub fn new(mpn_contract_id: ContractId, gpu: bool, debug: bool) -> Self {
         Self {
@@ -160,7 +168,13 @@ impl<
             Vec<Withdraw>,
             Vec<Withdraw>,
             bazuka::zk::ZkCompressedState,
-            SnarkWork<WithdrawCircuit<{ LOG4_WITHDRAW_BATCH_SIZE }, { LOG4_TREE_SIZE }>>,
+            SnarkWork<
+                WithdrawCircuit<
+                    { LOG4_WITHDRAW_BATCH_SIZE },
+                    { LOG4_TREE_SIZE },
+                    { LOG4_TOKENS_TREE_SIZE },
+                >,
+            >,
         ),
         BankError,
     > {
@@ -219,7 +233,7 @@ impl<
                 updated_acc.tokens.get_mut(&tx.token_index).unwrap().1 -= tx.amount.1;
                 updated_acc.tokens.get_mut(&tx.fee_token_index).unwrap().1 -= tx.fee.1;
 
-                let token_balance_proof = zeekit::merkle::Proof::<3>(
+                let token_balance_proof = zeekit::merkle::Proof::<{ LOG4_TOKENS_TREE_SIZE }>(
                     KvStoreStateManager::<ZkHasher>::prove(
                         &mirror,
                         self.mpn_contract_id,
@@ -228,7 +242,7 @@ impl<
                     )
                     .unwrap(),
                 );
-                let fee_balance_proof = zeekit::merkle::Proof::<3>(
+                let fee_balance_proof = zeekit::merkle::Proof::<{ LOG4_TOKENS_TREE_SIZE }>(
                     KvStoreStateManager::<ZkHasher>::prove(
                         &mirror,
                         self.mpn_contract_id,
@@ -355,6 +369,7 @@ impl<
             transitions: Box::new(circuits::WithdrawTransitionBatch::<
                 LOG4_WITHDRAW_BATCH_SIZE,
                 LOG4_TREE_SIZE,
+                LOG4_TOKENS_TREE_SIZE,
             >::new(transitions)),
         };
 
@@ -367,7 +382,13 @@ impl<
                 state_hash: next_state,
                 state_size,
             },
-            SnarkWork::<WithdrawCircuit<{ LOG4_WITHDRAW_BATCH_SIZE }, { LOG4_TREE_SIZE }>> {
+            SnarkWork::<
+                WithdrawCircuit<
+                    { LOG4_WITHDRAW_BATCH_SIZE },
+                    { LOG4_TREE_SIZE },
+                    { LOG4_TOKENS_TREE_SIZE },
+                >,
+            > {
                 circuit,
                 params: params.clone(),
                 backend: self.backend.clone(),
@@ -401,7 +422,13 @@ impl<
             Vec<Deposit>,
             Vec<Deposit>,
             bazuka::zk::ZkCompressedState,
-            SnarkWork<DepositCircuit<{ LOG4_DEPOSIT_BATCH_SIZE }, { LOG4_TREE_SIZE }>>,
+            SnarkWork<
+                DepositCircuit<
+                    { LOG4_DEPOSIT_BATCH_SIZE },
+                    { LOG4_TREE_SIZE },
+                    { LOG4_TOKENS_TREE_SIZE },
+                >,
+            >,
         ),
         BankError,
     > {
@@ -430,14 +457,9 @@ impl<
                 tx.index,
             )
             .unwrap();
-            let acc_token = if let Some(acc_token) = acc.tokens.get(&tx.token_index) {
-                acc_token.clone()
-            } else {
-                rejected.push(tx.clone());
-                continue;
-            };
+            let acc_token = acc.tokens.get(&tx.token_index).clone();
             if (acc.address != Default::default() && tx.pub_key != acc.address)
-                || acc_token.0 != tx.amount.0
+                || (acc_token.is_some() && acc_token.unwrap().0 != tx.amount.0)
             {
                 rejected.push(tx.clone());
                 continue;
@@ -447,9 +469,13 @@ impl<
                     tokens: acc.tokens.clone(),
                     nonce: acc.nonce,
                 };
-                updated_acc.tokens.get_mut(&tx.token_index).unwrap().1 += tx.amount.1;
+                updated_acc
+                    .tokens
+                    .entry(tx.token_index)
+                    .or_insert((tx.amount.0, Money(0)))
+                    .1 += tx.amount.1;
 
-                let balance_proof = zeekit::merkle::Proof::<3>(
+                let balance_proof = zeekit::merkle::Proof::<{ LOG4_TOKENS_TREE_SIZE }>(
                     KvStoreStateManager::<ZkHasher>::prove(
                         &mirror,
                         self.mpn_contract_id,
@@ -481,8 +507,8 @@ impl<
                     enabled: true,
                     tx: tx.clone(),
                     before: acc.clone(),
-                    before_balances_hash: acc.tokens_hash::<ZkHasher>(),
-                    before_balance: acc_token.clone(),
+                    before_balances_hash: acc.tokens_hash::<ZkHasher>(LOG4_TOKENS_TREE_SIZE),
+                    before_balance: acc_token.cloned().unwrap_or_default(),
                     proof,
                     balance_proof,
                 });
@@ -560,6 +586,7 @@ impl<
             transitions: Box::new(circuits::DepositTransitionBatch::<
                 LOG4_DEPOSIT_BATCH_SIZE,
                 LOG4_TREE_SIZE,
+                LOG4_TOKENS_TREE_SIZE,
             >::new(transitions)),
         };
 
@@ -573,7 +600,13 @@ impl<
                 state_hash: next_state,
                 state_size,
             },
-            SnarkWork::<DepositCircuit<{ LOG4_DEPOSIT_BATCH_SIZE }, { LOG4_TREE_SIZE }>> {
+            SnarkWork::<
+                DepositCircuit<
+                    { LOG4_DEPOSIT_BATCH_SIZE },
+                    { LOG4_TREE_SIZE },
+                    { LOG4_TOKENS_TREE_SIZE },
+                >,
+            > {
                 circuit,
                 params: params.clone(),
                 backend: self.backend.clone(),
@@ -606,7 +639,13 @@ impl<
             Vec<MpnTransaction>,
             Vec<MpnTransaction>,
             bazuka::zk::ZkCompressedState,
-            SnarkWork<UpdateCircuit<{ LOG4_UPDATE_BATCH_SIZE }, { LOG4_TREE_SIZE }>>,
+            SnarkWork<
+                UpdateCircuit<
+                    { LOG4_UPDATE_BATCH_SIZE },
+                    { LOG4_TREE_SIZE },
+                    { LOG4_TOKENS_TREE_SIZE },
+                >,
+            >,
         ),
         BankError,
     > {
@@ -674,7 +713,7 @@ impl<
                     )
                     .unwrap(),
                 );
-                let src_balance_proof = zeekit::merkle::Proof::<3>(
+                let src_balance_proof = zeekit::merkle::Proof::<{ LOG4_TOKENS_TREE_SIZE }>(
                     KvStoreStateManager::<ZkHasher>::prove(
                         &mirror,
                         self.mpn_contract_id,
@@ -683,7 +722,7 @@ impl<
                     )
                     .unwrap(),
                 );
-                let src_fee_balance_proof = zeekit::merkle::Proof::<3>(
+                let src_fee_balance_proof = zeekit::merkle::Proof::<{ LOG4_TOKENS_TREE_SIZE }>(
                     KvStoreStateManager::<ZkHasher>::prove(
                         &mirror,
                         self.mpn_contract_id,
@@ -717,7 +756,7 @@ impl<
                     )
                     .unwrap(),
                 );
-                let dst_balance_proof = zeekit::merkle::Proof::<3>(
+                let dst_balance_proof = zeekit::merkle::Proof::<{ LOG4_TOKENS_TREE_SIZE }>(
                     KvStoreStateManager::<ZkHasher>::prove(
                         &mirror,
                         self.mpn_contract_id,
@@ -792,6 +831,7 @@ impl<
             transitions: Box::new(circuits::TransitionBatch::<
                 LOG4_UPDATE_BATCH_SIZE,
                 LOG4_TREE_SIZE,
+                LOG4_TOKENS_TREE_SIZE,
             >::new(transitions)),
         };
         let ops = mirror.to_ops();
@@ -803,7 +843,13 @@ impl<
                 state_hash: next_state,
                 state_size,
             },
-            SnarkWork::<UpdateCircuit<{ LOG4_UPDATE_BATCH_SIZE }, { LOG4_TREE_SIZE }>> {
+            SnarkWork::<
+                UpdateCircuit<
+                    { LOG4_UPDATE_BATCH_SIZE },
+                    { LOG4_TREE_SIZE },
+                    { LOG4_TOKENS_TREE_SIZE },
+                >,
+            > {
                 circuit,
                 params: params.clone(),
                 backend: self.backend.clone(),
