@@ -35,7 +35,9 @@ pub struct WithdrawTransition<const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE_S
     pub before_fee_balance: (TokenId, Money),
     pub proof: merkle::Proof<LOG4_TREE_SIZE>,
     pub token_balance_proof: merkle::Proof<LOG4_TOKENS_TREE_SIZE>,
+    pub before_token_hash: ZkScalar,
     pub fee_balance_proof: merkle::Proof<LOG4_TOKENS_TREE_SIZE>,
+    pub before_fee_hash: ZkScalar,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -150,10 +152,10 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
 
             tx_wits.push((
                 Boolean::Is(enabled.clone()),
-                amount.clone(),
                 amount_token_id.clone(),
-                fee.clone(),
+                amount.clone(),
                 fee_token_id.clone(),
+                fee.clone(),
                 fingerprint.clone(),
                 pub_key.clone(),
                 nonce.clone(),
@@ -221,6 +223,18 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                 LOG4_TREE_SIZE as usize * 2,
             )?;
 
+            let tx_token_index_wit = UnsignedInteger::alloc(
+                &mut *cs,
+                (trans.tx.token_index as u64).into(),
+                LOG4_TOKENS_TREE_SIZE as usize * 2,
+            )?;
+
+            let tx_fee_token_index_wit = UnsignedInteger::alloc(
+                &mut *cs,
+                (trans.tx.fee_token_index as u64).into(),
+                LOG4_TOKENS_TREE_SIZE as usize * 2,
+            )?;
+
             // Check if tx pub-key resides on the curve if tx is enabled
             tx_pub_key_wit.assert_on_curve(&mut *cs, &enabled_wit)?;
 
@@ -248,11 +262,119 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             // Account address doesn't necessarily need to reside on curve as it might be empty
             let src_addr_wit = AllocatedPoint::alloc(&mut *cs, || Ok(trans.before.address))?;
 
+            let src_balances_before_token_hash_wit =
+                AllocatedNum::alloc(&mut *cs, || Ok(trans.before_token_hash.into()))?;
+
+            let src_balances_before_fee_hash_wit =
+                AllocatedNum::alloc(&mut *cs, || Ok(trans.before_fee_hash.into()))?;
+
+            let src_token_id_wit = AllocatedNum::alloc(&mut *cs, || {
+                Ok(Into::<ZkScalar>::into(trans.before_token_balance.0).into())
+            })?;
+
+            Number::from(src_token_id_wit.clone())
+                .assert_equal(&mut *cs, &tx_amount_token_id_wit.into());
+
             // We don't need to make sure account balance is 64 bits. If everything works as expected
             // nothing like this should happen.
             let src_balance_wit = AllocatedNum::alloc(&mut *cs, || {
                 Ok(Into::<u64>::into(trans.before_token_balance.1).into())
             })?;
+
+            let src_fee_token_id_wit = AllocatedNum::alloc(&mut *cs, || {
+                Ok(Into::<ZkScalar>::into(trans.before_fee_balance.0).into())
+            })?;
+
+            Number::from(src_fee_token_id_wit.clone())
+                .assert_equal(&mut *cs, &tx_fee_token_id_wit.into());
+
+            // We don't need to make sure account balance is 64 bits. If everything works as expected
+            // nothing like this should happen.
+            let src_fee_balance_wit = AllocatedNum::alloc(&mut *cs, || {
+                Ok(Into::<u64>::into(trans.before_fee_balance.1).into())
+            })?;
+
+            let src_token_balance_hash_wit = poseidon::poseidon(
+                &mut *cs,
+                &[
+                    &src_token_id_wit.clone().into(),
+                    &src_balance_wit.clone().into(),
+                ],
+            )?;
+
+            let src_fee_token_balance_hash_wit = poseidon::poseidon(
+                &mut *cs,
+                &[
+                    &src_fee_token_id_wit.clone().into(),
+                    &src_fee_balance_wit.clone().into(),
+                ],
+            )?;
+
+            let mut src_token_balance_proof_wits = Vec::new();
+            for b in trans.token_balance_proof.0.clone() {
+                src_token_balance_proof_wits.push([
+                    AllocatedNum::alloc(&mut *cs, || Ok(b[0].into()))?,
+                    AllocatedNum::alloc(&mut *cs, || Ok(b[1].into()))?,
+                    AllocatedNum::alloc(&mut *cs, || Ok(b[2].into()))?,
+                ]);
+            }
+
+            let mut src_fee_token_balance_proof_wits = Vec::new();
+            for b in trans.fee_balance_proof.0.clone() {
+                src_fee_token_balance_proof_wits.push([
+                    AllocatedNum::alloc(&mut *cs, || Ok(b[0].into()))?,
+                    AllocatedNum::alloc(&mut *cs, || Ok(b[1].into()))?,
+                    AllocatedNum::alloc(&mut *cs, || Ok(b[2].into()))?,
+                ]);
+            }
+
+            let new_token_balance_hash_wit = poseidon::poseidon(
+                &mut *cs,
+                &[
+                    &src_token_id_wit.clone().into(),
+                    &(Number::from(src_balance_wit.clone()) - Number::from(tx_amount_wit.clone())),
+                ],
+            )?;
+
+            let new_fee_token_balance_hash_wit = poseidon::poseidon(
+                &mut *cs,
+                &[
+                    &src_fee_token_id_wit.clone().into(),
+                    &(Number::from(src_fee_balance_wit.clone()) - Number::from(tx_fee_wit.clone())),
+                ],
+            )?;
+
+            merkle::check_proof_poseidon4(
+                &mut *cs,
+                &enabled_wit,
+                &tx_token_index_wit.clone().into(),
+                &src_token_balance_hash_wit.clone().into(),
+                &src_token_balance_proof_wits,
+                &src_balances_before_fee_hash_wit.clone().into(),
+            )?;
+
+            let balance_middle_root = merkle::calc_root_poseidon4(
+                &mut *cs,
+                &tx_token_index_wit.clone().into(),
+                &new_token_balance_hash_wit,
+                &src_token_balance_proof_wits,
+            )?;
+
+            merkle::check_proof_poseidon4(
+                &mut *cs,
+                &enabled_wit,
+                &tx_fee_token_index_wit.clone().into(),
+                &src_fee_token_balance_hash_wit.clone().into(),
+                &src_fee_token_balance_proof_wits,
+                &balance_middle_root,
+            )?;
+
+            let balance_final_root = merkle::calc_root_poseidon4(
+                &mut *cs,
+                &tx_fee_token_index_wit.clone().into(),
+                &new_fee_token_balance_hash_wit,
+                &src_fee_token_balance_proof_wits,
+            )?;
 
             let src_hash_wit = poseidon::poseidon(
                 &mut *cs,
@@ -260,7 +382,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                     &src_nonce_wit.clone().into(),
                     &src_addr_wit.x.clone().into(),
                     &src_addr_wit.y.clone().into(),
-                    &src_balance_wit.clone().into(),
+                    &src_balances_before_token_hash_wit.clone().into(),
                 ],
             )?;
 
@@ -297,9 +419,6 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                 &state_wit.clone().into(),
             )?;
 
-            let src_balance_lc = Number::from(src_balance_wit);
-            let tx_amount_lc = Number::from(tx_amount_wit);
-
             // Calculate next-state hash and update state if tx is enabled
             let new_hash_wit = poseidon::poseidon(
                 &mut *cs,
@@ -307,7 +426,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                     &(Number::from(src_nonce_wit) + Number::constant::<CS>(BellmanFr::one())),
                     &tx_pub_key_wit.x.clone().into(),
                     &tx_pub_key_wit.y.clone().into(),
-                    &(src_balance_lc.clone() - tx_amount_lc.clone()),
+                    &balance_final_root,
                 ],
             )?;
             let next_state_wit =

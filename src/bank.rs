@@ -230,9 +230,7 @@ impl<
                     nonce: acc.nonce + 1,
                 };
 
-                updated_acc.tokens.get_mut(&tx.token_index).unwrap().1 -= tx.amount.1;
-                updated_acc.tokens.get_mut(&tx.fee_token_index).unwrap().1 -= tx.fee.1;
-
+                let before_token_hash = updated_acc.tokens_hash::<ZkHasher>(LOG4_TOKENS_TREE_SIZE);
                 let token_balance_proof = zeekit::merkle::Proof::<{ LOG4_TOKENS_TREE_SIZE }>(
                     KvStoreStateManager::<ZkHasher>::prove(
                         &mirror,
@@ -242,6 +240,18 @@ impl<
                     )
                     .unwrap(),
                 );
+
+                KvStoreStateManager::<ZkHasher>::set_mpn_account(
+                    &mut mirror,
+                    self.mpn_contract_id,
+                    tx.index,
+                    updated_acc.clone(),
+                    &mut state_size,
+                )
+                .unwrap();
+
+                updated_acc.tokens.get_mut(&tx.token_index).unwrap().1 -= tx.amount.1;
+                let before_fee_hash = updated_acc.tokens_hash::<ZkHasher>(LOG4_TOKENS_TREE_SIZE);
                 let fee_balance_proof = zeekit::merkle::Proof::<{ LOG4_TOKENS_TREE_SIZE }>(
                     KvStoreStateManager::<ZkHasher>::prove(
                         &mirror,
@@ -251,6 +261,9 @@ impl<
                     )
                     .unwrap(),
                 );
+
+                updated_acc.tokens.get_mut(&tx.fee_token_index).unwrap().1 -= tx.fee.1;
+
                 let proof = zeekit::merkle::Proof::<{ LOG4_TREE_SIZE }>(
                     KvStoreStateManager::<ZkHasher>::prove(
                         &mirror,
@@ -279,6 +292,8 @@ impl<
                     proof,
                     token_balance_proof,
                     fee_balance_proof,
+                    before_token_hash,
+                    before_fee_hash,
                 });
                 accepted.push(tx);
             }
