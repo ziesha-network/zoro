@@ -3,6 +3,8 @@ use crate::bank::{Bank, Provable};
 use bazuka::core::{ContractId, Money, TokenId};
 use bazuka::db::{KvStore, RamKvStore};
 use bazuka::wallet::TxBuilder;
+use bazuka::zk::KvStoreStateManager;
+use bazuka::zk::ZkDataLocator;
 use bazuka::zk::{ZkCompressedState, ZkContract, ZkScalar, ZkStateModel};
 use bellman::groth16;
 use bls12_381::Bls12;
@@ -51,17 +53,18 @@ fn fresh_db(log4_tree_size: u8, log4_token_size: u8) -> (RamKvStore, ContractId)
 }
 
 #[test]
-fn test_deposit() {
+fn test_deposit_tx() {
     let tx_builder = TxBuilder::new(b"hi");
+    let zk_addr = tx_builder.get_zk_address().decompress();
     let (mut db, mpn_contract_id) = fresh_db(1, 1);
     let c = DepositCircuit::<1, 1, 1>::default();
     let p = groth16::generate_random_parameters::<Bls12, _, _>(c, &mut OsRng).unwrap();
     let b = Bank::<1, 0, 0, 1, 1>::new(mpn_contract_id, false, true);
     let d = Deposit {
         mpn_deposit: None,
-        index: 0,
-        token_index: 0,
-        pub_key: tx_builder.get_zk_address().decompress(),
+        index: 2,
+        token_index: 3,
+        pub_key: zk_addr.clone(),
         amount: (TokenId::Custom(ZkScalar::from(123)), Money(10)),
     };
     let (acc, rej, _, work) = b
@@ -70,7 +73,25 @@ fn test_deposit() {
     assert_eq!(acc.len(), 1);
     assert_eq!(rej.len(), 0);
     work.prove().unwrap();
-    println!("{:?}", db.pairs("".into()).unwrap());
+    let state = KvStoreStateManager::<bazuka::core::ZkHasher>::get_full_state(&db, mpn_contract_id)
+        .unwrap();
+    assert_eq!(state.data.0.len(), 4);
+    assert_eq!(
+        state.data.0.get(&ZkDataLocator(vec![2, 1])),
+        Some(&zk_addr.0)
+    );
+    assert_eq!(
+        state.data.0.get(&ZkDataLocator(vec![2, 2])),
+        Some(&zk_addr.1)
+    );
+    assert_eq!(
+        state.data.0.get(&ZkDataLocator(vec![2, 3, 3, 0])),
+        Some(&ZkScalar::from(123))
+    );
+    assert_eq!(
+        state.data.0.get(&ZkDataLocator(vec![2, 3, 3, 1])),
+        Some(&ZkScalar::from(10))
+    );
 }
 
 #[test]
