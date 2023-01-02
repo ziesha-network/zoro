@@ -1,6 +1,6 @@
 use super::*;
 use crate::bank::{Bank, Provable};
-use bazuka::core::{ContractId, Money, TokenId};
+use bazuka::core::{ContractId, Money, MpnAddress, TokenId};
 use bazuka::db::{KvStore, RamKvStore};
 use bazuka::wallet::TxBuilder;
 use bazuka::zk::KvStoreStateManager;
@@ -118,6 +118,64 @@ fn test_update_empty() {
         .3
         .prove()
         .unwrap();
+}
+
+#[test]
+fn test_update_tx() {
+    let tx_builder = TxBuilder::new(b"hi");
+    let zk_addr = tx_builder.get_zk_address().decompress();
+    let (mut db, mpn_contract_id) = fresh_db(1, 1);
+    let deposit_circ = DepositCircuit::<1, 1, 1>::default();
+    let update_circ = UpdateCircuit::<1, 1, 1>::default();
+    let param_deposit =
+        groth16::generate_random_parameters::<Bls12, _, _>(deposit_circ, &mut OsRng).unwrap();
+    let param_update =
+        groth16::generate_random_parameters::<Bls12, _, _>(update_circ, &mut OsRng).unwrap();
+    let b = Bank::<1, 0, 1, 1, 1>::new(mpn_contract_id, false, true);
+    let d = Deposit {
+        mpn_deposit: None,
+        index: 2,
+        token_index: 3,
+        pub_key: zk_addr.clone(),
+        amount: (TokenId::Custom(ZkScalar::from(123)), Money(10)),
+    };
+    let (acc, rej, _, work) = b
+        .deposit(
+            &mut db,
+            param_deposit.clone(),
+            vec![d],
+            Arc::new(RwLock::new(false)),
+        )
+        .unwrap();
+    assert_eq!(acc.len(), 1);
+    assert_eq!(rej.len(), 0);
+    work.prove().unwrap();
+    let u = tx_builder.create_mpn_transaction(
+        2,
+        3,
+        MpnAddress {
+            pub_key: tx_builder.get_zk_address(),
+            account_index: 1,
+        },
+        1,
+        TokenId::Custom(ZkScalar::from(123)),
+        Money(5),
+        3,
+        TokenId::Custom(ZkScalar::from(123)),
+        Money(1),
+        0,
+    );
+    let (acc, rej, _, work) = b
+        .change_state(
+            &mut db,
+            param_update.clone(),
+            vec![u],
+            Arc::new(RwLock::new(false)),
+        )
+        .unwrap();
+    assert_eq!(acc.len(), 1);
+    assert_eq!(rej.len(), 0);
+    work.prove().unwrap();
 }
 
 #[test]
