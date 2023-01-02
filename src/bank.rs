@@ -726,6 +726,13 @@ impl<
                     )
                     .unwrap(),
                 );
+
+                let mut src_after = MpnAccount {
+                    address: src_before.address.clone(),
+                    tokens: src_before.tokens.clone(),
+                    nonce: src_before.nonce + 1,
+                };
+
                 let src_balance_proof = zeekit::merkle::Proof::<{ LOG4_TOKENS_TREE_SIZE }>(
                     KvStoreStateManager::<ZkHasher>::prove(
                         &mirror,
@@ -735,6 +742,17 @@ impl<
                     )
                     .unwrap(),
                 );
+
+                src_after.tokens.get_mut(&tx.src_token_index).unwrap().1 -= tx.amount;
+                KvStoreStateManager::<ZkHasher>::set_mpn_account(
+                    &mut mirror,
+                    self.mpn_contract_id,
+                    tx.src_index,
+                    src_after.clone(),
+                    &mut state_size,
+                )
+                .unwrap();
+
                 let src_fee_balance_proof = zeekit::merkle::Proof::<{ LOG4_TOKENS_TREE_SIZE }>(
                     KvStoreStateManager::<ZkHasher>::prove(
                         &mirror,
@@ -744,12 +762,7 @@ impl<
                     )
                     .unwrap(),
                 );
-                let mut src_after = MpnAccount {
-                    address: src_before.address.clone(),
-                    tokens: src_before.tokens.clone(),
-                    nonce: src_before.nonce + 1,
-                };
-                src_after.tokens.get_mut(&tx.src_token_index).unwrap().1 -= tx.amount;
+
                 src_after.tokens.get_mut(&tx.src_fee_token_index).unwrap().1 -= tx.fee;
                 KvStoreStateManager::<ZkHasher>::set_mpn_account(
                     &mut mirror,
@@ -797,9 +810,9 @@ impl<
                 transitions.push(circuits::Transition {
                     enabled: true,
                     tx: tx.clone(),
-                    src_before,
+                    src_before: src_before.clone(),
                     src_proof,
-                    dst_before,
+                    dst_before: dst_before.clone(),
                     dst_proof,
                     src_balance_proof,
                     src_fee_balance_proof,
@@ -807,6 +820,10 @@ impl<
                     src_before_balance: src_token.clone(),
                     src_before_fee_balance: src_fee_token.clone(),
                     dst_before_balance: dst_token.clone(),
+                    src_before_balances_hash: src_before
+                        .tokens_hash::<ZkHasher>(LOG4_TOKENS_TREE_SIZE),
+                    dst_before_balances_hash: src_before
+                        .tokens_hash::<ZkHasher>(LOG4_TOKENS_TREE_SIZE),
                 });
                 accepted.push(tx);
             }

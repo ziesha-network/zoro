@@ -23,12 +23,14 @@ pub struct Transition<const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE_SIZE: u8>
     pub enabled: bool,
     pub tx: MpnTransaction,
     pub src_before: MpnAccount, // src_after can be derived
+    pub src_before_balances_hash: ZkScalar,
     pub src_before_balance: (TokenId, Money),
     pub src_before_fee_balance: (TokenId, Money),
     pub src_proof: merkle::Proof<LOG4_TREE_SIZE>,
     pub src_balance_proof: merkle::Proof<LOG4_TOKENS_TREE_SIZE>,
     pub src_fee_balance_proof: merkle::Proof<LOG4_TOKENS_TREE_SIZE>,
     pub dst_before: MpnAccount, // dst_after can be derived
+    pub dst_before_balances_hash: ZkScalar,
     pub dst_before_balance: (TokenId, Money),
     pub dst_proof: merkle::Proof<LOG4_TREE_SIZE>,
     pub dst_balance_proof: merkle::Proof<LOG4_TOKENS_TREE_SIZE>,
@@ -105,6 +107,24 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             // If enabled, transaction is validated, otherwise neglected
             let enabled_wit = Boolean::Is(AllocatedBit::alloc(&mut *cs, Some(trans.enabled))?);
 
+            let tx_src_token_index_wit = UnsignedInteger::alloc(
+                &mut *cs,
+                (trans.tx.src_token_index as u64).into(),
+                LOG4_TOKENS_TREE_SIZE as usize * 2,
+            )?;
+
+            let tx_src_fee_token_index_wit = UnsignedInteger::alloc(
+                &mut *cs,
+                (trans.tx.src_fee_token_index as u64).into(),
+                LOG4_TOKENS_TREE_SIZE as usize * 2,
+            )?;
+
+            let tx_dst_token_index_wit = UnsignedInteger::alloc(
+                &mut *cs,
+                (trans.tx.dst_token_index as u64).into(),
+                LOG4_TOKENS_TREE_SIZE as usize * 2,
+            )?;
+
             let src_nonce_wit =
                 AllocatedNum::alloc(&mut *cs, || Ok(trans.src_before.nonce.into()))?;
 
@@ -112,9 +132,108 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             // Sender address should be on curve in case transaction slot is non-empty
             src_addr_wit.assert_on_curve(&mut *cs, &enabled_wit)?;
 
-            // We need bits of sender balance for the LTE operation
+            let src_before_balances_hash =
+                AllocatedNum::alloc(&mut *cs, || Ok(trans.src_before_balances_hash.into()))?;
+            let dst_before_balances_hash =
+                AllocatedNum::alloc(&mut *cs, || Ok(trans.src_before_balances_hash.into()))?;
+
+            let src_token_id_wit = AllocatedNum::alloc(&mut *cs, || {
+                Ok(Into::<ZkScalar>::into(trans.src_before_balance.0).into())
+            })?;
             let src_balance_wit =
                 UnsignedInteger::alloc_64(&mut *cs, trans.src_before_balance.1.into())?;
+
+            let src_token_balance_hash_wit = poseidon::poseidon(
+                &mut *cs,
+                &[
+                    &src_token_id_wit.clone().into(),
+                    &src_balance_wit.clone().into(),
+                ],
+            )?;
+
+            let src_fee_token_id_wit = AllocatedNum::alloc(&mut *cs, || {
+                Ok(Into::<ZkScalar>::into(trans.src_before_fee_balance.0).into())
+            })?;
+            let src_fee_balance_wit =
+                UnsignedInteger::alloc_64(&mut *cs, trans.src_before_fee_balance.1.into())?;
+
+            let src_fee_token_balance_hash_wit = poseidon::poseidon(
+                &mut *cs,
+                &[
+                    &src_fee_token_id_wit.clone().into(),
+                    &src_fee_balance_wit.clone().into(),
+                ],
+            )?;
+
+            let mut src_balance_proof_wits = Vec::new();
+            for b in trans.src_balance_proof.0.clone() {
+                src_balance_proof_wits.push([
+                    AllocatedNum::alloc(&mut *cs, || Ok(b[0].into()))?,
+                    AllocatedNum::alloc(&mut *cs, || Ok(b[1].into()))?,
+                    AllocatedNum::alloc(&mut *cs, || Ok(b[2].into()))?,
+                ]);
+            }
+
+            // Transaction amount and fee should at most have 64 bits
+            let tx_amount_wit = UnsignedInteger::alloc_64(&mut *cs, trans.tx.amount.into())?;
+            let tx_fee_wit = UnsignedInteger::alloc_64(&mut *cs, trans.tx.fee.into())?;
+
+            let new_token_balance_hash_wit = poseidon::poseidon(
+                &mut *cs,
+                &[
+                    &src_token_id_wit.clone().into(),
+                    &(Number::from(src_balance_wit.clone()) - Number::from(tx_amount_wit.clone())),
+                ],
+            )?;
+
+            let new_fee_token_balance_hash_wit = poseidon::poseidon(
+                &mut *cs,
+                &[
+                    &src_fee_token_id_wit.clone().into(),
+                    &(Number::from(src_fee_balance_wit.clone()) - Number::from(tx_fee_wit.clone())),
+                ],
+            )?;
+
+            let mut src_fee_balance_proof_wits = Vec::new();
+            for b in trans.src_fee_balance_proof.0.clone() {
+                src_fee_balance_proof_wits.push([
+                    AllocatedNum::alloc(&mut *cs, || Ok(b[0].into()))?,
+                    AllocatedNum::alloc(&mut *cs, || Ok(b[1].into()))?,
+                    AllocatedNum::alloc(&mut *cs, || Ok(b[2].into()))?,
+                ]);
+            }
+
+            merkle::check_proof_poseidon4(
+                &mut *cs,
+                &enabled_wit,
+                &tx_src_token_index_wit.clone().into(),
+                &src_token_balance_hash_wit.clone().into(),
+                &src_balance_proof_wits,
+                &src_before_balances_hash.clone().into(),
+            )?;
+
+            let balance_middle_root = merkle::calc_root_poseidon4(
+                &mut *cs,
+                &tx_src_token_index_wit.clone().into(),
+                &new_token_balance_hash_wit,
+                &src_balance_proof_wits,
+            )?;
+
+            merkle::check_proof_poseidon4(
+                &mut *cs,
+                &enabled_wit,
+                &tx_src_fee_token_index_wit.clone().into(),
+                &src_fee_token_balance_hash_wit.clone().into(),
+                &src_fee_balance_proof_wits,
+                &balance_middle_root,
+            )?;
+
+            let balance_final_root = merkle::calc_root_poseidon4(
+                &mut *cs,
+                &tx_src_fee_token_index_wit.clone().into(),
+                &new_fee_token_balance_hash_wit,
+                &src_fee_balance_proof_wits,
+            )?;
 
             let src_hash_wit = poseidon::poseidon(
                 &mut *cs,
@@ -122,7 +241,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                     &src_nonce_wit.clone().into(),
                     &src_addr_wit.x.clone().into(),
                     &src_addr_wit.y.clone().into(),
-                    &src_balance_wit.clone().into(),
+                    &src_before_balances_hash.clone().into(),
                 ],
             )?;
             let mut src_proof_wits = Vec::new();
@@ -142,6 +261,17 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                 (trans.tx.src_index as u64).into(),
                 LOG4_TREE_SIZE as usize * 2,
             )?;
+            let tx_amount_token_id_wit = AllocatedNum::alloc(&mut *cs, || {
+                Ok(Into::<ZkScalar>::into(trans.tx.amount.0).into())
+            })?;
+            let tx_fee_token_id_wit = AllocatedNum::alloc(&mut *cs, || {
+                Ok(Into::<ZkScalar>::into(trans.tx.fee.0).into())
+            })?;
+            Number::from(src_token_id_wit.clone())
+                .assert_equal(&mut *cs, &tx_amount_token_id_wit.into());
+            Number::from(src_fee_token_id_wit.clone())
+                .assert_equal(&mut *cs, &tx_fee_token_id_wit.into());
+
             let tx_dst_index_wit = UnsignedInteger::alloc(
                 &mut *cs,
                 (trans.tx.dst_index as u64).into(),
@@ -152,10 +282,6 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                 AllocatedPoint::alloc(&mut *cs, || Ok(trans.tx.dst_pub_key.0.decompress()))?;
             // Destination address should be on curve in case transaction slot is non-empty
             tx_dst_addr_wit.assert_on_curve(&mut *cs, &enabled_wit)?;
-
-            // Transaction amount and fee should at most have 64 bits
-            let tx_amount_wit = UnsignedInteger::alloc_64(&mut *cs, trans.tx.amount.into())?;
-            let tx_fee_wit = UnsignedInteger::alloc_64(&mut *cs, trans.tx.fee.into())?;
 
             // Fee is zero if transaction slot is empty, otherwise it equals to transaction fee
             let final_fee = common::mux(
@@ -186,9 +312,6 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             // Source nonce is incremented by one and balance is decreased by amount+fee
             let new_src_nonce_wit =
                 Number::from(src_nonce_wit.clone()) + Number::constant::<CS>(BellmanFr::one());
-            let new_src_balance_wit = Number::from(src_balance_wit.clone())
-                - Number::from(tx_amount_wit.clone())
-                - Number::from(tx_fee_wit.clone());
 
             let new_src_hash_wit = poseidon::poseidon(
                 &mut *cs,
@@ -196,7 +319,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                     &new_src_nonce_wit,
                     &src_addr_wit.x.clone().into(),
                     &src_addr_wit.y.clone().into(),
-                    &new_src_balance_wit,
+                    &balance_final_root,
                 ],
             )?;
 
@@ -214,11 +337,50 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             // Destination address doesn't necessarily need to reside on curve as it might be empty
             let dst_addr_wit = AllocatedPoint::alloc(&mut *cs, || Ok(trans.dst_before.address))?;
 
+            let dst_token_id_wit = AllocatedNum::alloc(&mut *cs, || {
+                Ok(Into::<ZkScalar>::into(trans.dst_before_balance.0).into())
+            })?;
             // We also don't need to make sure dst balance is 64 bits. If everything works as expected
             // nothing like this should happen.
             let dst_balance_wit = AllocatedNum::alloc(&mut *cs, || {
                 Ok(Into::<u64>::into(trans.dst_before_balance.1).into())
             })?;
+            let dst_token_balance_hash_wit = poseidon::poseidon(
+                &mut *cs,
+                &[
+                    &dst_token_id_wit.clone().into(),
+                    &(Number::from(dst_balance_wit.clone())),
+                ],
+            )?;
+            let new_dst_token_balance_hash_wit = poseidon::poseidon(
+                &mut *cs,
+                &[
+                    &dst_token_id_wit.clone().into(),
+                    &(Number::from(dst_balance_wit.clone()) + Number::from(tx_amount_wit.clone())),
+                ],
+            )?;
+            let mut dst_balance_proof_wits = Vec::new();
+            for b in trans.dst_balance_proof.0.clone() {
+                dst_balance_proof_wits.push([
+                    AllocatedNum::alloc(&mut *cs, || Ok(b[0].into()))?,
+                    AllocatedNum::alloc(&mut *cs, || Ok(b[1].into()))?,
+                    AllocatedNum::alloc(&mut *cs, || Ok(b[2].into()))?,
+                ]);
+            }
+            merkle::check_proof_poseidon4(
+                &mut *cs,
+                &enabled_wit,
+                &tx_dst_token_index_wit.clone().into(),
+                &dst_token_balance_hash_wit.clone().into(),
+                &dst_balance_proof_wits,
+                &dst_before_balances_hash.clone().into(),
+            )?;
+            let dst_balance_final_root = merkle::calc_root_poseidon4(
+                &mut *cs,
+                &tx_dst_token_index_wit.clone().into(),
+                &new_dst_token_balance_hash_wit,
+                &dst_balance_proof_wits,
+            )?;
 
             let dst_hash_wit = poseidon::poseidon(
                 &mut *cs,
@@ -226,7 +388,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                     &dst_nonce_wit.clone().into(),
                     &dst_addr_wit.x.clone().into(),
                     &dst_addr_wit.y.clone().into(),
-                    &dst_balance_wit.clone().into(),
+                    &dst_before_balances_hash.clone().into(),
                 ],
             )?;
             let mut dst_proof_wits = Vec::new();
@@ -237,10 +399,6 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                     AllocatedNum::alloc(&mut *cs, || Ok(b[2].into()))?,
                 ]);
             }
-
-            // Increase destination balance by tx amount
-            let new_dst_balance_wit =
-                Number::from(dst_balance_wit.clone()) + Number::from(tx_amount_wit.clone());
 
             // Address of destination account slot can either be empty or equal with tx destination
             let is_dst_null = dst_addr_wit.is_null(&mut *cs)?;
@@ -254,7 +412,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                     &dst_nonce_wit.into(),
                     &tx_dst_addr_wit.x.into(),
                     &tx_dst_addr_wit.y.into(),
-                    &new_dst_balance_wit,
+                    &dst_balance_final_root,
                 ],
             )?;
 
