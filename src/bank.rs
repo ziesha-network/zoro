@@ -251,7 +251,6 @@ impl<
                 .unwrap();
 
                 updated_acc.tokens.get_mut(&tx.token_index).unwrap().1 -= tx.amount.1;
-                let before_fee_hash = updated_acc.tokens_hash::<ZkHasher>(LOG4_TOKENS_TREE_SIZE);
                 let fee_balance_proof = zeekit::merkle::Proof::<{ LOG4_TOKENS_TREE_SIZE }>(
                     KvStoreStateManager::<ZkHasher>::prove(
                         &mirror,
@@ -293,7 +292,6 @@ impl<
                     token_balance_proof,
                     fee_balance_proof,
                     before_token_hash,
-                    before_fee_hash,
                 });
                 accepted.push(tx);
             }

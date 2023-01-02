@@ -37,7 +37,6 @@ pub struct WithdrawTransition<const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE_S
     pub token_balance_proof: merkle::Proof<LOG4_TOKENS_TREE_SIZE>,
     pub before_token_hash: ZkScalar,
     pub fee_balance_proof: merkle::Proof<LOG4_TOKENS_TREE_SIZE>,
-    pub before_fee_hash: ZkScalar,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -265,9 +264,6 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             let src_balances_before_token_hash_wit =
                 AllocatedNum::alloc(&mut *cs, || Ok(trans.before_token_hash.into()))?;
 
-            let src_balances_before_fee_hash_wit =
-                AllocatedNum::alloc(&mut *cs, || Ok(trans.before_fee_hash.into()))?;
-
             let src_token_id_wit = AllocatedNum::alloc(&mut *cs, || {
                 Ok(Into::<ZkScalar>::into(trans.before_token_balance.0).into())
             })?;
@@ -350,7 +346,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                 &tx_token_index_wit.clone().into(),
                 &src_token_balance_hash_wit.clone().into(),
                 &src_token_balance_proof_wits,
-                &src_balances_before_fee_hash_wit.clone().into(),
+                &src_balances_before_token_hash_wit.clone().into(),
             )?;
 
             let balance_middle_root = merkle::calc_root_poseidon4(
