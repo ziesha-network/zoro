@@ -176,6 +176,45 @@ fn test_update_tx() {
     assert_eq!(acc.len(), 1);
     assert_eq!(rej.len(), 0);
     work.prove().unwrap();
+    let state = KvStoreStateManager::<bazuka::core::ZkHasher>::get_full_state(&db, mpn_contract_id)
+        .unwrap();
+    assert_eq!(state.data.0.len(), 9);
+    assert_eq!(
+        state.data.0.get(&ZkDataLocator(vec![2, 0])),
+        Some(&1.into())
+    );
+    assert_eq!(
+        state.data.0.get(&ZkDataLocator(vec![2, 1])),
+        Some(&zk_addr.0)
+    );
+    assert_eq!(
+        state.data.0.get(&ZkDataLocator(vec![2, 2])),
+        Some(&zk_addr.1)
+    );
+    assert_eq!(
+        state.data.0.get(&ZkDataLocator(vec![2, 3, 3, 0])),
+        Some(&ZkScalar::from(123))
+    );
+    assert_eq!(
+        state.data.0.get(&ZkDataLocator(vec![2, 3, 3, 1])),
+        Some(&ZkScalar::from(4))
+    );
+    assert_eq!(
+        state.data.0.get(&ZkDataLocator(vec![1, 1])),
+        Some(&zk_addr.0)
+    );
+    assert_eq!(
+        state.data.0.get(&ZkDataLocator(vec![1, 2])),
+        Some(&zk_addr.1)
+    );
+    assert_eq!(
+        state.data.0.get(&ZkDataLocator(vec![1, 3, 1, 0])),
+        Some(&ZkScalar::from(123))
+    );
+    assert_eq!(
+        state.data.0.get(&ZkDataLocator(vec![1, 3, 1, 1])),
+        Some(&ZkScalar::from(5))
+    );
 }
 
 #[test]

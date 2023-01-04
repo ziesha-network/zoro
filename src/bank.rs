@@ -690,18 +690,13 @@ impl<
                 tx.dst_index,
             )
             .unwrap();
-            let (src_token, src_fee_token, dst_token) =
-                if let Some(((src_token, src_fee_token), dst_token)) = src_before
-                    .tokens
-                    .get(&tx.src_token_index)
-                    .zip(src_before.tokens.get(&tx.src_fee_token_index))
-                    .zip(dst_before.tokens.get(&tx.dst_token_index))
-                {
-                    (src_token.clone(), src_fee_token.clone(), dst_token.clone())
-                } else {
-                    rejected.push(tx.clone());
-                    continue;
-                };
+            let src_token = if let Some(src_token) = src_before.tokens.get(&tx.src_token_index) {
+                src_token.clone()
+            } else {
+                rejected.push(tx.clone());
+                continue;
+            };
+            let dst_token = dst_before.tokens.get(&tx.dst_token_index);
             if tx.nonce != src_before.nonce
                 || tx.src_index > 0x3fffffff
                 || tx.dst_index > 0x3fffffff
@@ -710,9 +705,9 @@ impl<
                 || (dst_before.address.is_on_curve()
                     && dst_before.address != tx.dst_pub_key.decompress())
                 || !tx.verify(&PublicKey(src_before.address.compress()))
-                || src_token.0 != dst_token.0
+                || dst_token.is_some() && (src_token.0 != dst_token.unwrap().0)
+                || src_token.0 != tx.token
                 || src_token.1 < tx.amount
-                || src_fee_token.1 < tx.fee
             {
                 rejected.push(tx.clone());
                 continue;
@@ -753,11 +748,24 @@ impl<
                 )
                 .unwrap();
 
+                let src_fee_token =
+                    if let Some(src_fee_token) = src_after.tokens.get(&tx.src_fee_token_index) {
+                        src_fee_token.clone()
+                    } else {
+                        rejected.push(tx.clone());
+                        continue;
+                    };
+
+                if src_fee_token.0 != tx.fee_token || src_fee_token.1 < tx.fee {
+                    rejected.push(tx.clone());
+                    continue;
+                }
+
                 let src_fee_balance_proof = zeekit::merkle::Proof::<{ LOG4_TOKENS_TREE_SIZE }>(
                     KvStoreStateManager::<ZkHasher>::prove(
                         &mirror,
                         self.mpn_contract_id,
-                        ZkDataLocator(vec![]),
+                        ZkDataLocator(vec![tx.src_index, 3]),
                         tx.src_fee_token_index,
                     )
                     .unwrap(),
@@ -797,7 +805,11 @@ impl<
                     tokens: dst_before.tokens.clone(),
                     nonce: dst_before.nonce,
                 };
-                dst_after.tokens.get_mut(&tx.dst_token_index).unwrap().1 += tx.amount;
+                dst_after
+                    .tokens
+                    .entry(tx.dst_token_index)
+                    .or_insert((tx.token, Money(0)))
+                    .1 += tx.amount;
                 KvStoreStateManager::<ZkHasher>::set_mpn_account(
                     &mut mirror,
                     self.mpn_contract_id,
@@ -819,10 +831,12 @@ impl<
                     dst_balance_proof,
                     src_before_balance: src_token.clone(),
                     src_before_fee_balance: src_fee_token.clone(),
-                    dst_before_balance: dst_token.clone(),
+                    dst_before_balance: dst_token
+                        .cloned()
+                        .unwrap_or((bazuka::core::TokenId::Null, Money(0))),
                     src_before_balances_hash: src_before
                         .tokens_hash::<ZkHasher>(LOG4_TOKENS_TREE_SIZE),
-                    dst_before_balances_hash: src_before
+                    dst_before_balances_hash: dst_before
                         .tokens_hash::<ZkHasher>(LOG4_TOKENS_TREE_SIZE),
                 });
                 accepted.push(tx);
