@@ -241,7 +241,7 @@ fn test_withdraw_tx() {
         groth16::generate_random_parameters::<Bls12, _, _>(deposit_circ, &mut OsRng).unwrap();
     let param_withdraw =
         groth16::generate_random_parameters::<Bls12, _, _>(withdraw_circ, &mut OsRng).unwrap();
-    let b = Bank::<1, 0, 1, 1, 1>::new(mpn_contract_id, false, true);
+    let b = Bank::<1, 1, 0, 1, 1>::new(mpn_contract_id, false, true);
     let d = Deposit {
         mpn_deposit: None,
         index: 2,
@@ -293,7 +293,7 @@ fn test_withdraw_tx() {
         .unwrap();
     assert_eq!(acc.len(), 1);
     assert_eq!(rej.len(), 0);
-    //work.prove().unwrap();
+    work.prove().unwrap();
     let state = KvStoreStateManager::<bazuka::core::ZkHasher>::get_full_state(&db, mpn_contract_id)
         .unwrap();
     assert_eq!(state.data.0.len(), 5);

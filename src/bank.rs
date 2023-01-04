@@ -200,12 +200,8 @@ impl<
             )
             .unwrap();
 
-            let (acc_token, acc_fee_token) = if let Some((acc_token, acc_fee_token)) = acc
-                .tokens
-                .get(&tx.token_index)
-                .zip(acc.tokens.get(&tx.fee_token_index))
-            {
-                (acc_token.clone(), acc_fee_token.clone())
+            let acc_token = if let Some(acc_token) = acc.tokens.get(&tx.token_index) {
+                acc_token.clone()
             } else {
                 rejected.push(tx.clone());
                 continue;
@@ -216,9 +212,7 @@ impl<
             if (acc.address != Default::default() && tx.pub_key != acc.address)
                 || tx.nonce != acc.nonce
                 || tx.amount.0 != acc_token.0
-                || tx.fee.0 != acc_fee_token.0
                 || tx.amount.1 > acc_token.1
-                || tx.fee.1 > acc_fee_token.1
                 || tx.index > 0x3fffffff
             {
                 rejected.push(tx.clone());
@@ -260,6 +254,18 @@ impl<
                     )
                     .unwrap(),
                 );
+
+                let acc_fee_token =
+                    if let Some(src_fee_token) = updated_acc.tokens.get(&tx.fee_token_index) {
+                        src_fee_token.clone()
+                    } else {
+                        rejected.push(tx.clone());
+                        continue;
+                    };
+                if tx.fee.0 != acc_fee_token.0 || tx.fee.1 > acc_fee_token.1 {
+                    rejected.push(tx.clone());
+                    continue;
+                }
 
                 updated_acc.tokens.get_mut(&tx.fee_token_index).unwrap().1 -= tx.fee.1;
 

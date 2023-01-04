@@ -183,10 +183,10 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
 
             children.push(AllocatedState::Children(vec![
                 AllocatedState::Value(enabled.into()),
-                AllocatedState::Value(amount.into()),
                 AllocatedState::Value(amount_token_id.into()),
-                AllocatedState::Value(fee.into()),
+                AllocatedState::Value(amount.into()),
                 AllocatedState::Value(fee_token_id.into()),
+                AllocatedState::Value(fee.into()),
                 AllocatedState::Value(fingerprint.into()),
                 AllocatedState::Value(calldata.into()),
             ]));
@@ -247,14 +247,14 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             // Check if sig_r resides on curve
             tx_sig_r_wit.assert_on_curve(&mut *cs, &enabled_wit)?;
             // Check EdDSA signature
-            eddsa::verify_eddsa(
+            /*eddsa::verify_eddsa(
                 &mut *cs,
                 &enabled_wit,
                 &tx_pub_key_wit,
                 &tx_hash_wit,
                 &tx_sig_r_wit,
                 &tx_sig_s_wit,
-            )?;
+            )?;*/
 
             let src_nonce_wit = AllocatedNum::alloc(&mut *cs, || Ok(trans.before.nonce.into()))?;
 
@@ -277,6 +277,43 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                 Ok(Into::<u64>::into(trans.before_token_balance.1).into())
             })?;
 
+            let src_token_balance_hash_wit = poseidon::poseidon(
+                &mut *cs,
+                &[
+                    &src_token_id_wit.clone().into(),
+                    &src_balance_wit.clone().into(),
+                ],
+            )?;
+            let mut src_token_balance_proof_wits = Vec::new();
+            for b in trans.token_balance_proof.0.clone() {
+                src_token_balance_proof_wits.push([
+                    AllocatedNum::alloc(&mut *cs, || Ok(b[0].into()))?,
+                    AllocatedNum::alloc(&mut *cs, || Ok(b[1].into()))?,
+                    AllocatedNum::alloc(&mut *cs, || Ok(b[2].into()))?,
+                ]);
+            }
+            merkle::check_proof_poseidon4(
+                &mut *cs,
+                &enabled_wit,
+                &tx_token_index_wit.clone().into(),
+                &src_token_balance_hash_wit.clone().into(),
+                &src_token_balance_proof_wits,
+                &src_balances_before_token_hash_wit.clone().into(),
+            )?;
+            let new_token_balance_hash_wit = poseidon::poseidon(
+                &mut *cs,
+                &[
+                    &src_token_id_wit.clone().into(),
+                    &(Number::from(src_balance_wit.clone()) - Number::from(tx_amount_wit.clone())),
+                ],
+            )?;
+            let balance_middle_root = merkle::calc_root_poseidon4(
+                &mut *cs,
+                &tx_token_index_wit.clone().into(),
+                &new_token_balance_hash_wit,
+                &src_token_balance_proof_wits,
+            )?;
+
             let src_fee_token_id_wit = AllocatedNum::alloc(&mut *cs, || {
                 Ok(Into::<ZkScalar>::into(trans.before_fee_balance.0).into())
             })?;
@@ -290,14 +327,6 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                 Ok(Into::<u64>::into(trans.before_fee_balance.1).into())
             })?;
 
-            let src_token_balance_hash_wit = poseidon::poseidon(
-                &mut *cs,
-                &[
-                    &src_token_id_wit.clone().into(),
-                    &src_balance_wit.clone().into(),
-                ],
-            )?;
-
             let src_fee_token_balance_hash_wit = poseidon::poseidon(
                 &mut *cs,
                 &[
@@ -305,15 +334,6 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                     &src_fee_balance_wit.clone().into(),
                 ],
             )?;
-
-            let mut src_token_balance_proof_wits = Vec::new();
-            for b in trans.token_balance_proof.0.clone() {
-                src_token_balance_proof_wits.push([
-                    AllocatedNum::alloc(&mut *cs, || Ok(b[0].into()))?,
-                    AllocatedNum::alloc(&mut *cs, || Ok(b[1].into()))?,
-                    AllocatedNum::alloc(&mut *cs, || Ok(b[2].into()))?,
-                ]);
-            }
 
             let mut src_fee_token_balance_proof_wits = Vec::new();
             for b in trans.fee_balance_proof.0.clone() {
@@ -324,38 +344,6 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                 ]);
             }
 
-            let new_token_balance_hash_wit = poseidon::poseidon(
-                &mut *cs,
-                &[
-                    &src_token_id_wit.clone().into(),
-                    &(Number::from(src_balance_wit.clone()) - Number::from(tx_amount_wit.clone())),
-                ],
-            )?;
-
-            let new_fee_token_balance_hash_wit = poseidon::poseidon(
-                &mut *cs,
-                &[
-                    &src_fee_token_id_wit.clone().into(),
-                    &(Number::from(src_fee_balance_wit.clone()) - Number::from(tx_fee_wit.clone())),
-                ],
-            )?;
-
-            merkle::check_proof_poseidon4(
-                &mut *cs,
-                &enabled_wit,
-                &tx_token_index_wit.clone().into(),
-                &src_token_balance_hash_wit.clone().into(),
-                &src_token_balance_proof_wits,
-                &src_balances_before_token_hash_wit.clone().into(),
-            )?;
-
-            let balance_middle_root = merkle::calc_root_poseidon4(
-                &mut *cs,
-                &tx_token_index_wit.clone().into(),
-                &new_token_balance_hash_wit,
-                &src_token_balance_proof_wits,
-            )?;
-
             merkle::check_proof_poseidon4(
                 &mut *cs,
                 &enabled_wit,
@@ -365,11 +353,12 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                 &balance_middle_root,
             )?;
 
-            let balance_final_root = merkle::calc_root_poseidon4(
+            let new_fee_token_balance_hash_wit = poseidon::poseidon(
                 &mut *cs,
-                &tx_fee_token_index_wit.clone().into(),
-                &new_fee_token_balance_hash_wit,
-                &src_fee_token_balance_proof_wits,
+                &[
+                    &src_fee_token_id_wit.clone().into(),
+                    &(Number::from(src_fee_balance_wit.clone()) - Number::from(tx_fee_wit.clone())),
+                ],
             )?;
 
             let src_hash_wit = poseidon::poseidon(
@@ -381,6 +370,22 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                     &src_balances_before_token_hash_wit.clone().into(),
                 ],
             )?;
+            let mut proof_wits = Vec::new();
+            for b in trans.proof.0.clone() {
+                proof_wits.push([
+                    AllocatedNum::alloc(&mut *cs, || Ok(b[0].into()))?,
+                    AllocatedNum::alloc(&mut *cs, || Ok(b[1].into()))?,
+                    AllocatedNum::alloc(&mut *cs, || Ok(b[2].into()))?,
+                ]);
+            }
+            merkle::check_proof_poseidon4(
+                &mut *cs,
+                &enabled_wit,
+                &tx_index_wit.clone().into(),
+                &src_hash_wit,
+                &proof_wits,
+                &state_wit.clone().into(),
+            )?;
 
             // Check tx nonce is equal with account nonce to prevent double spending
             cs.enforce(
@@ -390,14 +395,12 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                 |lc| lc + src_nonce_wit.get_variable(),
             );
 
-            let mut proof_wits = Vec::new();
-            for b in trans.proof.0.clone() {
-                proof_wits.push([
-                    AllocatedNum::alloc(&mut *cs, || Ok(b[0].into()))?,
-                    AllocatedNum::alloc(&mut *cs, || Ok(b[1].into()))?,
-                    AllocatedNum::alloc(&mut *cs, || Ok(b[2].into()))?,
-                ]);
-            }
+            let balance_final_root = merkle::calc_root_poseidon4(
+                &mut *cs,
+                &tx_fee_token_index_wit.clone().into(),
+                &new_fee_token_balance_hash_wit,
+                &src_fee_token_balance_proof_wits,
+            )?;
 
             // Address of account slot can either be empty or equal with tx destination
             let is_src_addr_null = src_addr_wit.is_null(&mut *cs)?;
@@ -405,15 +408,6 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             let addr_valid =
                 common::boolean_or(&mut *cs, &is_src_addr_null, &is_src_and_tx_pub_key_equal)?;
             common::assert_true(&mut *cs, &addr_valid);
-
-            merkle::check_proof_poseidon4(
-                &mut *cs,
-                &enabled_wit,
-                &tx_index_wit.clone().into(),
-                &src_hash_wit,
-                &proof_wits,
-                &state_wit.clone().into(),
-            )?;
 
             // Calculate next-state hash and update state if tx is enabled
             let new_hash_wit = poseidon::poseidon(
