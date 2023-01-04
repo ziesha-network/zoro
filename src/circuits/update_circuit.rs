@@ -233,7 +233,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                 &src_fee_balance_proof_wits,
             )?;
 
-            //let tx_nonce_wit = AllocatedNum::alloc(&mut *cs, || Ok(trans.tx.nonce.into()))?;
+            let tx_nonce_wit = AllocatedNum::alloc(&mut *cs, || Ok(trans.tx.nonce.into()))?;
 
             // src and dst indices should only have 2 * LOG4_TREE_SIZE bits
             let tx_src_index_wit = UnsignedInteger::alloc(
@@ -251,7 +251,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             Number::from(src_token_id_wit.clone())
                 .assert_equal(&mut *cs, &tx_amount_token_id_wit.clone().into());
             Number::from(src_fee_token_id_wit.clone())
-                .assert_equal(&mut *cs, &tx_fee_token_id_wit.into());
+                .assert_equal(&mut *cs, &tx_fee_token_id_wit.clone().into());
 
             let src_hash_wit = poseidon::poseidon(
                 &mut *cs,
@@ -412,50 +412,12 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             // Calculate next-state hash and update state if tx is enabled
             let next_state_wit = merkle::calc_root_poseidon4(
                 &mut *cs,
-                &tx_dst_index_wit.into(),
+                &tx_dst_index_wit.clone().into(),
                 &new_dst_hash_wit,
                 &dst_proof_wits,
             )?;
 
             state_wit = common::mux(&mut *cs, &enabled_wit, &state_wit.into(), &next_state_wit)?;
-
-            // Fee is zero if transaction slot is empty, otherwise it equals to transaction fee
-            // TODO: Check if fee token type is correct!
-            let final_fee = common::mux(
-                &mut *cs,
-                &enabled_wit,
-                &Number::zero(),
-                &tx_fee_wit.clone().into(),
-            )?;
-            fee_sum.add_num(BellmanFr::one(), &final_fee);
-
-            /*
-
-
-
-            let tx_hash_wit = poseidon::poseidon(
-                &mut *cs,
-                &[
-                    &tx_nonce_wit.clone().into(),
-                    &tx_src_index_wit.clone().into(),
-                    &tx_dst_index_wit.clone().into(),
-                    &tx_amount_wit.clone().into(),
-                    &tx_fee_wit.clone().into(),
-                ],
-            )?;
-
-            let tx_sig_r_wit = AllocatedPoint::alloc(&mut *cs, || Ok(trans.tx.sig.r))?;
-            // Check if sig_r resides on curve
-            tx_sig_r_wit.assert_on_curve(&mut *cs, &enabled_wit)?;
-
-            let tx_sig_s_wit = AllocatedNum::alloc(&mut *cs, || Ok(trans.tx.sig.s.into()))?;
-
-
-
-
-
-
-
 
             // tx amount+fee should be <= src balance
             let tx_balance_plus_fee_64 = UnsignedInteger::constrain(
@@ -474,6 +436,35 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                 |lc| lc + src_nonce_wit.get_variable(),
             );
 
+            // Fee is zero if transaction slot is empty, otherwise it equals to transaction fee
+            // TODO: Check if fee token type is correct!
+            let final_fee = common::mux(
+                &mut *cs,
+                &enabled_wit,
+                &Number::zero(),
+                &tx_fee_wit.clone().into(),
+            )?;
+            fee_sum.add_num(BellmanFr::one(), &final_fee);
+
+            let tx_hash_wit = poseidon::poseidon(
+                &mut *cs,
+                &[
+                    &tx_nonce_wit.clone().into(),
+                    &tx_src_index_wit.clone().into(),
+                    &tx_dst_index_wit.clone().into(),
+                    &tx_amount_token_id_wit.clone().into(),
+                    &tx_amount_wit.clone().into(),
+                    &tx_fee_token_id_wit.clone().into(),
+                    &tx_fee_wit.clone().into(),
+                ],
+            )?;
+
+            let tx_sig_r_wit = AllocatedPoint::alloc(&mut *cs, || Ok(trans.tx.sig.r))?;
+            // Check if sig_r resides on curve
+            tx_sig_r_wit.assert_on_curve(&mut *cs, &enabled_wit)?;
+
+            let tx_sig_s_wit = AllocatedNum::alloc(&mut *cs, || Ok(trans.tx.sig.s.into()))?;
+
             // Check EdDSA signature
             eddsa::verify_eddsa(
                 &mut *cs,
@@ -483,9 +474,6 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                 &tx_sig_r_wit,
                 &tx_sig_s_wit,
             )?;
-
-
-            */
         }
 
         // Check if sum of tx fees is equal with the feeded aux

@@ -247,14 +247,14 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             // Check if sig_r resides on curve
             tx_sig_r_wit.assert_on_curve(&mut *cs, &enabled_wit)?;
             // Check EdDSA signature
-            /*eddsa::verify_eddsa(
+            eddsa::verify_eddsa(
                 &mut *cs,
                 &enabled_wit,
                 &tx_pub_key_wit,
                 &tx_hash_wit,
                 &tx_sig_r_wit,
                 &tx_sig_s_wit,
-            )?;*/
+            )?;
 
             let src_nonce_wit = AllocatedNum::alloc(&mut *cs, || Ok(trans.before.nonce.into()))?;
 
