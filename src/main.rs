@@ -278,14 +278,6 @@ fn main() {
 
     let exec_wallet = bazuka::wallet::TxBuilder::new(&opt.seed.as_bytes().to_vec());
 
-    let update_params = load_params::<
-        circuits::UpdateCircuit<
-            { config::LOG4_UPDATE_BATCH_SIZE },
-            { config::LOG4_TREE_SIZE },
-            { config::LOG4_TOKENS_TREE_SIZE },
-        >,
-    >(opt.update_circuit_params, opt.generate_params);
-
     let deposit_params = load_params::<
         circuits::DepositCircuit<
             { config::LOG4_DEPOSIT_BATCH_SIZE },
@@ -301,6 +293,14 @@ fn main() {
             { config::LOG4_TOKENS_TREE_SIZE },
         >,
     >(opt.withdraw_circuit_params, opt.generate_params);
+
+    let update_params = load_params::<
+        circuits::UpdateCircuit<
+            { config::LOG4_UPDATE_BATCH_SIZE },
+            { config::LOG4_TREE_SIZE },
+            { config::LOG4_TOKENS_TREE_SIZE },
+        >,
+    >(opt.update_circuit_params, opt.generate_params);
 
     let node_addr = bazuka::client::PeerAddress(opt.node.parse().unwrap());
     let client = SyncClient::new(node_addr, &opt.network, opt.miner_token.clone());
