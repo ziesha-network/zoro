@@ -113,11 +113,17 @@ fn test_update_empty() {
     let c = UpdateCircuit::<1, 1, 1>::default();
     let p = groth16::generate_random_parameters::<Bls12, _, _>(c, &mut OsRng).unwrap();
     let b = Bank::<0, 0, 1, 1, 1>::new(mpn_contract_id, false, true);
-    b.change_state(&mut db, p.clone(), vec![], Arc::new(RwLock::new(false)))
-        .unwrap()
-        .3
-        .prove()
-        .unwrap();
+    b.change_state(
+        &mut db,
+        p.clone(),
+        vec![],
+        TokenId::Ziesha,
+        Arc::new(RwLock::new(false)),
+    )
+    .unwrap()
+    .3
+    .prove()
+    .unwrap();
 }
 
 #[test]
@@ -170,6 +176,7 @@ fn test_update_tx() {
             &mut db,
             param_update.clone(),
             vec![u],
+            TokenId::Custom(ZkScalar::from(123)),
             Arc::new(RwLock::new(false)),
         )
         .unwrap();

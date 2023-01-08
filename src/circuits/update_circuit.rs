@@ -74,6 +74,7 @@ pub struct UpdateCircuit<
     pub state: ZkScalar,      // Public
     pub aux_data: ZkScalar,   // Public
     pub next_state: ZkScalar, // Public
+    pub fee_token: TokenId,   // Private
     pub transitions: Box<TransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE, LOG4_TOKENS_TREE_SIZE>>, // Secret :)
 }
 
@@ -91,6 +92,10 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
         // Previous state feeded as input
         let mut state_wit = AllocatedNum::alloc(&mut *cs, || Ok(self.state.into()))?;
         state_wit.inputize(&mut *cs)?;
+
+        let accepted_fee_token = AllocatedNum::alloc(&mut *cs, || {
+            Ok(Into::<ZkScalar>::into(self.fee_token).into())
+        })?;
 
         // Sum of internal tx fees feeded as input
         let aux_wit = AllocatedNum::alloc(&mut *cs, || Ok(self.aux_data.into()))?;
@@ -247,6 +252,12 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             let tx_fee_token_id_wit = AllocatedNum::alloc(&mut *cs, || {
                 Ok(Into::<ZkScalar>::into(trans.tx.fee_token).into())
             })?;
+
+            Number::from(accepted_fee_token.clone()).assert_equal_if_enabled(
+                &mut *cs,
+                &enabled_wit,
+                &tx_fee_token_id_wit.clone().into(),
+            )?;
 
             Number::from(src_token_id_wit.clone())
                 .assert_equal(&mut *cs, &tx_amount_token_id_wit.clone().into());
@@ -476,12 +487,17 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             )?;
         }
 
+        let fee_sum_and_token_hash = poseidon::poseidon(
+            &mut *cs,
+            &[&accepted_fee_token.clone().into(), &fee_sum.clone().into()],
+        )?;
+
         // Check if sum of tx fees is equal with the feeded aux
         cs.enforce(
             || "",
             |lc| lc + aux_wit.get_variable(),
             |lc| lc + CS::one(),
-            |lc| lc + fee_sum.get_lc(),
+            |lc| lc + fee_sum_and_token_hash.get_lc(),
         );
 
         // Check if applying txs result in the claimed next state

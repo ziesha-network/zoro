@@ -7,7 +7,7 @@ use circuits::{Deposit, Withdraw};
 
 use bazuka::blockchain::BlockchainConfig;
 use bazuka::config::blockchain::get_blockchain_config;
-use bazuka::core::{Money, MpnDeposit, MpnWithdraw};
+use bazuka::core::{Money, MpnDeposit, MpnWithdraw, TokenId};
 use bazuka::db::KvStore;
 use bazuka::db::ReadOnlyLevelDbKvStore;
 use bazuka::zk::MpnTransaction;
@@ -235,8 +235,13 @@ fn process_updates<K: bazuka::db::KvStore>(
 ) -> Result<(bazuka::core::ContractUpdate, Box<dyn bank::Provable>), ZoroError> {
     let mut txs: Vec<_> = mempool.iter().cloned().collect();
     txs.sort_unstable_by_key(|t| t.nonce);
-    let (accepted, _rejected, new_root, proof) =
-        b.change_state(db_mirror, params.clone(), txs, cancel.clone())?;
+    let (accepted, _rejected, new_root, proof) = b.change_state(
+        db_mirror,
+        params.clone(),
+        txs,
+        TokenId::Ziesha,
+        cancel.clone(),
+    )?;
 
     let fee_sum = accepted
         .iter()
@@ -249,7 +254,7 @@ fn process_updates<K: bazuka::db::KvStore>(
     Ok((
         bazuka::core::ContractUpdate::FunctionCall {
             fee: fee_sum.into(),
-            fee_token: bazuka::core::TokenId::Ziesha,
+            fee_token: TokenId::Ziesha,
             function_id: 0,
             next_state: new_root,
             proof: bazuka::zk::ZkProof::Groth16(Box::new(Default::default())),

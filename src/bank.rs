@@ -2,7 +2,7 @@ use crate::circuits;
 use crate::circuits::{Deposit, DepositCircuit, UpdateCircuit, Withdraw, WithdrawCircuit};
 use bazuka::zk::ZkScalar;
 use bazuka::{
-    core::{ContractId, Money, ZkHasher},
+    core::{ContractId, Money, TokenId, ZkHasher},
     crypto::jubjub::PublicKey,
     db::KvStore,
     zk::{KvStoreStateManager, MpnAccount, MpnTransaction, ZkDataLocator},
@@ -652,6 +652,7 @@ impl<
         db: &mut K,
         params: Parameters<Bls12>,
         txs: Vec<MpnTransaction>,
+        fee_token: TokenId,
         cancel: Arc<RwLock<bool>>,
     ) -> Result<
         (
@@ -704,6 +705,7 @@ impl<
             };
             let dst_token = dst_before.tokens.get(&tx.dst_token_index);
             if tx.nonce != src_before.nonce
+                || tx.fee_token != fee_token
                 || tx.src_index > 0x3fffffff
                 || tx.dst_index > 0x3fffffff
                 || tx.src_index == tx.dst_index
@@ -866,14 +868,21 @@ impl<
             )])
             .unwrap();
 
-        let aux_data = ZkScalar::from(
-            accepted
-                .iter()
-                .map(|tx| Into::<u64>::into(tx.fee))
-                .sum::<u64>(),
-        );
+        let aux_data = {
+            use bazuka::zk::ZkHasher;
+            bazuka::core::ZkHasher::hash(&[
+                fee_token.into(),
+                ZkScalar::from(
+                    accepted
+                        .iter()
+                        .map(|tx| Into::<u64>::into(tx.fee))
+                        .sum::<u64>(),
+                ),
+            ])
+        };
 
         let circuit = circuits::UpdateCircuit {
+            fee_token,
             state,
             height,
             aux_data,
