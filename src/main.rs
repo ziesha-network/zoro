@@ -15,6 +15,8 @@ use bellman::{groth16, Circuit};
 use bls12_381::Bls12;
 use client::SyncClient;
 use colored::Colorize;
+use rand::{Rng, SeedableRng};
+use rand_chacha::ChaCha20Rng;
 use rayon::prelude::*;
 use std::fs::File;
 use std::path::PathBuf;
@@ -55,15 +57,15 @@ struct Opt {
     miner_token: String,
 }
 
-fn load_params<C: Circuit<BellmanFr> + Default>(
+fn load_params<C: Circuit<BellmanFr> + Default, R: Rng>(
     path: PathBuf,
     generate: bool,
+    mut rng: R,
 ) -> groth16::Parameters<Bls12> {
     if generate {
         println!("Generating {}...", path.to_string_lossy());
         let c = C::default();
 
-        let mut rng = rand::thread_rng();
         let p = groth16::generate_random_parameters::<Bls12, _, _>(c, &mut rng).unwrap();
         let param_file = File::create(path.clone()).expect("Unable to create parameters file!");
         p.write(param_file)
@@ -287,13 +289,16 @@ fn main() {
 
     let exec_wallet = bazuka::wallet::TxBuilder::new(&opt.seed.as_bytes().to_vec());
 
+    let rng = ChaCha20Rng::seed_from_u64(123456);
+
     let deposit_params = load_params::<
         circuits::DepositCircuit<
             { config::LOG4_DEPOSIT_BATCH_SIZE },
             { config::LOG4_TREE_SIZE },
             { config::LOG4_TOKENS_TREE_SIZE },
         >,
-    >(opt.deposit_circuit_params, opt.generate_params);
+        _,
+    >(opt.deposit_circuit_params, opt.generate_params, rng.clone());
 
     let withdraw_params = load_params::<
         circuits::WithdrawCircuit<
@@ -301,7 +306,12 @@ fn main() {
             { config::LOG4_TREE_SIZE },
             { config::LOG4_TOKENS_TREE_SIZE },
         >,
-    >(opt.withdraw_circuit_params, opt.generate_params);
+        _,
+    >(
+        opt.withdraw_circuit_params,
+        opt.generate_params,
+        rng.clone(),
+    );
 
     let update_params = load_params::<
         circuits::UpdateCircuit<
@@ -309,7 +319,8 @@ fn main() {
             { config::LOG4_TREE_SIZE },
             { config::LOG4_TOKENS_TREE_SIZE },
         >,
-    >(opt.update_circuit_params, opt.generate_params);
+        _,
+    >(opt.update_circuit_params, opt.generate_params, rng.clone());
 
     let node_addr = bazuka::client::PeerAddress(opt.node.parse().unwrap());
     let client = SyncClient::new(node_addr, &opt.network, opt.miner_token.clone());
