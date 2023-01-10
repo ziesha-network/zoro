@@ -258,8 +258,8 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
 
             let src_nonce_wit = AllocatedNum::alloc(&mut *cs, || Ok(trans.before.nonce.into()))?;
 
-            // Account address doesn't necessarily need to reside on curve as it might be empty
             let src_addr_wit = AllocatedPoint::alloc(&mut *cs, || Ok(trans.before.address))?;
+            src_addr_wit.assert_on_curve(&mut *cs, &enabled_wit)?;
 
             let src_balances_before_token_hash_wit =
                 AllocatedNum::alloc(&mut *cs, || Ok(trans.before_token_hash.into()))?;
@@ -401,13 +401,6 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                 &new_fee_token_balance_hash_wit,
                 &src_fee_token_balance_proof_wits,
             )?;
-
-            // Address of account slot can either be empty or equal with tx destination
-            let is_src_addr_null = src_addr_wit.is_null(&mut *cs)?;
-            let is_src_and_tx_pub_key_equal = src_addr_wit.is_equal(&mut *cs, &tx_pub_key_wit)?;
-            let addr_valid =
-                common::boolean_or(&mut *cs, &is_src_addr_null, &is_src_and_tx_pub_key_equal)?;
-            common::assert_true(&mut *cs, &addr_valid);
 
             // Calculate next-state hash and update state if tx is enabled
             let new_hash_wit = poseidon::poseidon(
