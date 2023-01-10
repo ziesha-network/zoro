@@ -325,3 +325,118 @@ fn test_withdraw_tx() {
         Some(&ZkScalar::from(5))
     );
 }
+
+#[test]
+fn test_withdraw_tx_different_fee() {
+    let tx_builder = TxBuilder::new(b"hi");
+    let zk_addr = tx_builder.get_zk_address().decompress();
+    let (mut db, mpn_contract_id) = fresh_db(1, 1);
+    let deposit_circ = DepositCircuit::<1, 1, 1>::default();
+    let withdraw_circ = WithdrawCircuit::<1, 1, 1>::default();
+    let param_deposit =
+        groth16::generate_random_parameters::<Bls12, _, _>(deposit_circ, &mut OsRng).unwrap();
+    let param_withdraw =
+        groth16::generate_random_parameters::<Bls12, _, _>(withdraw_circ, &mut OsRng).unwrap();
+    let b = Bank::<1, 1, 0, 1, 1>::new(mpn_contract_id, false, true);
+    let d = Deposit {
+        mpn_deposit: None,
+        index: 2,
+        token_index: 3,
+        pub_key: zk_addr.clone(),
+        amount: (TokenId::Custom(ZkScalar::from(123)), Money(10)),
+    };
+    let (acc, rej, _, work) = b
+        .deposit(
+            &mut db,
+            param_deposit.clone(),
+            vec![d],
+            Arc::new(RwLock::new(false)),
+        )
+        .unwrap();
+    assert_eq!(acc.len(), 1);
+    assert_eq!(rej.len(), 0);
+    work.prove().unwrap();
+    let d2 = Deposit {
+        mpn_deposit: None,
+        index: 2,
+        token_index: 0,
+        pub_key: zk_addr.clone(),
+        amount: (TokenId::Ziesha, Money(10)),
+    };
+    let (acc, rej, _, work) = b
+        .deposit(
+            &mut db,
+            param_deposit.clone(),
+            vec![d2],
+            Arc::new(RwLock::new(false)),
+        )
+        .unwrap();
+    assert_eq!(acc.len(), 1);
+    assert_eq!(rej.len(), 0);
+    work.prove().unwrap();
+    let wt = tx_builder.withdraw_mpn(
+        mpn_contract_id,
+        2,
+        0,
+        3,
+        TokenId::Custom(ZkScalar::from(123)),
+        Money(2),
+        0,
+        TokenId::Ziesha,
+        Money(3),
+    );
+    let w = Withdraw {
+        mpn_withdraw: None,
+        nonce: 0,
+        pub_key: tx_builder.get_zk_address().0.decompress(),
+        token_index: 3,
+        fingerprint: wt.payment.fingerprint(),
+        index: 2,
+        fee: (TokenId::Ziesha, Money(3)),
+        fee_token_index: 0,
+        amount: (TokenId::Custom(ZkScalar::from(123)), Money(2)),
+        sig: wt.zk_sig.clone(),
+    };
+    let (acc, rej, _, work) = b
+        .withdraw(
+            &mut db,
+            param_withdraw.clone(),
+            vec![w],
+            Arc::new(RwLock::new(false)),
+        )
+        .unwrap();
+    assert_eq!(acc.len(), 1);
+    assert_eq!(rej.len(), 0);
+    work.prove().unwrap();
+    let state = KvStoreStateManager::<bazuka::core::ZkHasher>::get_full_state(&db, mpn_contract_id)
+        .unwrap();
+    assert_eq!(state.data.0.len(), 7);
+    assert_eq!(
+        state.data.0.get(&ZkDataLocator(vec![2, 0])),
+        Some(&1.into())
+    );
+    assert_eq!(
+        state.data.0.get(&ZkDataLocator(vec![2, 1])),
+        Some(&zk_addr.0)
+    );
+    assert_eq!(
+        state.data.0.get(&ZkDataLocator(vec![2, 2])),
+        Some(&zk_addr.1)
+    );
+    assert_eq!(
+        state.data.0.get(&ZkDataLocator(vec![2, 3, 0, 0])),
+        Some(&ZkScalar::from(1))
+    );
+    assert_eq!(
+        state.data.0.get(&ZkDataLocator(vec![2, 3, 0, 1])),
+        Some(&ZkScalar::from(7))
+    );
+    assert_eq!(
+        state.data.0.get(&ZkDataLocator(vec![2, 3, 3, 0])),
+        Some(&ZkScalar::from(123))
+    );
+    assert_eq!(
+        state.data.0.get(&ZkDataLocator(vec![2, 3, 3, 1])),
+        Some(&ZkScalar::from(8))
+    );
+}

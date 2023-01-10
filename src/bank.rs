@@ -235,6 +235,7 @@ impl<
                     .unwrap(),
                 );
 
+                updated_acc.tokens.get_mut(&tx.token_index).unwrap().1 -= tx.amount.1;
                 KvStoreStateManager::<ZkHasher>::set_mpn_account(
                     &mut mirror,
                     self.mpn_contract_id,
@@ -244,7 +245,6 @@ impl<
                 )
                 .unwrap();
 
-                updated_acc.tokens.get_mut(&tx.token_index).unwrap().1 -= tx.amount.1;
                 let fee_balance_proof = zeekit::merkle::Proof::<{ LOG4_TOKENS_TREE_SIZE }>(
                     KvStoreStateManager::<ZkHasher>::prove(
                         &mirror,
