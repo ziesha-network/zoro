@@ -68,13 +68,17 @@ fn load_params<C: Circuit<BellmanFr> + Default>(
         let param_file = File::create(path.clone()).expect("Unable to create parameters file!");
         p.write(param_file)
             .expect("Unable to write parameters file!");
-        println!("VK of {}: {}", path.to_string_lossy(), vk_to_hex(&p.vk));
+        log::info!("VK of {}: {}", path.to_string_lossy(), vk_to_hex(&p.vk));
         p
     } else {
         println!("Loading {}...", path.to_string_lossy());
-        let param_file = File::open(path).expect("Unable to open parameters file!");
-        groth16::Parameters::<Bls12>::read(param_file, false /* false for better performance*/)
-            .expect("Unable to read parameters file!")
+        let param_file = File::open(path.clone()).expect("Unable to open parameters file!");
+        let p = groth16::Parameters::<Bls12>::read(
+            param_file, false, /* false for better performance*/
+        )
+        .expect("Unable to read parameters file!");
+        log::info!("VK of {}: {}", path.to_string_lossy(), vk_to_hex(&p.vk));
+        p
     }
 }
 
