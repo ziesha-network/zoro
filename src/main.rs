@@ -27,24 +27,29 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 #[derive(Debug, StructOpt)]
-#[structopt(name = "Zoro", about = "Ziesha's MPN Executor")]
-struct Opt {
-    #[structopt(long)]
-    seed: String,
-    #[structopt(long)]
-    node: String,
-    #[structopt(long)]
-    db: String,
-    #[structopt(long, default_value = "mainnet")]
-    network: String,
+struct GenerateParamsOpt {
     #[structopt(long, default_value = "update_params.dat")]
     update_circuit_params: PathBuf,
     #[structopt(long, default_value = "deposit_params.dat")]
     deposit_circuit_params: PathBuf,
     #[structopt(long, default_value = "withdraw_params.dat")]
     withdraw_circuit_params: PathBuf,
+}
+
+#[derive(Debug, StructOpt)]
+struct StartOpt {
     #[structopt(long)]
-    generate_params: bool,
+    seed: String,
+    #[structopt(long)]
+    node: String,
+    #[structopt(long)]
+    db: String,
+    #[structopt(long, default_value = "update_params.dat")]
+    update_circuit_params: PathBuf,
+    #[structopt(long, default_value = "deposit_params.dat")]
+    deposit_circuit_params: PathBuf,
+    #[structopt(long, default_value = "withdraw_params.dat")]
+    withdraw_circuit_params: PathBuf,
     #[structopt(long, default_value = "1")]
     deposit_batches: usize,
     #[structopt(long, default_value = "1")]
@@ -57,12 +62,18 @@ struct Opt {
     miner_token: String,
 }
 
+#[derive(Debug, StructOpt)]
+#[structopt(name = "Zoro", about = "Ziesha's MPN Executor")]
+enum Opt {
+    Start(StartOpt),
+    GenerateParams(GenerateParamsOpt),
+}
+
 fn load_params<C: Circuit<BellmanFr> + Default, R: Rng>(
     path: PathBuf,
-    generate: bool,
-    mut rng: R,
+    rng: Option<R>,
 ) -> groth16::Parameters<Bls12> {
-    if generate {
+    if let Some(mut rng) = rng {
         println!("Generating {}...", path.to_string_lossy());
         let c = C::default();
 
@@ -287,206 +298,234 @@ fn main() {
     );
     let opt = Opt::from_args();
 
-    let exec_wallet = bazuka::wallet::TxBuilder::new(&opt.seed.as_bytes().to_vec());
+    match opt {
+        Opt::GenerateParams(opt) => {
+            let rng = Some(ChaCha20Rng::seed_from_u64(123456));
 
-    let rng = ChaCha20Rng::seed_from_u64(123456);
+            load_params::<
+                circuits::DepositCircuit<
+                    { config::LOG4_DEPOSIT_BATCH_SIZE },
+                    { config::LOG4_TREE_SIZE },
+                    { config::LOG4_TOKENS_TREE_SIZE },
+                >,
+                _,
+            >(opt.deposit_circuit_params, rng.clone());
 
-    let deposit_params = load_params::<
-        circuits::DepositCircuit<
-            { config::LOG4_DEPOSIT_BATCH_SIZE },
-            { config::LOG4_TREE_SIZE },
-            { config::LOG4_TOKENS_TREE_SIZE },
-        >,
-        _,
-    >(opt.deposit_circuit_params, opt.generate_params, rng.clone());
+            load_params::<
+                circuits::WithdrawCircuit<
+                    { config::LOG4_WITHDRAW_BATCH_SIZE },
+                    { config::LOG4_TREE_SIZE },
+                    { config::LOG4_TOKENS_TREE_SIZE },
+                >,
+                _,
+            >(opt.withdraw_circuit_params, rng.clone());
 
-    let withdraw_params = load_params::<
-        circuits::WithdrawCircuit<
-            { config::LOG4_WITHDRAW_BATCH_SIZE },
-            { config::LOG4_TREE_SIZE },
-            { config::LOG4_TOKENS_TREE_SIZE },
-        >,
-        _,
-    >(
-        opt.withdraw_circuit_params,
-        opt.generate_params,
-        rng.clone(),
-    );
+            load_params::<
+                circuits::UpdateCircuit<
+                    { config::LOG4_UPDATE_BATCH_SIZE },
+                    { config::LOG4_TREE_SIZE },
+                    { config::LOG4_TOKENS_TREE_SIZE },
+                >,
+                _,
+            >(opt.update_circuit_params, rng.clone());
+        }
 
-    let update_params = load_params::<
-        circuits::UpdateCircuit<
-            { config::LOG4_UPDATE_BATCH_SIZE },
-            { config::LOG4_TREE_SIZE },
-            { config::LOG4_TOKENS_TREE_SIZE },
-        >,
-        _,
-    >(opt.update_circuit_params, opt.generate_params, rng.clone());
+        Opt::Start(opt) => {
+            let exec_wallet = bazuka::wallet::TxBuilder::new(&opt.seed.as_bytes().to_vec());
+            let deposit_params = load_params::<
+                circuits::DepositCircuit<
+                    { config::LOG4_DEPOSIT_BATCH_SIZE },
+                    { config::LOG4_TREE_SIZE },
+                    { config::LOG4_TOKENS_TREE_SIZE },
+                >,
+                _,
+            >(opt.deposit_circuit_params, None::<ChaCha20Rng>);
 
-    let node_addr = bazuka::client::PeerAddress(opt.node.parse().unwrap());
-    let client = SyncClient::new(node_addr, &opt.network, opt.miner_token.clone());
+            let withdraw_params = load_params::<
+                circuits::WithdrawCircuit<
+                    { config::LOG4_WITHDRAW_BATCH_SIZE },
+                    { config::LOG4_TREE_SIZE },
+                    { config::LOG4_TOKENS_TREE_SIZE },
+                >,
+                _,
+            >(opt.withdraw_circuit_params, None::<ChaCha20Rng>);
 
-    let conf = get_blockchain_config();
-    let b = bank::Bank::new(conf.mpn_contract_id, opt.gpu, false);
+            let update_params = load_params::<
+                circuits::UpdateCircuit<
+                    { config::LOG4_UPDATE_BATCH_SIZE },
+                    { config::LOG4_TREE_SIZE },
+                    { config::LOG4_TOKENS_TREE_SIZE },
+                >,
+                _,
+            >(opt.update_circuit_params, None::<ChaCha20Rng>);
+            let node_addr = bazuka::client::PeerAddress(opt.node.parse().unwrap());
+            let client = SyncClient::new(node_addr, "mainnet", opt.miner_token.clone());
 
-    loop {
-        if let Err(e) = || -> Result<(), ZoroError> {
-            let cancel = Arc::new(RwLock::new(false));
+            let conf = get_blockchain_config();
+            let b = bank::Bank::new(conf.mpn_contract_id, opt.gpu, false);
 
-            let db_shutter = db_shutter(&opt.db);
-            let db = db_shutter.snapshot();
+            loop {
+                if let Err(e) = || -> Result<(), ZoroError> {
+                    let cancel = Arc::new(RwLock::new(false));
 
-            // Wait till mine is done
-            if client.is_mining()? {
-                log::info!("Nothing to mine!");
-                std::thread::sleep(std::time::Duration::from_millis(1000));
-                return Ok(());
-            }
+                    let db_shutter = db_shutter(&opt.db);
+                    let db = db_shutter.snapshot();
 
-            // Wait till chain gets updated
-            if client.is_outdated()? {
-                log::info!("Chain is outdated!");
-                std::thread::sleep(std::time::Duration::from_millis(1000));
-                return Ok(());
-            }
-
-            let curr_height = client.get_height()?;
-            println!("Started on height: {}", curr_height);
-
-            let cancel_cloned = cancel.clone();
-            let cancel_controller_client = client.clone();
-            let (cancel_controller_tx, cancel_controller_rx) = std::sync::mpsc::channel();
-            let cancel_controller = std::thread::spawn(move || loop {
-                match cancel_controller_rx.try_recv() {
-                    Ok(_) | Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                        break;
+                    // Wait till mine is done
+                    if client.is_mining()? {
+                        log::info!("Nothing to mine!");
+                        std::thread::sleep(std::time::Duration::from_millis(1000));
+                        return Ok(());
                     }
-                    Err(std::sync::mpsc::TryRecvError::Empty) => {
-                        if let Ok(height) = cancel_controller_client.get_height() {
-                            if height != curr_height {
-                                *cancel_cloned.write().unwrap() = true;
+
+                    // Wait till chain gets updated
+                    if client.is_outdated()? {
+                        log::info!("Chain is outdated!");
+                        std::thread::sleep(std::time::Duration::from_millis(1000));
+                        return Ok(());
+                    }
+
+                    let curr_height = client.get_height()?;
+                    println!("Started on height: {}", curr_height);
+
+                    let cancel_cloned = cancel.clone();
+                    let cancel_controller_client = client.clone();
+                    let (cancel_controller_tx, cancel_controller_rx) = std::sync::mpsc::channel();
+                    let cancel_controller = std::thread::spawn(move || loop {
+                        match cancel_controller_rx.try_recv() {
+                            Ok(_) | Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                                break;
+                            }
+                            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                                if let Ok(height) = cancel_controller_client.get_height() {
+                                    if height != curr_height {
+                                        *cancel_cloned.write().unwrap() = true;
+                                    }
+                                }
+                            }
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(2000));
+                    });
+
+                    let mut db_mirror = db.mirror();
+                    let acc = client.get_account(exec_wallet.get_address())?.account;
+
+                    let mempool = client.get_zero_mempool()?;
+
+                    let mut updates = Vec::new();
+
+                    for i in 0..opt.deposit_batches {
+                        println!(
+                            "{} Deposit-Transactions ({}/{})...",
+                            "Processing:".bright_yellow(),
+                            i + 1,
+                            opt.deposit_batches
+                        );
+                        updates.push(process_deposits(
+                            &deposit_params,
+                            &conf,
+                            &mempool.deposits,
+                            &b,
+                            &mut db_mirror,
+                            &cancel,
+                        )?);
+                    }
+
+                    for i in 0..opt.withdraw_batches {
+                        println!(
+                            "{} Withdraw-Transactions ({}/{})...",
+                            "Processing:".bright_yellow(),
+                            i + 1,
+                            opt.withdraw_batches
+                        );
+                        updates.push(process_withdraws(
+                            &withdraw_params,
+                            &conf,
+                            &mempool.withdraws,
+                            &b,
+                            &mut db_mirror,
+                            &cancel,
+                        )?);
+                    }
+
+                    for i in 0..opt.update_batches {
+                        println!(
+                            "{} Zero-Transactions ({}/{})...",
+                            "Processing:".bright_yellow(),
+                            i + 1,
+                            opt.update_batches
+                        );
+                        updates.push(process_updates(
+                            &update_params,
+                            &mempool.updates,
+                            &b,
+                            &mut db_mirror,
+                            &cancel,
+                        )?);
+                    }
+
+                    let (mut updates, provers): (
+                        Vec<bazuka::core::ContractUpdate>,
+                        Vec<Box<dyn bank::Provable>>,
+                    ) = updates.into_iter().unzip();
+
+                    let start = std::time::Instant::now();
+                    alice_shuffle();
+                    let proofs: Vec<bazuka::zk::groth16::Groth16Proof> = provers
+                        .into_par_iter()
+                        .map(|p| p.prove())
+                        .collect::<Result<Vec<bazuka::zk::groth16::Groth16Proof>, bank::BankError>>(
+                        )?;
+                    println!(
+                        "{} {}ms",
+                        "Proving took:".bright_green(),
+                        (std::time::Instant::now() - start).as_millis()
+                    );
+                    for (upd, p) in updates.iter_mut().zip(proofs.into_iter()) {
+                        match upd {
+                            bazuka::core::ContractUpdate::Deposit { proof, .. } => {
+                                *proof = bazuka::zk::ZkProof::Groth16(Box::new(p));
+                            }
+                            bazuka::core::ContractUpdate::Withdraw { proof, .. } => {
+                                *proof = bazuka::zk::ZkProof::Groth16(Box::new(p));
+                            }
+                            bazuka::core::ContractUpdate::FunctionCall { proof, .. } => {
+                                *proof = bazuka::zk::ZkProof::Groth16(Box::new(p));
                             }
                         }
                     }
-                }
-                std::thread::sleep(std::time::Duration::from_millis(2000));
-            });
 
-            let mut db_mirror = db.mirror();
-            let acc = client.get_account(exec_wallet.get_address())?.account;
+                    let mut update = bazuka::core::Transaction {
+                        src: exec_wallet.get_address(),
+                        nonce: acc.nonce + 1,
+                        fee: Money(0),
+                        data: bazuka::core::TransactionData::UpdateContract {
+                            contract_id: conf.mpn_contract_id.clone(),
+                            updates,
+                        },
+                        sig: bazuka::core::Signature::Unsigned,
+                    };
+                    exec_wallet.sign_tx(&mut update);
 
-            let mempool = client.get_zero_mempool()?;
+                    let ops = db_mirror.to_ops();
+                    let delta = bank::extract_delta(ops);
 
-            let mut updates = Vec::new();
+                    let tx_delta = bazuka::core::TransactionAndDelta {
+                        tx: update,
+                        state_delta: Some(delta),
+                    };
 
-            for i in 0..opt.deposit_batches {
-                println!(
-                    "{} Deposit-Transactions ({}/{})...",
-                    "Processing:".bright_yellow(),
-                    i + 1,
-                    opt.deposit_batches
-                );
-                updates.push(process_deposits(
-                    &deposit_params,
-                    &conf,
-                    &mempool.deposits,
-                    &b,
-                    &mut db_mirror,
-                    &cancel,
-                )?);
-            }
+                    client.transact(tx_delta)?;
 
-            for i in 0..opt.withdraw_batches {
-                println!(
-                    "{} Withdraw-Transactions ({}/{})...",
-                    "Processing:".bright_yellow(),
-                    i + 1,
-                    opt.withdraw_batches
-                );
-                updates.push(process_withdraws(
-                    &withdraw_params,
-                    &conf,
-                    &mempool.withdraws,
-                    &b,
-                    &mut db_mirror,
-                    &cancel,
-                )?);
-            }
+                    let _ = cancel_controller_tx.send(());
+                    cancel_controller.join().unwrap();
 
-            for i in 0..opt.update_batches {
-                println!(
-                    "{} Zero-Transactions ({}/{})...",
-                    "Processing:".bright_yellow(),
-                    i + 1,
-                    opt.update_batches
-                );
-                updates.push(process_updates(
-                    &update_params,
-                    &mempool.updates,
-                    &b,
-                    &mut db_mirror,
-                    &cancel,
-                )?);
-            }
-
-            let (mut updates, provers): (
-                Vec<bazuka::core::ContractUpdate>,
-                Vec<Box<dyn bank::Provable>>,
-            ) = updates.into_iter().unzip();
-
-            let start = std::time::Instant::now();
-            alice_shuffle();
-            let proofs: Vec<bazuka::zk::groth16::Groth16Proof> = provers
-                .into_par_iter()
-                .map(|p| p.prove())
-                .collect::<Result<Vec<bazuka::zk::groth16::Groth16Proof>, bank::BankError>>()?;
-            println!(
-                "{} {}ms",
-                "Proving took:".bright_green(),
-                (std::time::Instant::now() - start).as_millis()
-            );
-            for (upd, p) in updates.iter_mut().zip(proofs.into_iter()) {
-                match upd {
-                    bazuka::core::ContractUpdate::Deposit { proof, .. } => {
-                        *proof = bazuka::zk::ZkProof::Groth16(Box::new(p));
-                    }
-                    bazuka::core::ContractUpdate::Withdraw { proof, .. } => {
-                        *proof = bazuka::zk::ZkProof::Groth16(Box::new(p));
-                    }
-                    bazuka::core::ContractUpdate::FunctionCall { proof, .. } => {
-                        *proof = bazuka::zk::ZkProof::Groth16(Box::new(p));
-                    }
+                    Ok(())
+                }() {
+                    println!("Error happened! Error: {}", e);
+                    std::thread::sleep(std::time::Duration::from_millis(1000));
                 }
             }
-
-            let mut update = bazuka::core::Transaction {
-                src: exec_wallet.get_address(),
-                nonce: acc.nonce + 1,
-                fee: Money(0),
-                data: bazuka::core::TransactionData::UpdateContract {
-                    contract_id: conf.mpn_contract_id.clone(),
-                    updates,
-                },
-                sig: bazuka::core::Signature::Unsigned,
-            };
-            exec_wallet.sign_tx(&mut update);
-
-            let ops = db_mirror.to_ops();
-            let delta = bank::extract_delta(ops);
-
-            let tx_delta = bazuka::core::TransactionAndDelta {
-                tx: update,
-                state_delta: Some(delta),
-            };
-
-            client.transact(tx_delta)?;
-
-            let _ = cancel_controller_tx.send(());
-            cancel_controller.join().unwrap();
-
-            Ok(())
-        }() {
-            println!("Error happened! Error: {}", e);
-            std::thread::sleep(std::time::Duration::from_millis(1000));
         }
     }
 }
