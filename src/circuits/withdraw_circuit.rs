@@ -1,4 +1,4 @@
-use bazuka::core::{Money, MpnWithdraw, TokenId};
+use bazuka::core::{Money, MpnWithdraw};
 use bazuka::crypto::jubjub;
 use bazuka::zk::{MpnAccount, ZkScalar};
 use bellman::gadgets::boolean::{AllocatedBit, Boolean};
@@ -22,8 +22,8 @@ pub struct Withdraw {
     pub fingerprint: ZkScalar,
     pub nonce: u64,
     pub sig: jubjub::Signature,
-    pub amount: (TokenId, Money),
-    pub fee: (TokenId, Money),
+    pub amount: Money,
+    pub fee: Money,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -31,8 +31,8 @@ pub struct WithdrawTransition<const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE_S
     pub enabled: bool,
     pub tx: Withdraw,
     pub before: MpnAccount,
-    pub before_token_balance: (TokenId, Money),
-    pub before_fee_balance: (TokenId, Money),
+    pub before_token_balance: Money,
+    pub before_fee_balance: Money,
     pub proof: merkle::Proof<LOG4_TREE_SIZE>,
     pub token_balance_proof: merkle::Proof<LOG4_TOKENS_TREE_SIZE>,
     pub before_token_hash: ZkScalar,
@@ -127,18 +127,18 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             let enabled = AllocatedBit::alloc(&mut *cs, Some(trans.enabled))?;
 
             let amount_token_id = AllocatedNum::alloc(&mut *cs, || {
-                Ok(Into::<ZkScalar>::into(trans.tx.amount.0).into())
+                Ok(Into::<ZkScalar>::into(trans.tx.amount.amount).into())
             })?;
 
             // Tx amount should always have at most 64 bits
-            let amount = UnsignedInteger::alloc_64(&mut *cs, trans.tx.amount.1.into())?;
+            let amount = UnsignedInteger::alloc_64(&mut *cs, trans.tx.amount.amount.into())?;
 
             let fee_token_id = AllocatedNum::alloc(&mut *cs, || {
-                Ok(Into::<ZkScalar>::into(trans.tx.fee.0).into())
+                Ok(Into::<ZkScalar>::into(trans.tx.fee.amount).into())
             })?;
 
             // Tx amount should always have at most 64 bits
-            let fee = UnsignedInteger::alloc_64(&mut *cs, trans.tx.fee.1.into())?;
+            let fee = UnsignedInteger::alloc_64(&mut *cs, trans.tx.fee.amount.into())?;
 
             // Tx amount should always have at most 64 bits
             let fingerprint = AllocatedNum::alloc(&mut *cs, || Ok(trans.tx.fingerprint.into()))?;
@@ -265,7 +265,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                 AllocatedNum::alloc(&mut *cs, || Ok(trans.before_token_hash.into()))?;
 
             let src_token_id_wit = AllocatedNum::alloc(&mut *cs, || {
-                Ok(Into::<ZkScalar>::into(trans.before_token_balance.0).into())
+                Ok(Into::<ZkScalar>::into(trans.before_token_balance.token_id).into())
             })?;
 
             Number::from(src_token_id_wit.clone())
@@ -274,7 +274,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             // We don't need to make sure account balance is 64 bits. If everything works as expected
             // nothing like this should happen.
             let src_balance_wit = AllocatedNum::alloc(&mut *cs, || {
-                Ok(Into::<u64>::into(trans.before_token_balance.1).into())
+                Ok(Into::<u64>::into(trans.before_token_balance.amount).into())
             })?;
 
             let src_token_balance_hash_wit = poseidon::poseidon(
@@ -315,7 +315,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             )?;
 
             let src_fee_token_id_wit = AllocatedNum::alloc(&mut *cs, || {
-                Ok(Into::<ZkScalar>::into(trans.before_fee_balance.0).into())
+                Ok(Into::<ZkScalar>::into(trans.before_fee_balance.amount).into())
             })?;
 
             Number::from(src_fee_token_id_wit.clone())
@@ -324,7 +324,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             // We don't need to make sure account balance is 64 bits. If everything works as expected
             // nothing like this should happen.
             let src_fee_balance_wit = AllocatedNum::alloc(&mut *cs, || {
-                Ok(Into::<u64>::into(trans.before_fee_balance.1).into())
+                Ok(Into::<u64>::into(trans.before_fee_balance.amount).into())
             })?;
 
             let src_fee_token_balance_hash_wit = poseidon::poseidon(

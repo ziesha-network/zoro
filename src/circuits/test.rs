@@ -1,6 +1,6 @@
 use super::*;
 use crate::bank::{Bank, Provable};
-use bazuka::core::{ContractId, Money, MpnAddress, TokenId};
+use bazuka::core::{Amount, ContractId, Money, MpnAddress, TokenId};
 use bazuka::db::{KvStore, RamKvStore};
 use bazuka::wallet::TxBuilder;
 use bazuka::zk::KvStoreStateManager;
@@ -65,7 +65,7 @@ fn test_deposit_tx() {
         index: 2,
         token_index: 3,
         pub_key: zk_addr.clone(),
-        amount: (TokenId::Custom(ZkScalar::from(123)), Money(10)),
+        amount: (TokenId::Custom(ZkScalar::from(123)), Amount(10)),
     };
     let (acc, rej, _, work) = b
         .deposit(&mut db, p.clone(), vec![d], Arc::new(RwLock::new(false)))
@@ -143,7 +143,7 @@ fn test_update_tx() {
         index: 2,
         token_index: 3,
         pub_key: zk_addr.clone(),
-        amount: (TokenId::Custom(ZkScalar::from(123)), Money(10)),
+        amount: (TokenId::Custom(ZkScalar::from(123)), Amount(10)),
     };
     let (acc, rej, _, work) = b
         .deposit(
@@ -165,10 +165,10 @@ fn test_update_tx() {
         },
         1,
         TokenId::Custom(ZkScalar::from(123)),
-        Money(5),
+        Amount(5),
         3,
         TokenId::Custom(ZkScalar::from(123)),
-        Money(1),
+        Amount(1),
         0,
     );
     let (acc, rej, _, work) = b
@@ -254,7 +254,7 @@ fn test_withdraw_tx() {
         index: 2,
         token_index: 3,
         pub_key: zk_addr.clone(),
-        amount: (TokenId::Custom(ZkScalar::from(123)), Money(10)),
+        amount: (TokenId::Custom(ZkScalar::from(123)), Amount(10)),
     };
     let (acc, rej, _, work) = b
         .deposit(
@@ -273,10 +273,10 @@ fn test_withdraw_tx() {
         0,
         3,
         TokenId::Custom(ZkScalar::from(123)),
-        Money(2),
+        Amount(2),
         3,
         TokenId::Custom(ZkScalar::from(123)),
-        Money(3),
+        Amount(3),
     );
     let w = Withdraw {
         mpn_withdraw: None,
@@ -285,9 +285,9 @@ fn test_withdraw_tx() {
         token_index: 3,
         fingerprint: wt.payment.fingerprint(),
         index: 2,
-        fee: (TokenId::Custom(ZkScalar::from(123)), Money(3)),
+        fee: (TokenId::Custom(ZkScalar::from(123)), Amount(3)),
         fee_token_index: 3,
-        amount: (TokenId::Custom(ZkScalar::from(123)), Money(2)),
+        amount: (TokenId::Custom(ZkScalar::from(123)), Amount(2)),
         sig: wt.zk_sig.clone(),
     };
     let (acc, rej, _, work) = b
@@ -343,7 +343,7 @@ fn test_withdraw_tx_different_fee() {
         index: 2,
         token_index: 3,
         pub_key: zk_addr.clone(),
-        amount: (TokenId::Custom(ZkScalar::from(123)), Money(10)),
+        amount: (TokenId::Custom(ZkScalar::from(123)), Amount(10)),
     };
     let (acc, rej, _, work) = b
         .deposit(
@@ -361,7 +361,7 @@ fn test_withdraw_tx_different_fee() {
         index: 2,
         token_index: 0,
         pub_key: zk_addr.clone(),
-        amount: (TokenId::Ziesha, Money(10)),
+        amount: (TokenId::Ziesha, Amount(10)),
     };
     let (acc, rej, _, work) = b
         .deposit(
@@ -380,10 +380,10 @@ fn test_withdraw_tx_different_fee() {
         0,
         3,
         TokenId::Custom(ZkScalar::from(123)),
-        Money(2),
+        Amount(2),
         0,
         TokenId::Ziesha,
-        Money(3),
+        Amount(3),
     );
     let w = Withdraw {
         mpn_withdraw: None,
@@ -392,9 +392,9 @@ fn test_withdraw_tx_different_fee() {
         token_index: 3,
         fingerprint: wt.payment.fingerprint(),
         index: 2,
-        fee: (TokenId::Ziesha, Money(3)),
+        fee: (TokenId::Ziesha, Amount(3)),
         fee_token_index: 0,
-        amount: (TokenId::Custom(ZkScalar::from(123)), Money(2)),
+        amount: (TokenId::Custom(ZkScalar::from(123)), Amount(2)),
         sig: wt.zk_sig.clone(),
     };
     let (acc, rej, _, work) = b

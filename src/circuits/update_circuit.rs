@@ -24,14 +24,14 @@ pub struct Transition<const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE_SIZE: u8>
     pub tx: MpnTransaction,
     pub src_before: MpnAccount, // src_after can be derived
     pub src_before_balances_hash: ZkScalar,
-    pub src_before_balance: (TokenId, Money),
-    pub src_before_fee_balance: (TokenId, Money),
+    pub src_before_balance: Money,
+    pub src_before_fee_balance: Money,
     pub src_proof: merkle::Proof<LOG4_TREE_SIZE>,
     pub src_balance_proof: merkle::Proof<LOG4_TOKENS_TREE_SIZE>,
     pub src_fee_balance_proof: merkle::Proof<LOG4_TOKENS_TREE_SIZE>,
     pub dst_before: MpnAccount, // dst_after can be derived
     pub dst_before_balances_hash: ZkScalar,
-    pub dst_before_balance: (TokenId, Money),
+    pub dst_before_balance: Money,
     pub dst_proof: merkle::Proof<LOG4_TREE_SIZE>,
     pub dst_balance_proof: merkle::Proof<LOG4_TOKENS_TREE_SIZE>,
 }
@@ -143,10 +143,10 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                 AllocatedNum::alloc(&mut *cs, || Ok(trans.dst_before_balances_hash.into()))?;
 
             let src_token_id_wit = AllocatedNum::alloc(&mut *cs, || {
-                Ok(Into::<ZkScalar>::into(trans.src_before_balance.0).into())
+                Ok(Into::<ZkScalar>::into(trans.src_before_balance.token_id).into())
             })?;
             let src_balance_wit =
-                UnsignedInteger::alloc_64(&mut *cs, trans.src_before_balance.1.into())?;
+                UnsignedInteger::alloc_64(&mut *cs, trans.src_before_balance.amount.into())?;
 
             let src_token_balance_hash_wit = poseidon::poseidon(
                 &mut *cs,
@@ -157,10 +157,10 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             )?;
 
             let src_fee_token_id_wit = AllocatedNum::alloc(&mut *cs, || {
-                Ok(Into::<ZkScalar>::into(trans.src_before_fee_balance.0).into())
+                Ok(Into::<ZkScalar>::into(trans.src_before_fee_balance.token_id).into())
             })?;
             let src_fee_balance_wit =
-                UnsignedInteger::alloc_64(&mut *cs, trans.src_before_fee_balance.1.into())?;
+                UnsignedInteger::alloc_64(&mut *cs, trans.src_before_fee_balance.amount.into())?;
 
             let src_fee_token_balance_hash_wit = poseidon::poseidon(
                 &mut *cs,
@@ -188,8 +188,8 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             )?;
 
             // Transaction amount and fee should at most have 64 bits
-            let tx_amount_wit = UnsignedInteger::alloc_64(&mut *cs, trans.tx.amount.into())?;
-            let tx_fee_wit = UnsignedInteger::alloc_64(&mut *cs, trans.tx.fee.into())?;
+            let tx_amount_wit = UnsignedInteger::alloc_64(&mut *cs, trans.tx.amount.amount.into())?;
+            let tx_fee_wit = UnsignedInteger::alloc_64(&mut *cs, trans.tx.fee.amount.into())?;
 
             let new_token_balance_hash_wit = poseidon::poseidon(
                 &mut *cs,
@@ -247,10 +247,10 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                 LOG4_TREE_SIZE as usize * 2,
             )?;
             let tx_amount_token_id_wit = AllocatedNum::alloc(&mut *cs, || {
-                Ok(Into::<ZkScalar>::into(trans.tx.token).into())
+                Ok(Into::<ZkScalar>::into(trans.tx.amount.token_id).into())
             })?;
             let tx_fee_token_id_wit = AllocatedNum::alloc(&mut *cs, || {
-                Ok(Into::<ZkScalar>::into(trans.tx.fee_token).into())
+                Ok(Into::<ZkScalar>::into(trans.tx.fee.token_id).into())
             })?;
 
             Number::from(accepted_fee_token.clone()).assert_equal_if_enabled(
@@ -275,12 +275,12 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             )?;
 
             let dst_token_id_wit = AllocatedNum::alloc(&mut *cs, || {
-                Ok(Into::<ZkScalar>::into(trans.dst_before_balance.0).into())
+                Ok(Into::<ZkScalar>::into(trans.dst_before_balance.token_id).into())
             })?;
             // We also don't need to make sure dst balance is 64 bits. If everything works as expected
             // nothing like this should happen.
             let dst_balance_wit = AllocatedNum::alloc(&mut *cs, || {
-                Ok(Into::<u64>::into(trans.dst_before_balance.1).into())
+                Ok(Into::<u64>::into(trans.dst_before_balance.amount).into())
             })?;
             let dst_token_balance_hash_wit = poseidon::poseidon(
                 &mut *cs,

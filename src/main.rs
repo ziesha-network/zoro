@@ -145,7 +145,7 @@ fn process_deposits<K: bazuka::db::KvStore>(
             index: dw.zk_address_index,
             token_index: dw.zk_token_index,
             pub_key: dw.zk_address.0.decompress(),
-            amount: (dw.payment.token, dw.payment.amount),
+            amount: dw.payment.amount,
         })
         .collect::<Vec<_>>();
     mpn_deposits.sort_unstable_by_key(|t| t.mpn_deposit.as_ref().unwrap().payment.nonce);
@@ -210,8 +210,8 @@ fn process_withdraws<K: bazuka::db::KvStore>(
             fingerprint: dw.payment.fingerprint(),
             nonce: dw.zk_nonce,
             sig: dw.zk_sig.clone(),
-            amount: (dw.payment.token, dw.payment.amount),
-            fee: (dw.payment.fee_token, dw.payment.fee),
+            amount: dw.payment.amount,
+            fee: dw.payment.fee,
         })
         .collect::<Vec<_>>();
     withdraws.sort_unstable_by_key(|t| t.nonce);
@@ -252,17 +252,14 @@ fn process_updates<K: bazuka::db::KvStore>(
 ) -> Result<(bazuka::core::ContractUpdate, Box<dyn bank::Provable>), ZoroError> {
     let mut txs: Vec<_> = mempool.iter().cloned().collect();
     txs.sort_unstable_by_key(|t| t.nonce);
-    let (accepted, _rejected, new_root, proof) = b.change_state(
-        db_mirror,
-        params.clone(),
-        txs,
-        TokenId::Ziesha,
-        cancel.clone(),
-    )?;
+    let fee_token = TokenId::Ziesha;
+    let (accepted, _rejected, new_root, proof) =
+        b.change_state(db_mirror, params.clone(), txs, fee_token, cancel.clone())?;
 
+    // WARN: Will fail if accepted transactions have different fee tokens
     let fee_sum = accepted
         .iter()
-        .map(|tx| Into::<u64>::into(tx.fee))
+        .map(|tx| Into::<u64>::into(tx.fee.amount))
         .sum::<u64>();
     //for tx in accepted.into_iter().chain(rejected.into_iter()) {
     //    mempool.remove(&tx);
@@ -270,8 +267,7 @@ fn process_updates<K: bazuka::db::KvStore>(
 
     Ok((
         bazuka::core::ContractUpdate::FunctionCall {
-            fee: fee_sum.into(),
-            fee_token: TokenId::Ziesha,
+            fee: Money::new(fee_token, fee_sum),
             function_id: 0,
             next_state: new_root,
             proof: bazuka::zk::ZkProof::Groth16(Box::new(Default::default())),
@@ -498,7 +494,7 @@ fn main() {
                     let mut update = bazuka::core::Transaction {
                         src: exec_wallet.get_address(),
                         nonce: acc.nonce + 1,
-                        fee: Money(0),
+                        fee: Money::ziesha(0),
                         data: bazuka::core::TransactionData::UpdateContract {
                             contract_id: conf.mpn_contract_id.clone(),
                             updates,

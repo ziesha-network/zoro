@@ -1,4 +1,4 @@
-use bazuka::core::{Money, MpnDeposit, TokenId};
+use bazuka::core::{Money, MpnDeposit};
 use bazuka::crypto::jubjub;
 use bazuka::zk::{MpnAccount, ZkScalar};
 use bellman::gadgets::boolean::{AllocatedBit, Boolean};
@@ -17,7 +17,7 @@ pub struct Deposit {
     pub index: u64,
     pub token_index: u64,
     pub pub_key: jubjub::PointAffine,
-    pub amount: (TokenId, Money),
+    pub amount: Money,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -26,7 +26,7 @@ pub struct DepositTransition<const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE_SI
     pub tx: Deposit,
     pub before: MpnAccount,
     pub before_balances_hash: ZkScalar,
-    pub before_balance: (TokenId, Money),
+    pub before_balance: Money,
     pub proof: merkle::Proof<LOG4_TREE_SIZE>,
     pub balance_proof: merkle::Proof<LOG4_TOKENS_TREE_SIZE>,
 }
@@ -117,11 +117,11 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
 
             // Tx amount should always have at most 64 bits
             let token_id = AllocatedNum::alloc(&mut *cs, || {
-                Ok(Into::<ZkScalar>::into(trans.tx.amount.0).into())
+                Ok(Into::<ZkScalar>::into(trans.tx.amount.token_id).into())
             })?;
 
             // Tx amount should always have at most 64 bits
-            let amount = UnsignedInteger::alloc_64(&mut *cs, trans.tx.amount.1.into())?;
+            let amount = UnsignedInteger::alloc_64(&mut *cs, trans.tx.amount.amount.into())?;
 
             // Pub-key only needs to reside on curve if tx is enabled, which is checked in the main loop
             let pub_key = AllocatedPoint::alloc(&mut *cs, || Ok(trans.tx.pub_key))?;
@@ -185,13 +185,13 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                 AllocatedNum::alloc(&mut *cs, || Ok(trans.before_balances_hash.into()))?;
 
             let src_token_id_wit = AllocatedNum::alloc(&mut *cs, || {
-                Ok(Into::<ZkScalar>::into(trans.before_balance.0).into())
+                Ok(Into::<ZkScalar>::into(trans.before_balance.token_id).into())
             })?;
 
             // We don't need to make sure account balance is 64 bits. If everything works as expected
             // nothing like this should happen.
             let src_balance_wit = AllocatedNum::alloc(&mut *cs, || {
-                Ok(Into::<u64>::into(trans.before_balance.1).into())
+                Ok(Into::<u64>::into(trans.before_balance.amount).into())
             })?;
 
             let src_token_balance_hash_wit = poseidon::poseidon(

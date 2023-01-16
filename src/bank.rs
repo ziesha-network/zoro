@@ -211,8 +211,8 @@ impl<
             // TODO: Check for wrong signature
             if (acc.address != Default::default() && tx.pub_key != acc.address)
                 || tx.nonce != acc.nonce
-                || tx.amount.0 != acc_token.0
-                || tx.amount.1 > acc_token.1
+                || tx.amount.token_id != acc_token.token_id
+                || tx.amount.amount > acc_token.amount
                 || tx.index > 0x3fffffff
             {
                 rejected.push(tx.clone());
@@ -235,7 +235,7 @@ impl<
                     .unwrap(),
                 );
 
-                updated_acc.tokens.get_mut(&tx.token_index).unwrap().1 -= tx.amount.1;
+                updated_acc.tokens.get_mut(&tx.token_index).unwrap().amount -= tx.amount.amount;
                 KvStoreStateManager::<ZkHasher>::set_mpn_account(
                     &mut mirror,
                     self.mpn_contract_id,
@@ -262,12 +262,17 @@ impl<
                         rejected.push(tx.clone());
                         continue;
                     };
-                if tx.fee.0 != acc_fee_token.0 || tx.fee.1 > acc_fee_token.1 {
+                if tx.fee.token_id != acc_fee_token.token_id || tx.fee.amount > acc_fee_token.amount
+                {
                     rejected.push(tx.clone());
                     continue;
                 }
 
-                updated_acc.tokens.get_mut(&tx.fee_token_index).unwrap().1 -= tx.fee.1;
+                updated_acc
+                    .tokens
+                    .get_mut(&tx.fee_token_index)
+                    .unwrap()
+                    .amount -= tx.fee.amount;
 
                 let proof = zeekit::merkle::Proof::<{ LOG4_TREE_SIZE }>(
                     KvStoreStateManager::<ZkHasher>::prove(
@@ -354,19 +359,19 @@ impl<
                         ),
                         (
                             bazuka::zk::ZkDataLocator(vec![i as u64, 1]),
-                            Some(trans.tx.amount.0.into()),
+                            Some(trans.tx.amount.token_id.into()),
                         ),
                         (
                             bazuka::zk::ZkDataLocator(vec![i as u64, 2]),
-                            Some(trans.tx.amount.1.into()),
+                            Some(trans.tx.amount.amount.into()),
                         ),
                         (
                             bazuka::zk::ZkDataLocator(vec![i as u64, 3]),
-                            Some(trans.tx.fee.0.into()),
+                            Some(trans.tx.fee.token_id.into()),
                         ),
                         (
                             bazuka::zk::ZkDataLocator(vec![i as u64, 4]),
-                            Some(trans.tx.fee.1.into()),
+                            Some(trans.tx.fee.amount.into()),
                         ),
                         (
                             bazuka::zk::ZkDataLocator(vec![i as u64, 5]),
@@ -478,7 +483,7 @@ impl<
             .unwrap();
             let acc_token = acc.tokens.get(&tx.token_index).clone();
             if (acc.address != Default::default() && tx.pub_key != acc.address)
-                || (acc_token.is_some() && acc_token.unwrap().0 != tx.amount.0)
+                || (acc_token.is_some() && acc_token.unwrap().token_id != tx.amount.token_id)
             {
                 rejected.push(tx.clone());
                 continue;
@@ -491,8 +496,8 @@ impl<
                 updated_acc
                     .tokens
                     .entry(tx.token_index)
-                    .or_insert((tx.amount.0, Money(0)))
-                    .1 += tx.amount.1;
+                    .or_insert(Money::new(tx.amount.token_id, 0))
+                    .amount += tx.amount.amount;
 
                 let balance_proof = zeekit::merkle::Proof::<{ LOG4_TOKENS_TREE_SIZE }>(
                     KvStoreStateManager::<ZkHasher>::prove(
@@ -580,11 +585,11 @@ impl<
                         ),
                         (
                             bazuka::zk::ZkDataLocator(vec![i as u64, 1]),
-                            Some(trans.tx.amount.0.into()),
+                            Some(trans.tx.amount.token_id.into()),
                         ),
                         (
                             bazuka::zk::ZkDataLocator(vec![i as u64, 2]),
-                            Some(trans.tx.amount.1.into()),
+                            Some(trans.tx.amount.amount.into()),
                         ),
                         (
                             bazuka::zk::ZkDataLocator(vec![i as u64, 3]),
@@ -705,7 +710,7 @@ impl<
             };
             let dst_token = dst_before.tokens.get(&tx.dst_token_index);
             if tx.nonce != src_before.nonce
-                || tx.fee_token != fee_token
+                || tx.fee.token_id != fee_token
                 || tx.src_index > 0x3fffffff
                 || tx.dst_index > 0x3fffffff
                 || tx.src_index == tx.dst_index
@@ -713,9 +718,9 @@ impl<
                 || (dst_before.address.is_on_curve()
                     && dst_before.address != tx.dst_pub_key.decompress())
                 || !tx.verify(&PublicKey(src_before.address.compress()))
-                || dst_token.is_some() && (src_token.0 != dst_token.unwrap().0)
-                || src_token.0 != tx.token
-                || src_token.1 < tx.amount
+                || dst_token.is_some() && (src_token.token_id != dst_token.unwrap().token_id)
+                || src_token.token_id != tx.amount.token_id
+                || src_token.amount < tx.amount.amount
             {
                 rejected.push(tx.clone());
                 continue;
@@ -746,7 +751,11 @@ impl<
                     .unwrap(),
                 );
 
-                src_after.tokens.get_mut(&tx.src_token_index).unwrap().1 -= tx.amount;
+                src_after
+                    .tokens
+                    .get_mut(&tx.src_token_index)
+                    .unwrap()
+                    .amount -= tx.amount.amount;
                 KvStoreStateManager::<ZkHasher>::set_mpn_account(
                     &mut mirror,
                     self.mpn_contract_id,
@@ -764,7 +773,8 @@ impl<
                         continue;
                     };
 
-                if src_fee_token.0 != tx.fee_token || src_fee_token.1 < tx.fee {
+                if src_fee_token.token_id != tx.fee.token_id || src_fee_token.amount < tx.fee.amount
+                {
                     rejected.push(tx.clone());
                     continue;
                 }
@@ -779,7 +789,11 @@ impl<
                     .unwrap(),
                 );
 
-                src_after.tokens.get_mut(&tx.src_fee_token_index).unwrap().1 -= tx.fee;
+                src_after
+                    .tokens
+                    .get_mut(&tx.src_fee_token_index)
+                    .unwrap()
+                    .amount -= tx.fee.amount;
                 KvStoreStateManager::<ZkHasher>::set_mpn_account(
                     &mut mirror,
                     self.mpn_contract_id,
@@ -816,8 +830,8 @@ impl<
                 dst_after
                     .tokens
                     .entry(tx.dst_token_index)
-                    .or_insert((tx.token, Money(0)))
-                    .1 += tx.amount;
+                    .or_insert(Money::new(tx.amount.token_id, 0))
+                    .amount += tx.amount.amount;
                 KvStoreStateManager::<ZkHasher>::set_mpn_account(
                     &mut mirror,
                     self.mpn_contract_id,
@@ -839,9 +853,7 @@ impl<
                     dst_balance_proof,
                     src_before_balance: src_token.clone(),
                     src_before_fee_balance: src_fee_token.clone(),
-                    dst_before_balance: dst_token
-                        .cloned()
-                        .unwrap_or((bazuka::core::TokenId::Null, Money(0))),
+                    dst_before_balance: dst_token.cloned().unwrap_or(Money::default()),
                     src_before_balances_hash: src_before
                         .tokens_hash::<ZkHasher>(LOG4_TOKENS_TREE_SIZE),
                     dst_before_balances_hash: dst_before
@@ -875,7 +887,7 @@ impl<
                 ZkScalar::from(
                     accepted
                         .iter()
-                        .map(|tx| Into::<u64>::into(tx.fee))
+                        .map(|tx| Into::<u64>::into(tx.fee.amount))
                         .sum::<u64>(),
                 ),
             ])
