@@ -492,6 +492,7 @@ fn main() {
                     }
 
                     let mut update = bazuka::core::Transaction {
+                        memo: String::new(),
                         src: exec_wallet.get_address(),
                         nonce: acc.nonce + 1,
                         fee: Money::ziesha(0),
