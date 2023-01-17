@@ -127,14 +127,14 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             let enabled = AllocatedBit::alloc(&mut *cs, Some(trans.enabled))?;
 
             let amount_token_id = AllocatedNum::alloc(&mut *cs, || {
-                Ok(Into::<ZkScalar>::into(trans.tx.amount.amount).into())
+                Ok(Into::<ZkScalar>::into(trans.tx.amount.token_id).into())
             })?;
 
             // Tx amount should always have at most 64 bits
             let amount = UnsignedInteger::alloc_64(&mut *cs, trans.tx.amount.amount.into())?;
 
             let fee_token_id = AllocatedNum::alloc(&mut *cs, || {
-                Ok(Into::<ZkScalar>::into(trans.tx.fee.amount).into())
+                Ok(Into::<ZkScalar>::into(trans.tx.fee.token_id).into())
             })?;
 
             // Tx amount should always have at most 64 bits
@@ -315,7 +315,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             )?;
 
             let src_fee_token_id_wit = AllocatedNum::alloc(&mut *cs, || {
-                Ok(Into::<ZkScalar>::into(trans.before_fee_balance.amount).into())
+                Ok(Into::<ZkScalar>::into(trans.before_fee_balance.token_id).into())
             })?;
 
             Number::from(src_fee_token_id_wit.clone())
