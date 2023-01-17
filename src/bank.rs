@@ -3,7 +3,6 @@ use crate::circuits::{Deposit, DepositCircuit, UpdateCircuit, Withdraw, Withdraw
 use bazuka::zk::ZkScalar;
 use bazuka::{
     core::{ContractId, Money, TokenId, ZkHasher},
-    crypto::jubjub::PublicKey,
     db::KvStore,
     zk::{KvStoreStateManager, MpnAccount, MpnTransaction, ZkDataLocator},
 };
@@ -714,10 +713,12 @@ impl<
                 || tx.src_index > 0x3fffffff
                 || tx.dst_index > 0x3fffffff
                 || tx.src_index == tx.dst_index
+                || !tx.src_pub_key.is_on_curve()
                 || !tx.dst_pub_key.is_on_curve()
+                || src_before.address != tx.src_pub_key.decompress()
                 || (dst_before.address.is_on_curve()
                     && dst_before.address != tx.dst_pub_key.decompress())
-                || !tx.verify(&PublicKey(src_before.address.compress()))
+                || !tx.verify()
                 || dst_token.is_some() && (src_token.token_id != dst_token.unwrap().token_id)
                 || src_token.token_id != tx.amount.token_id
                 || src_token.amount < tx.amount.amount
