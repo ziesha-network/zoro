@@ -274,7 +274,7 @@ fn test_withdraw_tx() {
         Money::new(TokenId::Custom(ZkScalar::from(123)), 2),
         3,
         Money::new(TokenId::Custom(ZkScalar::from(123)), 3),
-        tx_builder.get_pub_key(),
+        tx_builder.get_address(),
     );
     let w = Withdraw {
         mpn_withdraw: None,
@@ -381,7 +381,7 @@ fn test_withdraw_tx_different_fee() {
         Money::new(TokenId::Custom(ZkScalar::from(123)), 2),
         0,
         Money::new(TokenId::Ziesha, 3),
-        tx_builder.get_pub_key(),
+        tx_builder.get_address(),
     );
     let w = Withdraw {
         mpn_withdraw: None,

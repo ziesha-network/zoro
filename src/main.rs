@@ -153,13 +153,12 @@ fn process_deposits<K: bazuka::db::KvStore>(
     let mut nonces: HashMap<bazuka::core::Address, u32> = HashMap::new();
     for d in mpn_deposits {
         let pay = d.mpn_deposit.clone().unwrap().payment;
-        let addr = bazuka::core::Address::PublicKey(pay.src.clone());
-        if let Some(prev_nonce) = nonces.get(&addr) {
+        if let Some(prev_nonce) = nonces.get(&pay.src) {
             if pay.nonce != prev_nonce + 1 {
                 continue;
             }
         }
-        nonces.insert(addr, pay.nonce);
+        nonces.insert(pay.src.clone(), pay.nonce);
         deposits.push(d);
     }
 
@@ -493,7 +492,7 @@ fn main() {
 
                     let mut update = bazuka::core::Transaction {
                         memo: String::new(),
-                        src: exec_wallet.get_address(),
+                        src: Some(exec_wallet.get_address()),
                         nonce: acc.nonce + 1,
                         fee: Money::ziesha(0),
                         data: bazuka::core::TransactionData::UpdateContract {
