@@ -1,6 +1,7 @@
 use super::*;
 use crate::bank::{Bank, Provable};
 use bazuka::core::{ContractId, Money, MpnAddress, TokenId};
+use bazuka::crypto::DeriveMpnAccountIndex;
 use bazuka::db::{KvStore, RamKvStore};
 use bazuka::wallet::TxBuilder;
 use bazuka::zk::KvStoreStateManager;
@@ -59,10 +60,10 @@ fn test_deposit_tx() {
     let (mut db, mpn_contract_id) = fresh_db(1, 1);
     let c = DepositCircuit::<1, 1, 1>::default();
     let p = groth16::generate_random_parameters::<Bls12, _, _>(c, &mut OsRng).unwrap();
-    let b = Bank::<1, 0, 0, 1, 1>::new(mpn_contract_id, false, true);
+    let b = Bank::<1, 0, 0, 1, 1>::new(1, mpn_contract_id, false, true);
     let d = Deposit {
         mpn_deposit: None,
-        index: 2,
+        index: tx_builder.get_zk_address().mpn_account_index(1),
         token_index: 3,
         pub_key: zk_addr.clone(),
         amount: Money::new(TokenId::Custom(ZkScalar::from(123)), 10),
@@ -99,7 +100,7 @@ fn test_deposit_empty() {
     let (mut db, mpn_contract_id) = fresh_db(1, 1);
     let c = DepositCircuit::<1, 1, 1>::default();
     let p = groth16::generate_random_parameters::<Bls12, _, _>(c, &mut OsRng).unwrap();
-    let b = Bank::<1, 0, 0, 1, 1>::new(mpn_contract_id, false, true);
+    let b = Bank::<1, 0, 0, 1, 1>::new(1, mpn_contract_id, false, true);
     b.deposit(&mut db, p.clone(), vec![], Arc::new(RwLock::new(false)))
         .unwrap()
         .3
@@ -112,7 +113,7 @@ fn test_update_empty() {
     let (mut db, mpn_contract_id) = fresh_db(1, 1);
     let c = UpdateCircuit::<1, 1, 1>::default();
     let p = groth16::generate_random_parameters::<Bls12, _, _>(c, &mut OsRng).unwrap();
-    let b = Bank::<0, 0, 1, 1, 1>::new(mpn_contract_id, false, true);
+    let b = Bank::<0, 0, 1, 1, 1>::new(1, mpn_contract_id, false, true);
     b.change_state(
         &mut db,
         p.clone(),
@@ -137,10 +138,10 @@ fn test_update_tx() {
         groth16::generate_random_parameters::<Bls12, _, _>(deposit_circ, &mut OsRng).unwrap();
     let param_update =
         groth16::generate_random_parameters::<Bls12, _, _>(update_circ, &mut OsRng).unwrap();
-    let b = Bank::<1, 0, 1, 1, 1>::new(mpn_contract_id, false, true);
+    let b = Bank::<1, 0, 1, 1, 1>::new(1, mpn_contract_id, false, true);
     let d = Deposit {
         mpn_deposit: None,
-        index: 2,
+        index: tx_builder.get_zk_address().mpn_account_index(1),
         token_index: 3,
         pub_key: zk_addr.clone(),
         amount: Money::new(TokenId::Custom(ZkScalar::from(123)), 10),
@@ -225,7 +226,7 @@ fn test_withdraw_empty() {
     let (mut db, mpn_contract_id) = fresh_db(1, 1);
     let c = WithdrawCircuit::<1, 1, 1>::default();
     let p = groth16::generate_random_parameters::<Bls12, _, _>(c, &mut OsRng).unwrap();
-    let b = Bank::<0, 1, 0, 1, 1>::new(mpn_contract_id, false, true);
+    let b = Bank::<0, 1, 0, 1, 1>::new(1, mpn_contract_id, false, true);
     b.withdraw(&mut db, p.clone(), vec![], Arc::new(RwLock::new(false)))
         .unwrap()
         .3
@@ -244,7 +245,7 @@ fn test_withdraw_tx() {
         groth16::generate_random_parameters::<Bls12, _, _>(deposit_circ, &mut OsRng).unwrap();
     let param_withdraw =
         groth16::generate_random_parameters::<Bls12, _, _>(withdraw_circ, &mut OsRng).unwrap();
-    let b = Bank::<1, 1, 0, 1, 1>::new(mpn_contract_id, false, true);
+    let b = Bank::<1, 1, 0, 1, 1>::new(1, mpn_contract_id, false, true);
     let d = Deposit {
         mpn_deposit: None,
         index: 2,
@@ -332,7 +333,7 @@ fn test_withdraw_tx_different_fee() {
         groth16::generate_random_parameters::<Bls12, _, _>(deposit_circ, &mut OsRng).unwrap();
     let param_withdraw =
         groth16::generate_random_parameters::<Bls12, _, _>(withdraw_circ, &mut OsRng).unwrap();
-    let b = Bank::<1, 1, 0, 1, 1>::new(mpn_contract_id, false, true);
+    let b = Bank::<1, 1, 0, 1, 1>::new(1, mpn_contract_id, false, true);
     let d = Deposit {
         mpn_deposit: None,
         index: 2,
