@@ -61,9 +61,10 @@ fn test_deposit_tx() {
     let c = DepositCircuit::<1, 1, 1>::default();
     let p = groth16::generate_random_parameters::<Bls12, _, _>(c, &mut OsRng).unwrap();
     let b = Bank::<1, 0, 0, 1, 1>::new(1, mpn_contract_id, false, true);
+    let deposit_index = tx_builder.get_zk_address().mpn_account_index(1);
     let d = Deposit {
         mpn_deposit: None,
-        index: tx_builder.get_zk_address().mpn_account_index(1),
+        index: deposit_index,
         token_index: 3,
         pub_key: zk_addr.clone(),
         amount: Money::new(TokenId::Custom(ZkScalar::from(123)), 10),
@@ -78,19 +79,25 @@ fn test_deposit_tx() {
         .unwrap();
     assert_eq!(state.data.0.len(), 4);
     assert_eq!(
-        state.data.0.get(&ZkDataLocator(vec![2, 1])),
+        state.data.0.get(&ZkDataLocator(vec![deposit_index, 1])),
         Some(&zk_addr.0)
     );
     assert_eq!(
-        state.data.0.get(&ZkDataLocator(vec![2, 2])),
+        state.data.0.get(&ZkDataLocator(vec![deposit_index, 2])),
         Some(&zk_addr.1)
     );
     assert_eq!(
-        state.data.0.get(&ZkDataLocator(vec![2, 3, 3, 0])),
+        state
+            .data
+            .0
+            .get(&ZkDataLocator(vec![deposit_index, 3, 3, 0])),
         Some(&ZkScalar::from(123))
     );
     assert_eq!(
-        state.data.0.get(&ZkDataLocator(vec![2, 3, 3, 1])),
+        state
+            .data
+            .0
+            .get(&ZkDataLocator(vec![deposit_index, 3, 3, 1])),
         Some(&ZkScalar::from(10))
     );
 }
@@ -139,9 +146,10 @@ fn test_update_tx() {
     let param_update =
         groth16::generate_random_parameters::<Bls12, _, _>(update_circ, &mut OsRng).unwrap();
     let b = Bank::<1, 0, 1, 1, 1>::new(1, mpn_contract_id, false, true);
+    let deposit_index = tx_builder.get_zk_address().mpn_account_index(1);
     let d = Deposit {
         mpn_deposit: None,
-        index: tx_builder.get_zk_address().mpn_account_index(1),
+        index: deposit_index,
         token_index: 3,
         pub_key: zk_addr.clone(),
         amount: Money::new(TokenId::Custom(ZkScalar::from(123)), 10),
