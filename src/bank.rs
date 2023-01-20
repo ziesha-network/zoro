@@ -692,13 +692,13 @@ impl<
             let src_before = KvStoreStateManager::<ZkHasher>::get_mpn_account(
                 &mirror,
                 self.mpn_contract_id,
-                tx.src_index,
+                tx.src_index(),
             )
             .unwrap();
             let dst_before = KvStoreStateManager::<ZkHasher>::get_mpn_account(
                 &mirror,
                 self.mpn_contract_id,
-                tx.dst_index,
+                tx.dst_index(),
             )
             .unwrap();
             let src_token = if let Some(src_token) = src_before.tokens.get(&tx.src_token_index) {
@@ -710,9 +710,9 @@ impl<
             let dst_token = dst_before.tokens.get(&tx.dst_token_index);
             if tx.nonce != src_before.nonce
                 || tx.fee.token_id != fee_token
-                || tx.src_index > 0x3fffffff
-                || tx.dst_index > 0x3fffffff
-                || tx.src_index == tx.dst_index
+                || tx.src_index() > 0x3fffffff
+                || tx.dst_index() > 0x3fffffff
+                || tx.src_index() == tx.dst_index()
                 || !tx.src_pub_key.is_on_curve()
                 || !tx.dst_pub_key.is_on_curve()
                 || src_before.address != tx.src_pub_key.decompress()
@@ -731,7 +731,7 @@ impl<
                         &mirror,
                         self.mpn_contract_id,
                         ZkDataLocator(vec![]),
-                        tx.src_index,
+                        tx.src_index(),
                     )
                     .unwrap(),
                 );
@@ -746,7 +746,7 @@ impl<
                     KvStoreStateManager::<ZkHasher>::prove(
                         &mirror,
                         self.mpn_contract_id,
-                        ZkDataLocator(vec![tx.src_index, 3]),
+                        ZkDataLocator(vec![tx.src_index(), 3]),
                         tx.src_token_index,
                     )
                     .unwrap(),
@@ -760,7 +760,7 @@ impl<
                 KvStoreStateManager::<ZkHasher>::set_mpn_account(
                     &mut mirror,
                     self.mpn_contract_id,
-                    tx.src_index,
+                    tx.src_index(),
                     src_after.clone(),
                     &mut state_size,
                 )
@@ -784,7 +784,7 @@ impl<
                     KvStoreStateManager::<ZkHasher>::prove(
                         &mirror,
                         self.mpn_contract_id,
-                        ZkDataLocator(vec![tx.src_index, 3]),
+                        ZkDataLocator(vec![tx.src_index(), 3]),
                         tx.src_fee_token_index,
                     )
                     .unwrap(),
@@ -798,7 +798,7 @@ impl<
                 KvStoreStateManager::<ZkHasher>::set_mpn_account(
                     &mut mirror,
                     self.mpn_contract_id,
-                    tx.src_index,
+                    tx.src_index(),
                     src_after,
                     &mut state_size,
                 )
@@ -809,7 +809,7 @@ impl<
                         &mirror,
                         self.mpn_contract_id,
                         ZkDataLocator(vec![]),
-                        tx.dst_index,
+                        tx.dst_index(),
                     )
                     .unwrap(),
                 );
@@ -817,7 +817,7 @@ impl<
                     KvStoreStateManager::<ZkHasher>::prove(
                         &mirror,
                         self.mpn_contract_id,
-                        ZkDataLocator(vec![tx.dst_index, 3]),
+                        ZkDataLocator(vec![tx.dst_index(), 3]),
                         tx.dst_token_index,
                     )
                     .unwrap(),
@@ -836,7 +836,7 @@ impl<
                 KvStoreStateManager::<ZkHasher>::set_mpn_account(
                     &mut mirror,
                     self.mpn_contract_id,
-                    tx.dst_index,
+                    tx.dst_index(),
                     dst_after,
                     &mut state_size,
                 )

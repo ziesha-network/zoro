@@ -142,7 +142,7 @@ fn process_deposits<K: bazuka::db::KvStore>(
         .filter(|dw| dw.payment.contract_id == conf.mpn_contract_id)
         .map(|dw| Deposit {
             mpn_deposit: Some(dw.clone()),
-            index: dw.zk_address_index,
+            index: dw.zk_address_index(),
             token_index: dw.zk_token_index,
             pub_key: dw.zk_address.0.decompress(),
             amount: dw.payment.amount,
@@ -202,7 +202,7 @@ fn process_withdraws<K: bazuka::db::KvStore>(
         .filter(|dw| dw.payment.contract_id == conf.mpn_contract_id)
         .map(|dw| Withdraw {
             mpn_withdraw: Some(dw.clone()),
-            index: dw.zk_address_index,
+            index: dw.zk_address_index(),
             token_index: dw.zk_token_index,
             fee_token_index: dw.zk_fee_token_index,
             pub_key: dw.zk_address.0.decompress(),

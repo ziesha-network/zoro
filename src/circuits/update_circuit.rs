@@ -243,7 +243,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             // src and dst indices should only have 2 * LOG4_TREE_SIZE bits
             let tx_src_index_wit = UnsignedInteger::alloc(
                 &mut *cs,
-                (trans.tx.src_index as u64).into(),
+                (trans.tx.src_index() as u64).into(),
                 LOG4_TREE_SIZE as usize * 2,
             )?;
             let tx_amount_token_id_wit = AllocatedNum::alloc(&mut *cs, || {
@@ -361,7 +361,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
 
             let tx_dst_index_wit = UnsignedInteger::alloc(
                 &mut *cs,
-                (trans.tx.dst_index as u64).into(),
+                (trans.tx.dst_index() as u64).into(),
                 LOG4_TREE_SIZE as usize * 2,
             )?;
 

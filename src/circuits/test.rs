@@ -157,11 +157,9 @@ fn test_update_tx() {
     assert_eq!(rej.len(), 0);
     work.prove().unwrap();
     let u = tx_builder.create_mpn_transaction(
-        2,
         3,
         MpnAddress {
             pub_key: tx_builder.get_zk_address(),
-            account_index: 1,
         },
         1,
         Money::new(TokenId::Custom(ZkScalar::from(123)), 5),
@@ -268,7 +266,6 @@ fn test_withdraw_tx() {
     let wt = tx_builder.withdraw_mpn(
         "".into(),
         mpn_contract_id,
-        2,
         0,
         3,
         Money::new(TokenId::Custom(ZkScalar::from(123)), 2),
@@ -375,7 +372,6 @@ fn test_withdraw_tx_different_fee() {
     let wt = tx_builder.withdraw_mpn(
         "".into(),
         mpn_contract_id,
-        2,
         0,
         3,
         Money::new(TokenId::Custom(ZkScalar::from(123)), 2),
