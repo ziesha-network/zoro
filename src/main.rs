@@ -142,7 +142,7 @@ fn process_deposits<K: bazuka::db::KvStore>(
         .filter(|dw| dw.payment.contract_id == conf.mpn_contract_id)
         .map(|dw| Deposit {
             mpn_deposit: Some(dw.clone()),
-            index: dw.zk_address_index(),
+            index: dw.zk_address_index(conf.mpn_log4_account_capacity),
             token_index: dw.zk_token_index,
             pub_key: dw.zk_address.0.decompress(),
             amount: dw.payment.amount,
@@ -202,7 +202,7 @@ fn process_withdraws<K: bazuka::db::KvStore>(
         .filter(|dw| dw.payment.contract_id == conf.mpn_contract_id)
         .map(|dw| Withdraw {
             mpn_withdraw: Some(dw.clone()),
-            index: dw.zk_address_index(),
+            index: dw.zk_address_index(conf.mpn_log4_account_capacity),
             token_index: dw.zk_token_index,
             fee_token_index: dw.zk_fee_token_index,
             pub_key: dw.zk_address.0.decompress(),
@@ -357,7 +357,12 @@ fn main() {
             let client = SyncClient::new(node_addr, "mainnet", opt.miner_token.clone());
 
             let conf = get_blockchain_config();
-            let b = bank::Bank::new(conf.mpn_contract_id, opt.gpu, false);
+            let b = bank::Bank::new(
+                conf.mpn_log4_account_capacity,
+                conf.mpn_contract_id,
+                opt.gpu,
+                false,
+            );
 
             loop {
                 if let Err(e) = || -> Result<(), ZoroError> {
