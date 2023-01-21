@@ -410,8 +410,8 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                 &mut *cs,
                 &[
                     &dst_nonce_wit.into(),
-                    &tx_dst_addr_wit.x.into(),
-                    &tx_dst_addr_wit.y.into(),
+                    &tx_dst_addr_wit.x.clone().into(),
+                    &tx_dst_addr_wit.y.clone().into(),
                     &dst_balance_final_root,
                 ],
             )?;
@@ -457,8 +457,8 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                 &mut *cs,
                 &[
                     &tx_nonce_wit.clone().into(),
-                    &tx_src_index_wit.clone().into(),
-                    &tx_dst_index_wit.clone().into(),
+                    &tx_dst_addr_wit.x.clone().into(),
+                    &tx_dst_addr_wit.y.clone().into(),
                     &tx_amount_token_id_wit.clone().into(),
                     &tx_amount_wit.clone().into(),
                     &tx_fee_token_id_wit.clone().into(),
