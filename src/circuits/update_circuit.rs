@@ -241,11 +241,9 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             let tx_nonce_wit = AllocatedNum::alloc(&mut *cs, || Ok(trans.tx.nonce.into()))?;
 
             // src and dst indices should only have 2 * LOG4_TREE_SIZE bits
-            let tx_src_index_wit = UnsignedInteger::alloc(
-                &mut *cs,
-                (trans.tx.src_index as u64).into(),
-                LOG4_TREE_SIZE as usize * 2,
-            )?;
+            let tx_src_index_wit =
+                UnsignedInteger::constrain_strict(&mut *cs, src_addr_wit.x.clone().into())?
+                    .extract_bits(LOG4_TREE_SIZE as usize * 2);
             let tx_amount_token_id_wit = AllocatedNum::alloc(&mut *cs, || {
                 Ok(Into::<ZkScalar>::into(trans.tx.amount.token_id).into())
             })?;
@@ -359,16 +357,14 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                 &src_proof_wits,
             )?;
 
-            let tx_dst_index_wit = UnsignedInteger::alloc(
-                &mut *cs,
-                (trans.tx.dst_index as u64).into(),
-                LOG4_TREE_SIZE as usize * 2,
-            )?;
-
             let tx_dst_addr_wit =
                 AllocatedPoint::alloc(&mut *cs, || Ok(trans.tx.dst_pub_key.0.decompress()))?;
             // Destination address should be on curve in case transaction slot is non-empty
             tx_dst_addr_wit.assert_on_curve(&mut *cs, &enabled_wit)?;
+
+            let tx_dst_index_wit =
+                UnsignedInteger::constrain_strict(&mut *cs, tx_dst_addr_wit.x.clone().into())?
+                    .extract_bits(LOG4_TREE_SIZE as usize * 2);
 
             let dst_nonce_wit =
                 AllocatedNum::alloc(&mut *cs, || Ok(trans.dst_before.nonce.into()))?;
@@ -414,8 +410,8 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                 &mut *cs,
                 &[
                     &dst_nonce_wit.into(),
-                    &tx_dst_addr_wit.x.into(),
-                    &tx_dst_addr_wit.y.into(),
+                    &tx_dst_addr_wit.x.clone().into(),
+                    &tx_dst_addr_wit.y.clone().into(),
                     &dst_balance_final_root,
                 ],
             )?;
@@ -461,8 +457,8 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                 &mut *cs,
                 &[
                     &tx_nonce_wit.clone().into(),
-                    &tx_src_index_wit.clone().into(),
-                    &tx_dst_index_wit.clone().into(),
+                    &tx_dst_addr_wit.x.clone().into(),
+                    &tx_dst_addr_wit.y.clone().into(),
                     &tx_amount_token_id_wit.clone().into(),
                     &tx_amount_wit.clone().into(),
                     &tx_fee_token_id_wit.clone().into(),

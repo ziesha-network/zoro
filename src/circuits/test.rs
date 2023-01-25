@@ -1,6 +1,7 @@
 use super::*;
 use crate::bank::{Bank, Provable};
 use bazuka::core::{ContractId, Money, MpnAddress, TokenId};
+use bazuka::crypto::DeriveMpnAccountIndex;
 use bazuka::db::{KvStore, RamKvStore};
 use bazuka::wallet::TxBuilder;
 use bazuka::zk::KvStoreStateManager;
@@ -59,10 +60,11 @@ fn test_deposit_tx() {
     let (mut db, mpn_contract_id) = fresh_db(1, 1);
     let c = DepositCircuit::<1, 1, 1>::default();
     let p = groth16::generate_random_parameters::<Bls12, _, _>(c, &mut OsRng).unwrap();
-    let b = Bank::<1, 0, 0, 1, 1>::new(mpn_contract_id, false, true);
+    let b = Bank::<1, 0, 0, 1, 1>::new(1, mpn_contract_id, false, true);
+    let deposit_index = tx_builder.get_zk_address().mpn_account_index(1);
     let d = Deposit {
         mpn_deposit: None,
-        index: 2,
+        index: deposit_index,
         token_index: 3,
         pub_key: zk_addr.clone(),
         amount: Money::new(TokenId::Custom(ZkScalar::from(123)), 10),
@@ -77,19 +79,25 @@ fn test_deposit_tx() {
         .unwrap();
     assert_eq!(state.data.0.len(), 4);
     assert_eq!(
-        state.data.0.get(&ZkDataLocator(vec![2, 1])),
+        state.data.0.get(&ZkDataLocator(vec![deposit_index, 1])),
         Some(&zk_addr.0)
     );
     assert_eq!(
-        state.data.0.get(&ZkDataLocator(vec![2, 2])),
+        state.data.0.get(&ZkDataLocator(vec![deposit_index, 2])),
         Some(&zk_addr.1)
     );
     assert_eq!(
-        state.data.0.get(&ZkDataLocator(vec![2, 3, 3, 0])),
+        state
+            .data
+            .0
+            .get(&ZkDataLocator(vec![deposit_index, 3, 3, 0])),
         Some(&ZkScalar::from(123))
     );
     assert_eq!(
-        state.data.0.get(&ZkDataLocator(vec![2, 3, 3, 1])),
+        state
+            .data
+            .0
+            .get(&ZkDataLocator(vec![deposit_index, 3, 3, 1])),
         Some(&ZkScalar::from(10))
     );
 }
@@ -99,7 +107,7 @@ fn test_deposit_empty() {
     let (mut db, mpn_contract_id) = fresh_db(1, 1);
     let c = DepositCircuit::<1, 1, 1>::default();
     let p = groth16::generate_random_parameters::<Bls12, _, _>(c, &mut OsRng).unwrap();
-    let b = Bank::<1, 0, 0, 1, 1>::new(mpn_contract_id, false, true);
+    let b = Bank::<1, 0, 0, 1, 1>::new(1, mpn_contract_id, false, true);
     b.deposit(&mut db, p.clone(), vec![], Arc::new(RwLock::new(false)))
         .unwrap()
         .3
@@ -112,7 +120,7 @@ fn test_update_empty() {
     let (mut db, mpn_contract_id) = fresh_db(1, 1);
     let c = UpdateCircuit::<1, 1, 1>::default();
     let p = groth16::generate_random_parameters::<Bls12, _, _>(c, &mut OsRng).unwrap();
-    let b = Bank::<0, 0, 1, 1, 1>::new(mpn_contract_id, false, true);
+    let b = Bank::<0, 0, 1, 1, 1>::new(1, mpn_contract_id, false, true);
     b.change_state(
         &mut db,
         p.clone(),
@@ -129,7 +137,9 @@ fn test_update_empty() {
 #[test]
 fn test_update_tx() {
     let tx_builder = TxBuilder::new(b"hi");
+    let tx_builder_dst = TxBuilder::new(b"hi2");
     let zk_addr = tx_builder.get_zk_address().decompress();
+    let zk_addr_dst = tx_builder.get_zk_address().decompress();
     let (mut db, mpn_contract_id) = fresh_db(1, 1);
     let deposit_circ = DepositCircuit::<1, 1, 1>::default();
     let update_circ = UpdateCircuit::<1, 1, 1>::default();
@@ -137,10 +147,12 @@ fn test_update_tx() {
         groth16::generate_random_parameters::<Bls12, _, _>(deposit_circ, &mut OsRng).unwrap();
     let param_update =
         groth16::generate_random_parameters::<Bls12, _, _>(update_circ, &mut OsRng).unwrap();
-    let b = Bank::<1, 0, 1, 1, 1>::new(mpn_contract_id, false, true);
+    let b = Bank::<1, 0, 1, 1, 1>::new(1, mpn_contract_id, false, true);
+    let deposit_index = tx_builder.get_zk_address().mpn_account_index(1);
+    let deposit_index_dst = tx_builder_dst.get_zk_address().mpn_account_index(1);
     let d = Deposit {
         mpn_deposit: None,
-        index: 2,
+        index: deposit_index,
         token_index: 3,
         pub_key: zk_addr.clone(),
         amount: Money::new(TokenId::Custom(ZkScalar::from(123)), 10),
@@ -157,11 +169,9 @@ fn test_update_tx() {
     assert_eq!(rej.len(), 0);
     work.prove().unwrap();
     let u = tx_builder.create_mpn_transaction(
-        2,
         3,
         MpnAddress {
-            pub_key: tx_builder.get_zk_address(),
-            account_index: 1,
+            pub_key: tx_builder_dst.get_zk_address(),
         },
         1,
         Money::new(TokenId::Custom(ZkScalar::from(123)), 5),
@@ -185,39 +195,51 @@ fn test_update_tx() {
         .unwrap();
     assert_eq!(state.data.0.len(), 9);
     assert_eq!(
-        state.data.0.get(&ZkDataLocator(vec![2, 0])),
+        state.data.0.get(&ZkDataLocator(vec![deposit_index, 0])),
         Some(&1.into())
     );
     assert_eq!(
-        state.data.0.get(&ZkDataLocator(vec![2, 1])),
+        state.data.0.get(&ZkDataLocator(vec![deposit_index, 1])),
         Some(&zk_addr.0)
     );
     assert_eq!(
-        state.data.0.get(&ZkDataLocator(vec![2, 2])),
+        state.data.0.get(&ZkDataLocator(vec![deposit_index, 2])),
         Some(&zk_addr.1)
     );
     assert_eq!(
-        state.data.0.get(&ZkDataLocator(vec![2, 3, 3, 0])),
+        state
+            .data
+            .0
+            .get(&ZkDataLocator(vec![deposit_index, 3, 3, 0])),
         Some(&ZkScalar::from(123))
     );
     assert_eq!(
-        state.data.0.get(&ZkDataLocator(vec![2, 3, 3, 1])),
+        state
+            .data
+            .0
+            .get(&ZkDataLocator(vec![deposit_index, 3, 3, 1])),
         Some(&ZkScalar::from(4))
     );
     assert_eq!(
-        state.data.0.get(&ZkDataLocator(vec![1, 1])),
-        Some(&zk_addr.0)
+        state.data.0.get(&ZkDataLocator(vec![deposit_index_dst, 1])),
+        Some(&zk_addr_dst.0)
     );
     assert_eq!(
-        state.data.0.get(&ZkDataLocator(vec![1, 2])),
-        Some(&zk_addr.1)
+        state.data.0.get(&ZkDataLocator(vec![deposit_index_dst, 2])),
+        Some(&zk_addr_dst.1)
     );
     assert_eq!(
-        state.data.0.get(&ZkDataLocator(vec![1, 3, 1, 0])),
+        state
+            .data
+            .0
+            .get(&ZkDataLocator(vec![deposit_index_dst, 3, 1, 0])),
         Some(&ZkScalar::from(123))
     );
     assert_eq!(
-        state.data.0.get(&ZkDataLocator(vec![1, 3, 1, 1])),
+        state
+            .data
+            .0
+            .get(&ZkDataLocator(vec![deposit_index_dst, 3, 1, 1])),
         Some(&ZkScalar::from(5))
     );
 }
@@ -227,7 +249,7 @@ fn test_withdraw_empty() {
     let (mut db, mpn_contract_id) = fresh_db(1, 1);
     let c = WithdrawCircuit::<1, 1, 1>::default();
     let p = groth16::generate_random_parameters::<Bls12, _, _>(c, &mut OsRng).unwrap();
-    let b = Bank::<0, 1, 0, 1, 1>::new(mpn_contract_id, false, true);
+    let b = Bank::<0, 1, 0, 1, 1>::new(1, mpn_contract_id, false, true);
     b.withdraw(&mut db, p.clone(), vec![], Arc::new(RwLock::new(false)))
         .unwrap()
         .3
@@ -246,10 +268,11 @@ fn test_withdraw_tx() {
         groth16::generate_random_parameters::<Bls12, _, _>(deposit_circ, &mut OsRng).unwrap();
     let param_withdraw =
         groth16::generate_random_parameters::<Bls12, _, _>(withdraw_circ, &mut OsRng).unwrap();
-    let b = Bank::<1, 1, 0, 1, 1>::new(mpn_contract_id, false, true);
+    let b = Bank::<1, 1, 0, 1, 1>::new(1, mpn_contract_id, false, true);
+    let deposit_index = tx_builder.get_zk_address().mpn_account_index(1);
     let d = Deposit {
         mpn_deposit: None,
-        index: 2,
+        index: deposit_index,
         token_index: 3,
         pub_key: zk_addr.clone(),
         amount: Money::new(TokenId::Custom(ZkScalar::from(123)), 10),
@@ -268,7 +291,6 @@ fn test_withdraw_tx() {
     let wt = tx_builder.withdraw_mpn(
         "".into(),
         mpn_contract_id,
-        2,
         0,
         3,
         Money::new(TokenId::Custom(ZkScalar::from(123)), 2),
@@ -282,7 +304,7 @@ fn test_withdraw_tx() {
         pub_key: tx_builder.get_zk_address().0.decompress(),
         token_index: 3,
         fingerprint: wt.payment.fingerprint(),
-        index: 2,
+        index: deposit_index,
         fee: Money::new(TokenId::Custom(ZkScalar::from(123)), 3),
         fee_token_index: 3,
         amount: Money::new(TokenId::Custom(ZkScalar::from(123)), 2),
@@ -303,23 +325,29 @@ fn test_withdraw_tx() {
         .unwrap();
     assert_eq!(state.data.0.len(), 5);
     assert_eq!(
-        state.data.0.get(&ZkDataLocator(vec![2, 0])),
+        state.data.0.get(&ZkDataLocator(vec![deposit_index, 0])),
         Some(&1.into())
     );
     assert_eq!(
-        state.data.0.get(&ZkDataLocator(vec![2, 1])),
+        state.data.0.get(&ZkDataLocator(vec![deposit_index, 1])),
         Some(&zk_addr.0)
     );
     assert_eq!(
-        state.data.0.get(&ZkDataLocator(vec![2, 2])),
+        state.data.0.get(&ZkDataLocator(vec![deposit_index, 2])),
         Some(&zk_addr.1)
     );
     assert_eq!(
-        state.data.0.get(&ZkDataLocator(vec![2, 3, 3, 0])),
+        state
+            .data
+            .0
+            .get(&ZkDataLocator(vec![deposit_index, 3, 3, 0])),
         Some(&ZkScalar::from(123))
     );
     assert_eq!(
-        state.data.0.get(&ZkDataLocator(vec![2, 3, 3, 1])),
+        state
+            .data
+            .0
+            .get(&ZkDataLocator(vec![deposit_index, 3, 3, 1])),
         Some(&ZkScalar::from(5))
     );
 }
@@ -335,10 +363,11 @@ fn test_withdraw_tx_different_fee() {
         groth16::generate_random_parameters::<Bls12, _, _>(deposit_circ, &mut OsRng).unwrap();
     let param_withdraw =
         groth16::generate_random_parameters::<Bls12, _, _>(withdraw_circ, &mut OsRng).unwrap();
-    let b = Bank::<1, 1, 0, 1, 1>::new(mpn_contract_id, false, true);
+    let b = Bank::<1, 1, 0, 1, 1>::new(1, mpn_contract_id, false, true);
+    let deposit_index = tx_builder.get_zk_address().mpn_account_index(1);
     let d = Deposit {
         mpn_deposit: None,
-        index: 2,
+        index: deposit_index,
         token_index: 3,
         pub_key: zk_addr.clone(),
         amount: Money::new(TokenId::Custom(ZkScalar::from(123)), 10),
@@ -356,7 +385,7 @@ fn test_withdraw_tx_different_fee() {
     work.prove().unwrap();
     let d2 = Deposit {
         mpn_deposit: None,
-        index: 2,
+        index: deposit_index,
         token_index: 0,
         pub_key: zk_addr.clone(),
         amount: Money::new(TokenId::Ziesha, 10),
@@ -375,7 +404,6 @@ fn test_withdraw_tx_different_fee() {
     let wt = tx_builder.withdraw_mpn(
         "".into(),
         mpn_contract_id,
-        2,
         0,
         3,
         Money::new(TokenId::Custom(ZkScalar::from(123)), 2),
@@ -389,7 +417,7 @@ fn test_withdraw_tx_different_fee() {
         pub_key: tx_builder.get_zk_address().0.decompress(),
         token_index: 3,
         fingerprint: wt.payment.fingerprint(),
-        index: 2,
+        index: deposit_index,
         fee: Money::new(TokenId::Ziesha, 3),
         fee_token_index: 0,
         amount: Money::new(TokenId::Custom(ZkScalar::from(123)), 2),
@@ -410,31 +438,43 @@ fn test_withdraw_tx_different_fee() {
         .unwrap();
     assert_eq!(state.data.0.len(), 7);
     assert_eq!(
-        state.data.0.get(&ZkDataLocator(vec![2, 0])),
+        state.data.0.get(&ZkDataLocator(vec![deposit_index, 0])),
         Some(&1.into())
     );
     assert_eq!(
-        state.data.0.get(&ZkDataLocator(vec![2, 1])),
+        state.data.0.get(&ZkDataLocator(vec![deposit_index, 1])),
         Some(&zk_addr.0)
     );
     assert_eq!(
-        state.data.0.get(&ZkDataLocator(vec![2, 2])),
+        state.data.0.get(&ZkDataLocator(vec![deposit_index, 2])),
         Some(&zk_addr.1)
     );
     assert_eq!(
-        state.data.0.get(&ZkDataLocator(vec![2, 3, 0, 0])),
+        state
+            .data
+            .0
+            .get(&ZkDataLocator(vec![deposit_index, 3, 0, 0])),
         Some(&ZkScalar::from(1))
     );
     assert_eq!(
-        state.data.0.get(&ZkDataLocator(vec![2, 3, 0, 1])),
+        state
+            .data
+            .0
+            .get(&ZkDataLocator(vec![deposit_index, 3, 0, 1])),
         Some(&ZkScalar::from(7))
     );
     assert_eq!(
-        state.data.0.get(&ZkDataLocator(vec![2, 3, 3, 0])),
+        state
+            .data
+            .0
+            .get(&ZkDataLocator(vec![deposit_index, 3, 3, 0])),
         Some(&ZkScalar::from(123))
     );
     assert_eq!(
-        state.data.0.get(&ZkDataLocator(vec![2, 3, 3, 1])),
+        state
+            .data
+            .0
+            .get(&ZkDataLocator(vec![deposit_index, 3, 3, 1])),
         Some(&ZkScalar::from(8))
     );
 }
