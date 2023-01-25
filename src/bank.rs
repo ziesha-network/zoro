@@ -2,7 +2,7 @@ use crate::circuits;
 use crate::circuits::{Deposit, DepositCircuit, UpdateCircuit, Withdraw, WithdrawCircuit};
 use bazuka::zk::ZkScalar;
 use bazuka::{
-    core::{ContractId, Money, TokenId, ZkHasher},
+    core::{Amount, ContractId, Money, TokenId, ZkHasher},
     db::KvStore,
     zk::{KvStoreStateManager, MpnAccount, MpnTransaction, ZkDataLocator},
 };
@@ -482,6 +482,9 @@ impl<
             .unwrap();
             let acc_token = acc.tokens.get(&tx.token_index).clone();
             if (acc.address != Default::default() && tx.pub_key != acc.address)
+                || (acc.address == Default::default()
+                    && (tx.amount.token_id != TokenId::Ziesha
+                        || tx.amount.amount < Amount(1000000000)))
                 || (acc_token.is_some() && acc_token.unwrap().token_id != tx.amount.token_id)
             {
                 rejected.push(tx.clone());
@@ -718,6 +721,9 @@ impl<
                 || src_before.address != tx.src_pub_key.decompress()
                 || (dst_before.address.is_on_curve()
                     && dst_before.address != tx.dst_pub_key.decompress())
+                || (dst_before.address == Default::default()
+                    && (tx.amount.token_id != TokenId::Ziesha
+                        || tx.amount.amount < Amount(1000000000)))
                 || !tx.verify()
                 || dst_token.is_some() && (src_token.token_id != dst_token.unwrap().token_id)
                 || src_token.token_id != tx.amount.token_id
