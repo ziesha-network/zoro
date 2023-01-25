@@ -37,6 +37,7 @@ pub struct Bank<
     backend: Backend,
     mpn_contract_id: ContractId,
     mpn_log4_account_capacity: u8,
+    mpn_minimum_ziesha_balance: Option<Amount>,
     debug: bool,
 }
 
@@ -130,6 +131,7 @@ impl<
     pub fn new(
         mpn_log4_account_capacity: u8,
         mpn_contract_id: ContractId,
+        mpn_minimum_ziesha_balance: Option<Amount>,
         gpu: bool,
         debug: bool,
     ) -> Self {
@@ -160,6 +162,7 @@ impl<
             },
             mpn_contract_id,
             mpn_log4_account_capacity,
+            mpn_minimum_ziesha_balance,
         }
     }
 
@@ -489,9 +492,13 @@ impl<
             .unwrap();
             let acc_token = acc.tokens.get(&tx.token_index).clone();
             if (acc.address != Default::default() && tx.pub_key != acc.address)
-                || (acc.address == Default::default()
-                    && (tx.amount.token_id != TokenId::Ziesha
-                        || tx.amount.amount < Amount(1000000000)))
+                || self
+                    .mpn_minimum_ziesha_balance
+                    .map(|min| {
+                        acc.address == Default::default()
+                            && (tx.amount.token_id != TokenId::Ziesha || tx.amount.amount < min)
+                    })
+                    .unwrap_or(false)
                 || (acc_token.is_some() && acc_token.unwrap().token_id != tx.amount.token_id)
             {
                 rejected.push(tx.clone());
@@ -729,9 +736,13 @@ impl<
                 || src_before.address != tx.src_pub_key.decompress()
                 || (dst_before.address.is_on_curve()
                     && dst_before.address != tx.dst_pub_key.decompress())
-                || (dst_before.address == Default::default()
-                    && (tx.amount.token_id != TokenId::Ziesha
-                        || tx.amount.amount < Amount(1000000000)))
+                || self
+                    .mpn_minimum_ziesha_balance
+                    .map(|min| {
+                        dst_before.address == Default::default()
+                            && (tx.amount.token_id != TokenId::Ziesha || tx.amount.amount < min)
+                    })
+                    .unwrap_or(false)
                 || !tx.verify()
                 || dst_token.is_some() && (src_token.token_id != dst_token.unwrap().token_id)
                 || src_token.token_id != tx.amount.token_id

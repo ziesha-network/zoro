@@ -60,14 +60,14 @@ fn test_deposit_tx() {
     let (mut db, mpn_contract_id) = fresh_db(1, 1);
     let c = DepositCircuit::<1, 1, 1>::default();
     let p = groth16::generate_random_parameters::<Bls12, _, _>(c, &mut OsRng).unwrap();
-    let b = Bank::<1, 0, 0, 1, 1>::new(1, mpn_contract_id, false, true);
+    let b = Bank::<1, 0, 0, 1, 1>::new(1, mpn_contract_id, None, false, true);
     let deposit_index = tx_builder.get_zk_address().mpn_account_index(1);
     let d = Deposit {
         mpn_deposit: None,
         index: deposit_index,
         token_index: 3,
         pub_key: zk_addr.clone(),
-        amount: Money::new(TokenId::Custom(ZkScalar::from(123)), 10),
+        amount: Money::new(TokenId::Custom(ZkScalar::from(123)), 10000000000),
     };
     let (acc, rej, _, work) = b
         .deposit(&mut db, p.clone(), vec![d], Arc::new(RwLock::new(false)))
@@ -98,7 +98,7 @@ fn test_deposit_tx() {
             .data
             .0
             .get(&ZkDataLocator(vec![deposit_index, 3, 3, 1])),
-        Some(&ZkScalar::from(10))
+        Some(&ZkScalar::from(10000000000))
     );
 }
 
@@ -107,7 +107,7 @@ fn test_deposit_empty() {
     let (mut db, mpn_contract_id) = fresh_db(1, 1);
     let c = DepositCircuit::<1, 1, 1>::default();
     let p = groth16::generate_random_parameters::<Bls12, _, _>(c, &mut OsRng).unwrap();
-    let b = Bank::<1, 0, 0, 1, 1>::new(1, mpn_contract_id, false, true);
+    let b = Bank::<1, 0, 0, 1, 1>::new(1, mpn_contract_id, None, false, true);
     b.deposit(&mut db, p.clone(), vec![], Arc::new(RwLock::new(false)))
         .unwrap()
         .3
@@ -120,7 +120,7 @@ fn test_update_empty() {
     let (mut db, mpn_contract_id) = fresh_db(1, 1);
     let c = UpdateCircuit::<1, 1, 1>::default();
     let p = groth16::generate_random_parameters::<Bls12, _, _>(c, &mut OsRng).unwrap();
-    let b = Bank::<0, 0, 1, 1, 1>::new(1, mpn_contract_id, false, true);
+    let b = Bank::<0, 0, 1, 1, 1>::new(1, mpn_contract_id, None, false, true);
     b.change_state(
         &mut db,
         p.clone(),
@@ -139,7 +139,7 @@ fn test_update_tx() {
     let tx_builder = TxBuilder::new(b"hi");
     let tx_builder_dst = TxBuilder::new(b"hi2");
     let zk_addr = tx_builder.get_zk_address().decompress();
-    let zk_addr_dst = tx_builder.get_zk_address().decompress();
+    let zk_addr_dst = tx_builder_dst.get_zk_address().decompress();
     let (mut db, mpn_contract_id) = fresh_db(1, 1);
     let deposit_circ = DepositCircuit::<1, 1, 1>::default();
     let update_circ = UpdateCircuit::<1, 1, 1>::default();
@@ -147,7 +147,7 @@ fn test_update_tx() {
         groth16::generate_random_parameters::<Bls12, _, _>(deposit_circ, &mut OsRng).unwrap();
     let param_update =
         groth16::generate_random_parameters::<Bls12, _, _>(update_circ, &mut OsRng).unwrap();
-    let b = Bank::<1, 0, 1, 1, 1>::new(1, mpn_contract_id, false, true);
+    let b = Bank::<1, 0, 1, 1, 1>::new(1, mpn_contract_id, None, false, true);
     let deposit_index = tx_builder.get_zk_address().mpn_account_index(1);
     let deposit_index_dst = tx_builder_dst.get_zk_address().mpn_account_index(1);
     let d = Deposit {
@@ -155,7 +155,7 @@ fn test_update_tx() {
         index: deposit_index,
         token_index: 3,
         pub_key: zk_addr.clone(),
-        amount: Money::new(TokenId::Custom(ZkScalar::from(123)), 10),
+        amount: Money::new(TokenId::Custom(ZkScalar::from(123)), 10000000000),
     };
     let (acc, rej, _, work) = b
         .deposit(
@@ -174,9 +174,9 @@ fn test_update_tx() {
             pub_key: tx_builder_dst.get_zk_address(),
         },
         1,
-        Money::new(TokenId::Custom(ZkScalar::from(123)), 5),
+        Money::new(TokenId::Custom(ZkScalar::from(123)), 5000000000),
         3,
-        Money::new(TokenId::Custom(ZkScalar::from(123)), 1),
+        Money::new(TokenId::Custom(ZkScalar::from(123)), 1000000000),
         0,
     );
     let (acc, rej, _, work) = b
@@ -218,7 +218,7 @@ fn test_update_tx() {
             .data
             .0
             .get(&ZkDataLocator(vec![deposit_index, 3, 3, 1])),
-        Some(&ZkScalar::from(4))
+        Some(&ZkScalar::from(4000000000))
     );
     assert_eq!(
         state.data.0.get(&ZkDataLocator(vec![deposit_index_dst, 1])),
@@ -240,7 +240,7 @@ fn test_update_tx() {
             .data
             .0
             .get(&ZkDataLocator(vec![deposit_index_dst, 3, 1, 1])),
-        Some(&ZkScalar::from(5))
+        Some(&ZkScalar::from(5000000000))
     );
 }
 
@@ -249,7 +249,7 @@ fn test_withdraw_empty() {
     let (mut db, mpn_contract_id) = fresh_db(1, 1);
     let c = WithdrawCircuit::<1, 1, 1>::default();
     let p = groth16::generate_random_parameters::<Bls12, _, _>(c, &mut OsRng).unwrap();
-    let b = Bank::<0, 1, 0, 1, 1>::new(1, mpn_contract_id, false, true);
+    let b = Bank::<0, 1, 0, 1, 1>::new(1, mpn_contract_id, None, false, true);
     b.withdraw(&mut db, p.clone(), vec![], Arc::new(RwLock::new(false)))
         .unwrap()
         .3
@@ -268,14 +268,14 @@ fn test_withdraw_tx() {
         groth16::generate_random_parameters::<Bls12, _, _>(deposit_circ, &mut OsRng).unwrap();
     let param_withdraw =
         groth16::generate_random_parameters::<Bls12, _, _>(withdraw_circ, &mut OsRng).unwrap();
-    let b = Bank::<1, 1, 0, 1, 1>::new(1, mpn_contract_id, false, true);
+    let b = Bank::<1, 1, 0, 1, 1>::new(1, mpn_contract_id, None, false, true);
     let deposit_index = tx_builder.get_zk_address().mpn_account_index(1);
     let d = Deposit {
         mpn_deposit: None,
         index: deposit_index,
         token_index: 3,
         pub_key: zk_addr.clone(),
-        amount: Money::new(TokenId::Custom(ZkScalar::from(123)), 10),
+        amount: Money::new(TokenId::Custom(ZkScalar::from(123)), 10000000000),
     };
     let (acc, rej, _, work) = b
         .deposit(
@@ -293,9 +293,9 @@ fn test_withdraw_tx() {
         mpn_contract_id,
         0,
         3,
-        Money::new(TokenId::Custom(ZkScalar::from(123)), 2),
+        Money::new(TokenId::Custom(ZkScalar::from(123)), 2000000000),
         3,
-        Money::new(TokenId::Custom(ZkScalar::from(123)), 3),
+        Money::new(TokenId::Custom(ZkScalar::from(123)), 3000000000),
         tx_builder.get_address(),
     );
     let w = Withdraw {
@@ -305,9 +305,9 @@ fn test_withdraw_tx() {
         token_index: 3,
         fingerprint: wt.payment.fingerprint(),
         index: deposit_index,
-        fee: Money::new(TokenId::Custom(ZkScalar::from(123)), 3),
+        fee: Money::new(TokenId::Custom(ZkScalar::from(123)), 3000000000),
         fee_token_index: 3,
-        amount: Money::new(TokenId::Custom(ZkScalar::from(123)), 2),
+        amount: Money::new(TokenId::Custom(ZkScalar::from(123)), 2000000000),
         sig: wt.zk_sig.clone(),
     };
     let (acc, rej, _, work) = b
@@ -348,7 +348,7 @@ fn test_withdraw_tx() {
             .data
             .0
             .get(&ZkDataLocator(vec![deposit_index, 3, 3, 1])),
-        Some(&ZkScalar::from(5))
+        Some(&ZkScalar::from(5000000000))
     );
 }
 
@@ -363,14 +363,14 @@ fn test_withdraw_tx_different_fee() {
         groth16::generate_random_parameters::<Bls12, _, _>(deposit_circ, &mut OsRng).unwrap();
     let param_withdraw =
         groth16::generate_random_parameters::<Bls12, _, _>(withdraw_circ, &mut OsRng).unwrap();
-    let b = Bank::<1, 1, 0, 1, 1>::new(1, mpn_contract_id, false, true);
+    let b = Bank::<1, 1, 0, 1, 1>::new(1, mpn_contract_id, None, false, true);
     let deposit_index = tx_builder.get_zk_address().mpn_account_index(1);
     let d = Deposit {
         mpn_deposit: None,
         index: deposit_index,
         token_index: 3,
         pub_key: zk_addr.clone(),
-        amount: Money::new(TokenId::Custom(ZkScalar::from(123)), 10),
+        amount: Money::new(TokenId::Custom(ZkScalar::from(123)), 10000000000),
     };
     let (acc, rej, _, work) = b
         .deposit(
@@ -388,7 +388,7 @@ fn test_withdraw_tx_different_fee() {
         index: deposit_index,
         token_index: 0,
         pub_key: zk_addr.clone(),
-        amount: Money::new(TokenId::Ziesha, 10),
+        amount: Money::new(TokenId::Ziesha, 10000000000),
     };
     let (acc, rej, _, work) = b
         .deposit(
@@ -406,9 +406,9 @@ fn test_withdraw_tx_different_fee() {
         mpn_contract_id,
         0,
         3,
-        Money::new(TokenId::Custom(ZkScalar::from(123)), 2),
+        Money::new(TokenId::Custom(ZkScalar::from(123)), 2000000000),
         0,
-        Money::new(TokenId::Ziesha, 3),
+        Money::new(TokenId::Ziesha, 3000000000),
         tx_builder.get_address(),
     );
     let w = Withdraw {
@@ -418,9 +418,9 @@ fn test_withdraw_tx_different_fee() {
         token_index: 3,
         fingerprint: wt.payment.fingerprint(),
         index: deposit_index,
-        fee: Money::new(TokenId::Ziesha, 3),
+        fee: Money::new(TokenId::Ziesha, 3000000000),
         fee_token_index: 0,
-        amount: Money::new(TokenId::Custom(ZkScalar::from(123)), 2),
+        amount: Money::new(TokenId::Custom(ZkScalar::from(123)), 2000000000),
         sig: wt.zk_sig.clone(),
     };
     let (acc, rej, _, work) = b
@@ -461,7 +461,7 @@ fn test_withdraw_tx_different_fee() {
             .data
             .0
             .get(&ZkDataLocator(vec![deposit_index, 3, 0, 1])),
-        Some(&ZkScalar::from(7))
+        Some(&ZkScalar::from(7000000000))
     );
     assert_eq!(
         state
@@ -475,6 +475,6 @@ fn test_withdraw_tx_different_fee() {
             .data
             .0
             .get(&ZkDataLocator(vec![deposit_index, 3, 3, 1])),
-        Some(&ZkScalar::from(8))
+        Some(&ZkScalar::from(8000000000))
     );
 }

@@ -7,7 +7,7 @@ use circuits::{Deposit, Withdraw};
 
 use bazuka::blockchain::BlockchainConfig;
 use bazuka::config::blockchain::get_blockchain_config;
-use bazuka::core::{Money, MpnDeposit, MpnWithdraw, TokenId};
+use bazuka::core::{Amount, Money, MpnDeposit, MpnWithdraw, TokenId};
 use bazuka::db::KvStore;
 use bazuka::db::ReadOnlyLevelDbKvStore;
 use bazuka::zk::MpnTransaction;
@@ -360,6 +360,7 @@ fn main() {
             let b = bank::Bank::new(
                 conf.mpn_log4_account_capacity,
                 conf.mpn_contract_id,
+                Some(Amount(1000000000)),
                 opt.gpu,
                 false,
             );
