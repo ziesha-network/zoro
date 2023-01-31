@@ -13,6 +13,7 @@ use bellman::groth16::Parameters;
 use bellman::Circuit;
 use bls12_381::Bls12;
 use rand::rngs::OsRng;
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex, RwLock};
 use thiserror::Error;
 use zeekit::BellmanFr;
@@ -475,14 +476,11 @@ impl<
 
         let state = root.state_hash;
         let mut state_size = root.state_size;
+        let mut rejected_pub_keys = HashSet::new();
 
         for tx in txs.into_iter() {
             if transitions.len() == 1 << (2 * LOG4_DEPOSIT_BATCH_SIZE) {
                 break;
-            }
-            if tx.index > 0x3fffffff {
-                rejected.push(tx.clone());
-                continue;
             }
             let acc = KvStoreStateManager::<ZkHasher>::get_mpn_account(
                 &mirror,
@@ -491,7 +489,9 @@ impl<
             )
             .unwrap();
             let acc_token = acc.tokens.get(&tx.token_index).clone();
-            if (acc.address != Default::default() && tx.pub_key != acc.address)
+            let src_pub = tx.mpn_deposit.as_ref().unwrap().payment.src.clone();
+            if rejected_pub_keys.contains(&src_pub)
+                || (acc.address != Default::default() && tx.pub_key != acc.address)
                 || self
                     .mpn_minimum_ziesha_balance
                     .map(|min| {
@@ -502,6 +502,7 @@ impl<
                 || (acc_token.is_some() && acc_token.unwrap().token_id != tx.amount.token_id)
             {
                 rejected.push(tx.clone());
+                rejected_pub_keys.insert(src_pub);
                 continue;
             } else {
                 let mut updated_acc = MpnAccount {
