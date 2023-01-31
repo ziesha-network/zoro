@@ -164,6 +164,7 @@ fn process_deposits<K: bazuka::db::KvStore>(
 
     let (accepted, _rejected, new_root, proof) =
         b.deposit(db_mirror, params.clone(), deposits, cancel.clone())?;
+    println!("Processed {} deposits!", accepted.len());
 
     //for tx in accepted.iter().chain(rejected.iter()) {
     //    mempool.remove(&tx.mpn_deposit.as_ref().unwrap());
@@ -217,6 +218,7 @@ fn process_withdraws<K: bazuka::db::KvStore>(
 
     let (accepted, _rejected, new_root, proof) =
         b.withdraw(db_mirror, params.clone(), withdraws, cancel.clone())?;
+    println!("Processed {} withdrawals!", accepted.len());
 
     //for tx in accepted.iter().chain(rejected.iter()) {
     //    mempool.remove(&tx.mpn_withdraw.as_ref().unwrap());
@@ -255,6 +257,7 @@ fn process_updates<K: bazuka::db::KvStore>(
     let (accepted, _rejected, new_root, proof) =
         b.change_state(db_mirror, params.clone(), txs, fee_token, cancel.clone())?;
 
+    println!("Processed {} transactions!", accepted.len());
     // WARN: Will fail if accepted transactions have different fee tokens
     let fee_sum = accepted
         .iter()
