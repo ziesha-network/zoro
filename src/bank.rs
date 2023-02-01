@@ -13,6 +13,7 @@ use bellman::groth16::Parameters;
 use bellman::Circuit;
 use bls12_381::Bls12;
 use rand::rngs::OsRng;
+use rayon::prelude::*;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, RwLock};
 use thiserror::Error;
@@ -703,6 +704,18 @@ impl<
 
         let mut mirror = db.mirror();
 
+        let txs = txs
+            .into_par_iter()
+            .filter(|tx| {
+                tx.fee.token_id == fee_token
+                    && tx.src_index(self.mpn_log4_account_capacity)
+                        != tx.dst_index(self.mpn_log4_account_capacity)
+                    && tx.src_pub_key.is_on_curve()
+                    && tx.dst_pub_key.is_on_curve()
+                    && tx.verify()
+            })
+            .collect::<Vec<_>>();
+
         for tx in txs.into_iter() {
             if transitions.len() == 1 << (2 * LOG4_UPDATE_BATCH_SIZE) {
                 break;
@@ -727,13 +740,6 @@ impl<
             };
             let dst_token = dst_before.tokens.get(&tx.dst_token_index);
             if tx.nonce != src_before.nonce
-                || tx.fee.token_id != fee_token
-                || tx.src_index(self.mpn_log4_account_capacity) > 0x3fffffff
-                || tx.dst_index(self.mpn_log4_account_capacity) > 0x3fffffff
-                || tx.src_index(self.mpn_log4_account_capacity)
-                    == tx.dst_index(self.mpn_log4_account_capacity)
-                || !tx.src_pub_key.is_on_curve()
-                || !tx.dst_pub_key.is_on_curve()
                 || src_before.address != tx.src_pub_key.decompress()
                 || (dst_before.address.is_on_curve()
                     && dst_before.address != tx.dst_pub_key.decompress())
@@ -744,7 +750,6 @@ impl<
                             && (tx.amount.token_id != TokenId::Ziesha || tx.amount.amount < min)
                     })
                     .unwrap_or(false)
-                || !tx.verify()
                 || dst_token.is_some() && (src_token.token_id != dst_token.unwrap().token_id)
                 || src_token.token_id != tx.amount.token_id
                 || src_token.amount < tx.amount.amount
