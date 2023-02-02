@@ -15,18 +15,23 @@ use bellman::{groth16, Circuit};
 use bls12_381::Bls12;
 use client::SyncClient;
 use colored::Colorize;
+use hyper::server::conn::AddrStream;
+use hyper::service::{make_service_fn, service_fn};
+use hyper::{Body, Request, Response, Server, StatusCode};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use rayon::prelude::*;
+use std::collections::HashMap;
 use std::fs::File;
+use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::{Arc, RwLock};
 use structopt::StructOpt;
 use zeekit::BellmanFr;
 
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+const LISTEN: &'static str = "0.0.0.0:8767";
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Clone, StructOpt)]
 struct GenerateParamsOpt {
     #[structopt(long, default_value = "update_params.dat")]
     update_circuit_params: PathBuf,
@@ -36,7 +41,13 @@ struct GenerateParamsOpt {
     withdraw_circuit_params: PathBuf,
 }
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Clone, StructOpt)]
+struct ServeOpt {
+    #[structopt(long, default_value = LISTEN)]
+    listen: SocketAddr,
+}
+
+#[derive(Debug, Clone, StructOpt)]
 struct StartOpt {
     #[structopt(long)]
     seed: String,
@@ -62,10 +73,11 @@ struct StartOpt {
     miner_token: String,
 }
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Clone, StructOpt)]
 #[structopt(name = "Zoro", about = "Ziesha's MPN Executor")]
 enum Opt {
     Start(StartOpt),
+    Serve(ServeOpt),
     GenerateParams(GenerateParamsOpt),
 }
 
@@ -287,7 +299,28 @@ fn alice_shuffle() {
     );
 }
 
-fn main() {
+struct ZoroContext {}
+
+async fn process_request(
+    _context: Arc<RwLock<ZoroContext>>,
+    request: Request<Body>,
+    _client: Option<SocketAddr>,
+    opt: ServeOpt,
+) -> Result<Response<Body>, ZoroError> {
+    let url = request.uri().path().to_string();
+    Ok(match &url[..] {
+        "/get" => Response::new(Body::empty()),
+        "/post" => Response::new(Body::empty()),
+        _ => {
+            let mut resp = Response::new(Body::empty());
+            *resp.status_mut() = StatusCode::NOT_FOUND;
+            resp
+        }
+    })
+}
+
+#[tokio::main]
+async fn main() {
     env_logger::init();
     println!(
         "{} v{} - A CPU/GPU-based MPN Executor for Ziesha Cryptocurrency",
@@ -326,6 +359,40 @@ fn main() {
                 >,
                 _,
             >(opt.update_circuit_params, rng.clone());
+        }
+
+        Opt::Serve(opt) => {
+            let context = Arc::new(RwLock::new(ZoroContext {}));
+
+            // Construct our SocketAddr to listen on...
+            let addr = SocketAddr::from(opt.listen);
+
+            // And a MakeService to handle each connection...
+            let ctx_server = Arc::clone(&context);
+            let opt_server = opt.clone();
+            let make_service = make_service_fn(move |conn: &AddrStream| {
+                let client = conn.remote_addr();
+                let opt = opt_server.clone();
+                let ctx = Arc::clone(&ctx_server);
+                async move {
+                    let opt = opt.clone();
+                    let ctx = Arc::clone(&ctx);
+                    Ok::<_, ZoroError>(service_fn(move |req: Request<Body>| {
+                        let opt = opt.clone();
+                        let ctx = Arc::clone(&ctx);
+                        async move {
+                            let resp = process_request(ctx, req, Some(client), opt).await?;
+                            Ok::<_, ZoroError>(resp)
+                        }
+                    }))
+                }
+            });
+            Server::bind(&addr)
+                .http1_only(true)
+                .http1_keepalive(false)
+                .serve(make_service)
+                .await
+                .unwrap();
         }
 
         Opt::Start(opt) => {
