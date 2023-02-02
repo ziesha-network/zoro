@@ -368,6 +368,8 @@ fn main() {
                 false,
             );
 
+            let mut last_height = None;
+
             loop {
                 if let Err(e) = || -> Result<(), ZoroError> {
                     let cancel = Arc::new(RwLock::new(false));
@@ -390,6 +392,15 @@ fn main() {
                     }
 
                     let curr_height = client.get_height()?;
+
+                    if Some(curr_height) == last_height {
+                        log::info!("Proof already generated for height {}!", curr_height);
+                        std::thread::sleep(std::time::Duration::from_millis(1000));
+                        return Ok(());
+                    } else {
+                        last_height = Some(curr_height);
+                    }
+
                     println!("Started on height: {}", curr_height);
 
                     let cancel_cloned = cancel.clone();
