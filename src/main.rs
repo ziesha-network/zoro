@@ -133,6 +133,8 @@ pub enum ZoroError {
     NodeError(#[from] bazuka::client::NodeError),
     #[error("bank error: {0}")]
     BankError(#[from] bank::BankError),
+    #[error("async task join error: {0}")]
+    JoinError(#[from] tokio::task::JoinError),
 }
 
 fn process_deposits<K: bazuka::db::KvStore>(
@@ -438,32 +440,32 @@ async fn main() {
             let mut last_height = None;
 
             loop {
-                if let Err(e) = || -> Result<(), ZoroError> {
+                if let Err(e) = async {
                     let cancel = Arc::new(RwLock::new(false));
 
                     let db_shutter = db_shutter(&opt.db);
                     let db = db_shutter.snapshot();
 
                     // Wait till mine is done
-                    if client.is_mining()? {
+                    if client.is_mining().await? {
                         log::info!("Nothing to mine!");
                         std::thread::sleep(std::time::Duration::from_millis(1000));
-                        return Ok(());
+                        return Ok::<(), ZoroError>(());
                     }
 
                     // Wait till chain gets updated
-                    if client.is_outdated()? {
+                    if client.is_outdated().await? {
                         log::info!("Chain is outdated!");
                         std::thread::sleep(std::time::Duration::from_millis(1000));
-                        return Ok(());
+                        return Ok::<(), ZoroError>(());
                     }
 
-                    let curr_height = client.get_height()?;
+                    let curr_height = client.get_height().await?;
 
                     if Some(curr_height) == last_height {
                         log::info!("Proof already generated for height {}!", curr_height);
                         std::thread::sleep(std::time::Duration::from_millis(1000));
-                        return Ok(());
+                        return Ok::<(), ZoroError>(());
                     } else {
                         last_height = Some(curr_height);
                     }
@@ -472,27 +474,33 @@ async fn main() {
 
                     let cancel_cloned = cancel.clone();
                     let cancel_controller_client = client.clone();
-                    let (cancel_controller_tx, cancel_controller_rx) = std::sync::mpsc::channel();
-                    let cancel_controller = std::thread::spawn(move || loop {
-                        match cancel_controller_rx.try_recv() {
-                            Ok(_) | Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                                break;
-                            }
-                            Err(std::sync::mpsc::TryRecvError::Empty) => {
-                                if let Ok(height) = cancel_controller_client.get_height() {
-                                    if height != curr_height {
-                                        *cancel_cloned.write().unwrap() = true;
+                    let (cancel_controller_tx, mut cancel_controller_rx) =
+                        tokio::sync::mpsc::channel(1);
+                    let cancel_controller = tokio::task::spawn(async move {
+                        loop {
+                            match cancel_controller_rx.try_recv() {
+                                Ok(_)
+                                | Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+                                    break;
+                                }
+                                Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
+                                    if let Ok(height) = cancel_controller_client.get_height().await
+                                    {
+                                        if height != curr_height {
+                                            *cancel_cloned.write().unwrap() = true;
+                                        }
                                     }
                                 }
                             }
+                            std::thread::sleep(std::time::Duration::from_millis(2000));
                         }
-                        std::thread::sleep(std::time::Duration::from_millis(2000));
+                        Ok::<(), ZoroError>(())
                     });
 
                     let mut db_mirror = db.mirror();
-                    let acc = client.get_account(exec_wallet.get_address())?.account;
+                    let acc = client.get_account(exec_wallet.get_address()).await?.account;
 
-                    let mempool = client.get_zero_mempool()?;
+                    let mempool = client.get_zero_mempool().await?;
 
                     let mut updates = Vec::new();
 
@@ -598,13 +606,15 @@ async fn main() {
                         state_delta: Some(delta),
                     };
 
-                    client.transact(tx_delta)?;
+                    client.transact(tx_delta).await?;
 
                     let _ = cancel_controller_tx.send(());
-                    cancel_controller.join().unwrap();
+                    cancel_controller.await??;
 
                     Ok(())
-                }() {
+                }
+                .await
+                {
                     println!("Error happened! Error: {}", e);
                     std::thread::sleep(std::time::Duration::from_millis(1000));
                 }
