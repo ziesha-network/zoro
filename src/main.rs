@@ -475,7 +475,7 @@ async fn main() {
                     let cancel_cloned = cancel.clone();
                     let cancel_controller_client = client.clone();
                     let (cancel_controller_tx, mut cancel_controller_rx) =
-                        tokio::sync::mpsc::channel(1);
+                        tokio::sync::mpsc::unbounded_channel();
                     let cancel_controller = tokio::task::spawn(async move {
                         loop {
                             match cancel_controller_rx.try_recv() {
