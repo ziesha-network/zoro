@@ -10,7 +10,8 @@ use bazuka::config::blockchain::get_blockchain_config;
 use bazuka::core::{Amount, Money, MpnDeposit, MpnWithdraw, TokenId};
 use bazuka::db::KvStore;
 use bazuka::db::ReadOnlyLevelDbKvStore;
-use bazuka::zk::MpnTransaction;
+use bazuka::zk::{MpnTransaction, ZkScalar};
+use bellman::groth16::Backend;
 use bellman::{groth16, Circuit};
 use bls12_381::Bls12;
 use client::SyncClient;
@@ -18,6 +19,7 @@ use colored::Colorize;
 use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Server, StatusCode};
+use rand::rngs::OsRng;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use rayon::prelude::*;
@@ -321,6 +323,108 @@ async fn process_request(
     })
 }
 
+#[derive(Clone)]
+pub struct ZoroParams {
+    deposit: groth16::Parameters<Bls12>,
+    withdraw: groth16::Parameters<Bls12>,
+    update: groth16::Parameters<Bls12>,
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct ZoroWork {
+    circuit: ZoroCircuit,
+    height: u64,
+    state: ZkScalar,
+    aux_data: ZkScalar,
+    next_state: ZkScalar,
+}
+
+impl ZoroWork {
+    fn prove(
+        &self,
+        params: ZoroParams,
+        backend: Backend,
+        cancel: Option<Arc<RwLock<bool>>>,
+    ) -> Result<bazuka::zk::groth16::Groth16Proof, bank::BankError> {
+        let proof = unsafe {
+            std::mem::transmute::<bellman::groth16::Proof<Bls12>, bazuka::zk::groth16::Groth16Proof>(
+                match &self.circuit {
+                    ZoroCircuit::Deposit(circuit) => groth16::create_random_proof(
+                        circuit.clone(),
+                        &params.deposit.clone(),
+                        &mut OsRng,
+                        backend.clone(),
+                        cancel.clone(),
+                    )?,
+                    ZoroCircuit::Withdraw(circuit) => groth16::create_random_proof(
+                        circuit.clone(),
+                        &params.withdraw.clone(),
+                        &mut OsRng,
+                        backend.clone(),
+                        cancel.clone(),
+                    )?,
+                    ZoroCircuit::Update(circuit) => groth16::create_random_proof(
+                        circuit.clone(),
+                        &params.update.clone(),
+                        &mut OsRng,
+                        backend.clone(),
+                        cancel.clone(),
+                    )?,
+                },
+            )
+        };
+
+        let verifier = unsafe {
+            std::mem::transmute::<
+                bellman::groth16::VerifyingKey<Bls12>,
+                bazuka::zk::groth16::Groth16VerifyingKey,
+            >(match self.circuit {
+                ZoroCircuit::Deposit(_) => params.deposit.vk.clone(),
+                ZoroCircuit::Withdraw(_) => params.withdraw.vk.clone(),
+                ZoroCircuit::Update(_) => params.update.vk.clone(),
+            })
+        };
+
+        if bazuka::zk::groth16::groth16_verify(
+            &verifier,
+            self.height,
+            self.state,
+            self.aux_data,
+            self.next_state,
+            &proof,
+        ) {
+            Ok(proof)
+        } else {
+            Err(bank::BankError::IncorrectProof)
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum ZoroCircuit {
+    Deposit(
+        circuits::DepositCircuit<
+            { config::LOG4_DEPOSIT_BATCH_SIZE },
+            { config::LOG4_TREE_SIZE },
+            { config::LOG4_TOKENS_TREE_SIZE },
+        >,
+    ),
+    Withdraw(
+        circuits::WithdrawCircuit<
+            { config::LOG4_WITHDRAW_BATCH_SIZE },
+            { config::LOG4_TREE_SIZE },
+            { config::LOG4_TOKENS_TREE_SIZE },
+        >,
+    ),
+    Update(
+        circuits::UpdateCircuit<
+            { config::LOG4_UPDATE_BATCH_SIZE },
+            { config::LOG4_TREE_SIZE },
+            { config::LOG4_TOKENS_TREE_SIZE },
+        >,
+    ),
+}
+
 #[tokio::main]
 async fn main() {
     env_logger::init();
@@ -424,6 +528,12 @@ async fn main() {
                 >,
                 _,
             >(opt.update_circuit_params, None::<ChaCha20Rng>);
+
+            let zoro_params = ZoroParams {
+                update: update_params.clone(),
+                deposit: deposit_params.clone(),
+                withdraw: withdraw_params.clone(),
+            };
 
             let exec_wallet = bazuka::wallet::TxBuilder::new(&opt.seed.as_bytes().to_vec());
             let node_addr = bazuka::client::PeerAddress(opt.node.parse().unwrap());
