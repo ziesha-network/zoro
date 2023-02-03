@@ -398,7 +398,6 @@ async fn main() {
         }
 
         Opt::Start(opt) => {
-            let exec_wallet = bazuka::wallet::TxBuilder::new(&opt.seed.as_bytes().to_vec());
             let deposit_params = load_params::<
                 circuits::DepositCircuit<
                     { config::LOG4_DEPOSIT_BATCH_SIZE },
@@ -425,26 +424,18 @@ async fn main() {
                 >,
                 _,
             >(opt.update_circuit_params, None::<ChaCha20Rng>);
+
+            let exec_wallet = bazuka::wallet::TxBuilder::new(&opt.seed.as_bytes().to_vec());
             let node_addr = bazuka::client::PeerAddress(opt.node.parse().unwrap());
             let client = SyncClient::new(node_addr, "mainnet", opt.miner_token.clone());
 
             let conf = get_blockchain_config();
-            let b = bank::Bank::new(
-                conf.mpn_log4_account_capacity,
-                conf.mpn_contract_id,
-                Some(Amount(1000000000)),
-                opt.gpu,
-                false,
-            );
 
             let mut last_height = None;
 
             loop {
                 if let Err(e) = async {
                     let cancel = Arc::new(RwLock::new(false));
-
-                    let db_shutter = db_shutter(&opt.db);
-                    let db = db_shutter.snapshot();
 
                     // Wait till mine is done
                     if client.is_mining().await? {
@@ -497,80 +488,100 @@ async fn main() {
                         Ok::<(), ZoroError>(())
                     });
 
-                    let mut db_mirror = db.mirror();
                     let acc = client.get_account(exec_wallet.get_address()).await?.account;
 
                     let mempool = client.get_zero_mempool().await?;
 
-                    let mut updates = Vec::new();
-
-                    for i in 0..opt.deposit_batches {
-                        println!(
-                            "{} Deposit-Transactions ({}/{})...",
-                            "Processing:".bright_yellow(),
-                            i + 1,
-                            opt.deposit_batches
+                    let task_deposit_params = deposit_params.clone();
+                    let task_withdraw_params = withdraw_params.clone();
+                    let task_update_params = update_params.clone();
+                    let task_conf = conf.clone();
+                    let task_opt_db = opt.db.clone();
+                    let (mut updates, proofs, ops) = tokio::task::spawn_blocking(move || -> Result<(Vec< bazuka::core::ContractUpdate>,Vec<bazuka::zk::groth16::Groth16Proof>, Vec<bazuka::db::WriteOp>),ZoroError > {
+                        let db_shutter = db_shutter(&task_opt_db);
+                        let db = db_shutter.snapshot();
+                        let mut db_mirror = db.mirror();
+                        let b = bank::Bank::new(
+                            conf.mpn_log4_account_capacity,
+                            conf.mpn_contract_id,
+                            Some(Amount(1000000000)),
+                            opt.gpu,
+                            false,
                         );
-                        updates.push(process_deposits(
-                            &deposit_params,
-                            &conf,
-                            &mempool.deposits,
-                            &b,
-                            &mut db_mirror,
-                            &cancel,
-                        )?);
-                    }
 
-                    for i in 0..opt.withdraw_batches {
+                        let mut updates = Vec::new();
+
+                        for i in 0..opt.deposit_batches {
+                            println!(
+                                "{} Deposit-Transactions ({}/{})...",
+                                "Processing:".bright_yellow(),
+                                i + 1,
+                                opt.deposit_batches
+                            );
+                            updates.push(process_deposits(
+                                &task_deposit_params,
+                                &task_conf,
+                                &mempool.deposits,
+                                &b,
+                                &mut db_mirror,
+                                &cancel,
+                            )?);
+                        }
+
+                        for i in 0..opt.withdraw_batches {
+                            println!(
+                                "{} Withdraw-Transactions ({}/{})...",
+                                "Processing:".bright_yellow(),
+                                i + 1,
+                                opt.withdraw_batches
+                            );
+                            updates.push(process_withdraws(
+                                &task_withdraw_params,
+                                &task_conf,
+                                &mempool.withdraws,
+                                &b,
+                                &mut db_mirror,
+                                &cancel,
+                            )?);
+                        }
+
+                        for i in 0..opt.update_batches {
+                            println!(
+                                "{} Zero-Transactions ({}/{})...",
+                                "Processing:".bright_yellow(),
+                                i + 1,
+                                opt.update_batches
+                            );
+                            updates.push(process_updates(
+                                &task_update_params,
+                                &mempool.updates,
+                                &b,
+                                &mut db_mirror,
+                                &cancel,
+                            )?);
+                        }
+
+                        let (updates, provers): (
+                            Vec<bazuka::core::ContractUpdate>,
+                            Vec<Box<dyn bank::Provable>>,
+                        ) = updates.into_iter().unzip();
+
+                        let start = std::time::Instant::now();
+                        alice_shuffle();
+                        let proofs: Vec<bazuka::zk::groth16::Groth16Proof> = provers
+                            .into_par_iter()
+                            .map(|p| p.prove())
+                            .collect::<Result<Vec<bazuka::zk::groth16::Groth16Proof>, bank::BankError>>(
+                            )?;
                         println!(
-                            "{} Withdraw-Transactions ({}/{})...",
-                            "Processing:".bright_yellow(),
-                            i + 1,
-                            opt.withdraw_batches
+                            "{} {}ms",
+                            "Proving took:".bright_green(),
+                            (std::time::Instant::now() - start).as_millis()
                         );
-                        updates.push(process_withdraws(
-                            &withdraw_params,
-                            &conf,
-                            &mempool.withdraws,
-                            &b,
-                            &mut db_mirror,
-                            &cancel,
-                        )?);
-                    }
+                        let ops = db_mirror.to_ops();
+                        Ok((updates, proofs, ops))
+                    }).await??;
 
-                    for i in 0..opt.update_batches {
-                        println!(
-                            "{} Zero-Transactions ({}/{})...",
-                            "Processing:".bright_yellow(),
-                            i + 1,
-                            opt.update_batches
-                        );
-                        updates.push(process_updates(
-                            &update_params,
-                            &mempool.updates,
-                            &b,
-                            &mut db_mirror,
-                            &cancel,
-                        )?);
-                    }
-
-                    let (mut updates, provers): (
-                        Vec<bazuka::core::ContractUpdate>,
-                        Vec<Box<dyn bank::Provable>>,
-                    ) = updates.into_iter().unzip();
-
-                    let start = std::time::Instant::now();
-                    alice_shuffle();
-                    let proofs: Vec<bazuka::zk::groth16::Groth16Proof> = provers
-                        .into_par_iter()
-                        .map(|p| p.prove())
-                        .collect::<Result<Vec<bazuka::zk::groth16::Groth16Proof>, bank::BankError>>(
-                        )?;
-                    println!(
-                        "{} {}ms",
-                        "Proving took:".bright_green(),
-                        (std::time::Instant::now() - start).as_millis()
-                    );
                     for (upd, p) in updates.iter_mut().zip(proofs.into_iter()) {
                         match upd {
                             bazuka::core::ContractUpdate::Deposit { proof, .. } => {
@@ -598,7 +609,7 @@ async fn main() {
                     };
                     exec_wallet.sign_tx(&mut update);
 
-                    let ops = db_mirror.to_ops();
+
                     let delta = bank::extract_delta(ops);
 
                     let tx_delta = bazuka::core::TransactionAndDelta {
