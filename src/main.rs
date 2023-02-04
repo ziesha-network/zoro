@@ -346,14 +346,16 @@ async fn process_request(
     _client: Option<SocketAddr>,
     opt: StartOpt,
 ) -> Result<Response<Body>, ZoroError> {
-    let ctx = context.read().await;
     let url = request.uri().path().to_string();
     Ok(match &url[..] {
         "/stats" => {
-            let resp = GetStatsResponse { height: ctx.height };
+            let resp = GetStatsResponse {
+                height: context.read().await.height,
+            };
             Response::new(Body::from(serde_json::to_vec(&resp)?))
         }
         "/get" => {
+            let ctx = context.read().await;
             let resp = GetWorkResponse {
                 height: ctx.height,
                 works: ctx.works.clone(),
@@ -364,8 +366,8 @@ async fn process_request(
             let body = request.into_body();
             let body_bytes = hyper::body::to_bytes(body).await?;
             let req: PostProofRequest = bincode::deserialize(&body_bytes)?;
+            let mut ctx = context.write().await;
             if ctx.height == Some(req.height) {
-                let mut ctx = context.write().await;
                 for (id, p) in req.proofs {
                     if let Some(w) = ctx.works.get(&id) {
                         if w.verify(&ctx.params, &p) {
