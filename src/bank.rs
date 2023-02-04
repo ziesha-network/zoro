@@ -1,23 +1,19 @@
 use crate::circuits;
-use crate::circuits::{Deposit, DepositCircuit, UpdateCircuit, Withdraw, WithdrawCircuit};
+use crate::circuits::{Deposit, Withdraw};
 use bazuka::zk::ZkScalar;
 use bazuka::{
     core::{Amount, ContractId, Money, TokenId, ZkHasher},
     db::KvStore,
     zk::{KvStoreStateManager, MpnAccount, MpnTransaction, ZkDataLocator},
 };
-use bellman::gpu::{Brand, Device};
 use bellman::groth16;
 use bellman::groth16::Backend;
-use bellman::groth16::Parameters;
-use bellman::Circuit;
 use bls12_381::Bls12;
 use rand::rngs::OsRng;
 use rayon::prelude::*;
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 use thiserror::Error;
-use zeekit::BellmanFr;
 
 #[derive(Error, Debug)]
 pub enum BankError {
@@ -36,47 +32,101 @@ pub struct Bank<
     const LOG4_TREE_SIZE: u8,
     const LOG4_TOKENS_TREE_SIZE: u8,
 > {
-    backend: Backend,
     mpn_contract_id: ContractId,
     mpn_log4_account_capacity: u8,
     mpn_minimum_ziesha_balance: Option<Amount>,
-    debug: bool,
 }
 
-pub struct SnarkWork<C: Circuit<BellmanFr> + Clone> {
-    circuit: C,
-    params: Parameters<Bls12>,
-    backend: Backend,
-    cancel: Option<Arc<RwLock<bool>>>,
-    verifier: bazuka::zk::groth16::Groth16VerifyingKey,
+#[derive(Clone)]
+pub struct ZoroParams {
+    pub deposit: groth16::Parameters<Bls12>,
+    pub withdraw: groth16::Parameters<Bls12>,
+    pub update: groth16::Parameters<Bls12>,
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct ZoroWork<
+    const LOG4_DEPOSIT_BATCH_SIZE: u8,
+    const LOG4_WITHDRAW_BATCH_SIZE: u8,
+    const LOG4_UPDATE_BATCH_SIZE: u8,
+    const LOG4_TREE_SIZE: u8,
+    const LOG4_TOKENS_TREE_SIZE: u8,
+> {
+    circuit: ZoroCircuit<
+        LOG4_DEPOSIT_BATCH_SIZE,
+        LOG4_WITHDRAW_BATCH_SIZE,
+        LOG4_UPDATE_BATCH_SIZE,
+        LOG4_TREE_SIZE,
+        LOG4_TOKENS_TREE_SIZE,
+    >,
     height: u64,
     state: ZkScalar,
     aux_data: ZkScalar,
     next_state: ZkScalar,
 }
-unsafe impl<C: Circuit<BellmanFr> + Clone> std::marker::Send for SnarkWork<C> {}
-unsafe impl<C: Circuit<BellmanFr> + Clone> std::marker::Sync for SnarkWork<C> {}
 
-pub trait Provable: std::marker::Send + std::marker::Sync {
-    fn prove(&self) -> Result<bazuka::zk::groth16::Groth16Proof, BankError>;
-}
-
-impl<C: Circuit<BellmanFr> + Clone> Provable for SnarkWork<C> {
-    fn prove(&self) -> Result<bazuka::zk::groth16::Groth16Proof, BankError> {
+impl<
+        const LOG4_DEPOSIT_BATCH_SIZE: u8,
+        const LOG4_WITHDRAW_BATCH_SIZE: u8,
+        const LOG4_UPDATE_BATCH_SIZE: u8,
+        const LOG4_TREE_SIZE: u8,
+        const LOG4_TOKENS_TREE_SIZE: u8,
+    >
+    ZoroWork<
+        LOG4_DEPOSIT_BATCH_SIZE,
+        LOG4_WITHDRAW_BATCH_SIZE,
+        LOG4_UPDATE_BATCH_SIZE,
+        LOG4_TREE_SIZE,
+        LOG4_TOKENS_TREE_SIZE,
+    >
+{
+    pub fn prove(
+        &self,
+        params: ZoroParams,
+        backend: Backend,
+        cancel: Option<Arc<RwLock<bool>>>,
+    ) -> Result<bazuka::zk::groth16::Groth16Proof, BankError> {
         let proof = unsafe {
             std::mem::transmute::<bellman::groth16::Proof<Bls12>, bazuka::zk::groth16::Groth16Proof>(
-                groth16::create_random_proof(
-                    self.circuit.clone(),
-                    &self.params,
-                    &mut OsRng,
-                    self.backend.clone(),
-                    self.cancel.clone(),
-                )?,
+                match &self.circuit {
+                    ZoroCircuit::Deposit(circuit) => groth16::create_random_proof(
+                        circuit.clone(),
+                        &params.deposit.clone(),
+                        &mut OsRng,
+                        backend.clone(),
+                        cancel.clone(),
+                    )?,
+                    ZoroCircuit::Withdraw(circuit) => groth16::create_random_proof(
+                        circuit.clone(),
+                        &params.withdraw.clone(),
+                        &mut OsRng,
+                        backend.clone(),
+                        cancel.clone(),
+                    )?,
+                    ZoroCircuit::Update(circuit) => groth16::create_random_proof(
+                        circuit.clone(),
+                        &params.update.clone(),
+                        &mut OsRng,
+                        backend.clone(),
+                        cancel.clone(),
+                    )?,
+                },
             )
         };
 
+        let verifier = unsafe {
+            std::mem::transmute::<
+                bellman::groth16::VerifyingKey<Bls12>,
+                bazuka::zk::groth16::Groth16VerifyingKey,
+            >(match self.circuit {
+                ZoroCircuit::Deposit(_) => params.deposit.vk.clone(),
+                ZoroCircuit::Withdraw(_) => params.withdraw.vk.clone(),
+                ZoroCircuit::Update(_) => params.update.vk.clone(),
+            })
+        };
+
         if bazuka::zk::groth16::groth16_verify(
-            &self.verifier,
+            &verifier,
             self.height,
             self.state,
             self.aux_data,
@@ -88,6 +138,37 @@ impl<C: Circuit<BellmanFr> + Clone> Provable for SnarkWork<C> {
             Err(BankError::IncorrectProof)
         }
     }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum ZoroCircuit<
+    const LOG4_DEPOSIT_BATCH_SIZE: u8,
+    const LOG4_WITHDRAW_BATCH_SIZE: u8,
+    const LOG4_UPDATE_BATCH_SIZE: u8,
+    const LOG4_TREE_SIZE: u8,
+    const LOG4_TOKENS_TREE_SIZE: u8,
+> {
+    Deposit(
+        circuits::DepositCircuit<
+            { LOG4_DEPOSIT_BATCH_SIZE },
+            { LOG4_TREE_SIZE },
+            { LOG4_TOKENS_TREE_SIZE },
+        >,
+    ),
+    Withdraw(
+        circuits::WithdrawCircuit<
+            { LOG4_WITHDRAW_BATCH_SIZE },
+            { LOG4_TREE_SIZE },
+            { LOG4_TOKENS_TREE_SIZE },
+        >,
+    ),
+    Update(
+        circuits::UpdateCircuit<
+            { LOG4_UPDATE_BATCH_SIZE },
+            { LOG4_TREE_SIZE },
+            { LOG4_TOKENS_TREE_SIZE },
+        >,
+    ),
 }
 
 pub fn extract_delta(ops: Vec<bazuka::db::WriteOp>) -> bazuka::zk::ZkDeltaPairs {
@@ -134,34 +215,8 @@ impl<
         mpn_log4_account_capacity: u8,
         mpn_contract_id: ContractId,
         mpn_minimum_ziesha_balance: Option<Amount>,
-        gpu: bool,
-        debug: bool,
     ) -> Self {
         Self {
-            debug,
-            backend: if gpu {
-                Backend::Gpu(Arc::new(Mutex::new(
-                    Device::by_brand(Brand::Nvidia)
-                        .unwrap()
-                        .into_iter()
-                        .map(|d| {
-                            (
-                                d,
-                                bellman::gpu::OptParams {
-                                    n_g1: 32 * 1024 * 1024,
-                                    window_size_g1: 10,
-                                    groups_g1: 807,
-                                    n_g2: 16 * 1024 * 1024,
-                                    window_size_g2: 9,
-                                    groups_g2: 723,
-                                },
-                            )
-                        })
-                        .collect(),
-                )))
-            } else {
-                Backend::Cpu
-            },
             mpn_contract_id,
             mpn_log4_account_capacity,
             mpn_minimum_ziesha_balance,
@@ -171,20 +226,18 @@ impl<
     pub fn withdraw<K: KvStore>(
         &self,
         db: &mut K,
-        params: Parameters<Bls12>,
         txs: Vec<Withdraw>,
-        cancel: Arc<RwLock<bool>>,
     ) -> Result<
         (
             Vec<Withdraw>,
             Vec<Withdraw>,
             bazuka::zk::ZkCompressedState,
-            SnarkWork<
-                WithdrawCircuit<
-                    { LOG4_WITHDRAW_BATCH_SIZE },
-                    { LOG4_TREE_SIZE },
-                    { LOG4_TOKENS_TREE_SIZE },
-                >,
+            ZoroWork<
+                LOG4_DEPOSIT_BATCH_SIZE,
+                LOG4_WITHDRAW_BATCH_SIZE,
+                LOG4_UPDATE_BATCH_SIZE,
+                LOG4_TREE_SIZE,
+                LOG4_TOKENS_TREE_SIZE,
             >,
         ),
         BankError,
@@ -417,27 +470,8 @@ impl<
                 state_hash: next_state,
                 state_size,
             },
-            SnarkWork::<
-                WithdrawCircuit<
-                    { LOG4_WITHDRAW_BATCH_SIZE },
-                    { LOG4_TREE_SIZE },
-                    { LOG4_TOKENS_TREE_SIZE },
-                >,
-            > {
-                circuit,
-                params: params.clone(),
-                backend: self.backend.clone(),
-                cancel: Some(cancel),
-                verifier: if self.debug {
-                    unsafe {
-                        std::mem::transmute::<
-                            bellman::groth16::VerifyingKey<Bls12>,
-                            bazuka::zk::groth16::Groth16VerifyingKey,
-                        >(params.vk.clone())
-                    }
-                } else {
-                    bazuka::config::blockchain::MPN_WITHDRAW_VK.clone()
-                },
+            ZoroWork {
+                circuit: ZoroCircuit::Withdraw(circuit),
                 height,
                 state,
                 aux_data,
@@ -449,20 +483,18 @@ impl<
     pub fn deposit<K: KvStore>(
         &self,
         db: &mut K,
-        params: Parameters<Bls12>,
         txs: Vec<Deposit>,
-        cancel: Arc<RwLock<bool>>,
     ) -> Result<
         (
             Vec<Deposit>,
             Vec<Deposit>,
             bazuka::zk::ZkCompressedState,
-            SnarkWork<
-                DepositCircuit<
-                    { LOG4_DEPOSIT_BATCH_SIZE },
-                    { LOG4_TREE_SIZE },
-                    { LOG4_TOKENS_TREE_SIZE },
-                >,
+            ZoroWork<
+                LOG4_DEPOSIT_BATCH_SIZE,
+                LOG4_WITHDRAW_BATCH_SIZE,
+                LOG4_UPDATE_BATCH_SIZE,
+                LOG4_TREE_SIZE,
+                LOG4_TOKENS_TREE_SIZE,
             >,
         ),
         BankError,
@@ -642,27 +674,8 @@ impl<
                 state_hash: next_state,
                 state_size,
             },
-            SnarkWork::<
-                DepositCircuit<
-                    { LOG4_DEPOSIT_BATCH_SIZE },
-                    { LOG4_TREE_SIZE },
-                    { LOG4_TOKENS_TREE_SIZE },
-                >,
-            > {
-                circuit,
-                params: params.clone(),
-                backend: self.backend.clone(),
-                cancel: Some(cancel),
-                verifier: if self.debug {
-                    unsafe {
-                        std::mem::transmute::<
-                            bellman::groth16::VerifyingKey<Bls12>,
-                            bazuka::zk::groth16::Groth16VerifyingKey,
-                        >(params.vk.clone())
-                    }
-                } else {
-                    bazuka::config::blockchain::MPN_DEPOSIT_VK.clone()
-                },
+            ZoroWork {
+                circuit: ZoroCircuit::Deposit(circuit),
                 height,
                 state,
                 aux_data,
@@ -673,21 +686,19 @@ impl<
     pub fn change_state<K: KvStore>(
         &self,
         db: &mut K,
-        params: Parameters<Bls12>,
         txs: Vec<MpnTransaction>,
         fee_token: TokenId,
-        cancel: Arc<RwLock<bool>>,
     ) -> Result<
         (
             Vec<MpnTransaction>,
             Vec<MpnTransaction>,
             bazuka::zk::ZkCompressedState,
-            SnarkWork<
-                UpdateCircuit<
-                    { LOG4_UPDATE_BATCH_SIZE },
-                    { LOG4_TREE_SIZE },
-                    { LOG4_TOKENS_TREE_SIZE },
-                >,
+            ZoroWork<
+                LOG4_DEPOSIT_BATCH_SIZE,
+                LOG4_WITHDRAW_BATCH_SIZE,
+                LOG4_UPDATE_BATCH_SIZE,
+                LOG4_TREE_SIZE,
+                LOG4_TOKENS_TREE_SIZE,
             >,
         ),
         BankError,
@@ -946,27 +957,8 @@ impl<
                 state_hash: next_state,
                 state_size,
             },
-            SnarkWork::<
-                UpdateCircuit<
-                    { LOG4_UPDATE_BATCH_SIZE },
-                    { LOG4_TREE_SIZE },
-                    { LOG4_TOKENS_TREE_SIZE },
-                >,
-            > {
-                circuit,
-                params: params.clone(),
-                backend: self.backend.clone(),
-                cancel: Some(cancel),
-                verifier: if self.debug {
-                    unsafe {
-                        std::mem::transmute::<
-                            bellman::groth16::VerifyingKey<Bls12>,
-                            bazuka::zk::groth16::Groth16VerifyingKey,
-                        >(params.vk.clone())
-                    }
-                } else {
-                    bazuka::config::blockchain::MPN_UPDATE_VK.clone()
-                },
+            ZoroWork {
+                circuit: ZoroCircuit::Update(circuit),
                 height,
                 state,
                 aux_data,

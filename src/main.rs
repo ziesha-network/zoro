@@ -10,7 +10,8 @@ use bazuka::config::blockchain::get_blockchain_config;
 use bazuka::core::{Amount, Money, MpnDeposit, MpnWithdraw, TokenId};
 use bazuka::db::KvStore;
 use bazuka::db::ReadOnlyLevelDbKvStore;
-use bazuka::zk::{MpnTransaction, ZkScalar};
+use bazuka::zk::MpnTransaction;
+use bellman::gpu::{Brand, Device};
 use bellman::groth16::Backend;
 use bellman::{groth16, Circuit};
 use bls12_381::Bls12;
@@ -19,7 +20,6 @@ use colored::Colorize;
 use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Server, StatusCode};
-use rand::rngs::OsRng;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use rayon::prelude::*;
@@ -27,6 +27,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::Mutex;
 use std::sync::{Arc, RwLock};
 use structopt::StructOpt;
 use zeekit::BellmanFr;
@@ -139,8 +140,15 @@ pub enum ZoroError {
     JoinError(#[from] tokio::task::JoinError),
 }
 
+type ZoroWork = bank::ZoroWork<
+    { config::LOG4_DEPOSIT_BATCH_SIZE },
+    { config::LOG4_WITHDRAW_BATCH_SIZE },
+    { config::LOG4_UPDATE_BATCH_SIZE },
+    { config::LOG4_TREE_SIZE },
+    { config::LOG4_TOKENS_TREE_SIZE },
+>;
+
 fn process_deposits<K: bazuka::db::KvStore>(
-    params: &groth16::Parameters<Bls12>,
     conf: &BlockchainConfig,
     mempool: &[MpnDeposit],
     b: &bank::Bank<
@@ -151,8 +159,7 @@ fn process_deposits<K: bazuka::db::KvStore>(
         { config::LOG4_TOKENS_TREE_SIZE },
     >,
     db_mirror: &mut bazuka::db::RamMirrorKvStore<K>,
-    cancel: &Arc<RwLock<bool>>,
-) -> Result<(bazuka::core::ContractUpdate, Box<dyn bank::Provable>), ZoroError> {
+) -> Result<(bazuka::core::ContractUpdate, ZoroWork), ZoroError> {
     let mut mpn_deposits = mempool
         .iter()
         .filter(|dw| dw.payment.contract_id == conf.mpn_contract_id)
@@ -178,8 +185,7 @@ fn process_deposits<K: bazuka::db::KvStore>(
         deposits.push(d);
     }
 
-    let (accepted, _rejected, new_root, proof) =
-        b.deposit(db_mirror, params.clone(), deposits, cancel.clone())?;
+    let (accepted, _rejected, new_root, proof) = b.deposit(db_mirror, deposits)?;
     println!("Processed {} deposits!", accepted.len());
 
     //for tx in accepted.iter().chain(rejected.iter()) {
@@ -196,12 +202,11 @@ fn process_deposits<K: bazuka::db::KvStore>(
             next_state: new_root,
             proof: bazuka::zk::ZkProof::Groth16(Box::new(Default::default())),
         },
-        Box::new(proof),
+        proof,
     ))
 }
 
 fn process_withdraws<K: bazuka::db::KvStore>(
-    params: &groth16::Parameters<Bls12>,
     conf: &BlockchainConfig,
     mempool: &[MpnWithdraw],
     b: &bank::Bank<
@@ -212,8 +217,7 @@ fn process_withdraws<K: bazuka::db::KvStore>(
         { config::LOG4_TOKENS_TREE_SIZE },
     >,
     db_mirror: &mut bazuka::db::RamMirrorKvStore<K>,
-    cancel: &Arc<RwLock<bool>>,
-) -> Result<(bazuka::core::ContractUpdate, Box<dyn bank::Provable>), ZoroError> {
+) -> Result<(bazuka::core::ContractUpdate, ZoroWork), ZoroError> {
     let mut withdraws = mempool
         .iter()
         .filter(|dw| dw.payment.contract_id == conf.mpn_contract_id)
@@ -232,8 +236,7 @@ fn process_withdraws<K: bazuka::db::KvStore>(
         .collect::<Vec<_>>();
     withdraws.sort_unstable_by_key(|t| t.nonce);
 
-    let (accepted, _rejected, new_root, proof) =
-        b.withdraw(db_mirror, params.clone(), withdraws, cancel.clone())?;
+    let (accepted, _rejected, new_root, proof) = b.withdraw(db_mirror, withdraws)?;
     println!("Processed {} withdrawals!", accepted.len());
 
     //for tx in accepted.iter().chain(rejected.iter()) {
@@ -250,12 +253,11 @@ fn process_withdraws<K: bazuka::db::KvStore>(
             next_state: new_root,
             proof: bazuka::zk::ZkProof::Groth16(Box::new(Default::default())),
         },
-        Box::new(proof),
+        proof,
     ))
 }
 
 fn process_updates<K: bazuka::db::KvStore>(
-    params: &groth16::Parameters<Bls12>,
     mempool: &[MpnTransaction],
     b: &bank::Bank<
         { config::LOG4_DEPOSIT_BATCH_SIZE },
@@ -265,13 +267,11 @@ fn process_updates<K: bazuka::db::KvStore>(
         { config::LOG4_TOKENS_TREE_SIZE },
     >,
     db_mirror: &mut bazuka::db::RamMirrorKvStore<K>,
-    cancel: &Arc<RwLock<bool>>,
-) -> Result<(bazuka::core::ContractUpdate, Box<dyn bank::Provable>), ZoroError> {
+) -> Result<(bazuka::core::ContractUpdate, ZoroWork), ZoroError> {
     let mut txs: Vec<_> = mempool.iter().cloned().collect();
     txs.sort_unstable_by_key(|t| t.nonce);
     let fee_token = TokenId::Ziesha;
-    let (accepted, _rejected, new_root, proof) =
-        b.change_state(db_mirror, params.clone(), txs, fee_token, cancel.clone())?;
+    let (accepted, _rejected, new_root, proof) = b.change_state(db_mirror, txs, fee_token)?;
 
     println!("Processed {} transactions!", accepted.len());
     // WARN: Will fail if accepted transactions have different fee tokens
@@ -290,7 +290,7 @@ fn process_updates<K: bazuka::db::KvStore>(
             next_state: new_root,
             proof: bazuka::zk::ZkProof::Groth16(Box::new(Default::default())),
         },
-        Box::new(proof),
+        proof,
     ))
 }
 
@@ -321,108 +321,6 @@ async fn process_request(
             resp
         }
     })
-}
-
-#[derive(Clone)]
-pub struct ZoroParams {
-    deposit: groth16::Parameters<Bls12>,
-    withdraw: groth16::Parameters<Bls12>,
-    update: groth16::Parameters<Bls12>,
-}
-
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
-pub struct ZoroWork {
-    circuit: ZoroCircuit,
-    height: u64,
-    state: ZkScalar,
-    aux_data: ZkScalar,
-    next_state: ZkScalar,
-}
-
-impl ZoroWork {
-    fn prove(
-        &self,
-        params: ZoroParams,
-        backend: Backend,
-        cancel: Option<Arc<RwLock<bool>>>,
-    ) -> Result<bazuka::zk::groth16::Groth16Proof, bank::BankError> {
-        let proof = unsafe {
-            std::mem::transmute::<bellman::groth16::Proof<Bls12>, bazuka::zk::groth16::Groth16Proof>(
-                match &self.circuit {
-                    ZoroCircuit::Deposit(circuit) => groth16::create_random_proof(
-                        circuit.clone(),
-                        &params.deposit.clone(),
-                        &mut OsRng,
-                        backend.clone(),
-                        cancel.clone(),
-                    )?,
-                    ZoroCircuit::Withdraw(circuit) => groth16::create_random_proof(
-                        circuit.clone(),
-                        &params.withdraw.clone(),
-                        &mut OsRng,
-                        backend.clone(),
-                        cancel.clone(),
-                    )?,
-                    ZoroCircuit::Update(circuit) => groth16::create_random_proof(
-                        circuit.clone(),
-                        &params.update.clone(),
-                        &mut OsRng,
-                        backend.clone(),
-                        cancel.clone(),
-                    )?,
-                },
-            )
-        };
-
-        let verifier = unsafe {
-            std::mem::transmute::<
-                bellman::groth16::VerifyingKey<Bls12>,
-                bazuka::zk::groth16::Groth16VerifyingKey,
-            >(match self.circuit {
-                ZoroCircuit::Deposit(_) => params.deposit.vk.clone(),
-                ZoroCircuit::Withdraw(_) => params.withdraw.vk.clone(),
-                ZoroCircuit::Update(_) => params.update.vk.clone(),
-            })
-        };
-
-        if bazuka::zk::groth16::groth16_verify(
-            &verifier,
-            self.height,
-            self.state,
-            self.aux_data,
-            self.next_state,
-            &proof,
-        ) {
-            Ok(proof)
-        } else {
-            Err(bank::BankError::IncorrectProof)
-        }
-    }
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub enum ZoroCircuit {
-    Deposit(
-        circuits::DepositCircuit<
-            { config::LOG4_DEPOSIT_BATCH_SIZE },
-            { config::LOG4_TREE_SIZE },
-            { config::LOG4_TOKENS_TREE_SIZE },
-        >,
-    ),
-    Withdraw(
-        circuits::WithdrawCircuit<
-            { config::LOG4_WITHDRAW_BATCH_SIZE },
-            { config::LOG4_TREE_SIZE },
-            { config::LOG4_TOKENS_TREE_SIZE },
-        >,
-    ),
-    Update(
-        circuits::UpdateCircuit<
-            { config::LOG4_UPDATE_BATCH_SIZE },
-            { config::LOG4_TREE_SIZE },
-            { config::LOG4_TOKENS_TREE_SIZE },
-        >,
-    ),
 }
 
 #[tokio::main]
@@ -529,10 +427,34 @@ async fn main() {
                 _,
             >(opt.update_circuit_params, None::<ChaCha20Rng>);
 
-            let zoro_params = ZoroParams {
+            let zoro_params = bank::ZoroParams {
                 update: update_params.clone(),
                 deposit: deposit_params.clone(),
                 withdraw: withdraw_params.clone(),
+            };
+
+            let backend = if opt.gpu {
+                Backend::Gpu(Arc::new(Mutex::new(
+                    Device::by_brand(Brand::Nvidia)
+                        .unwrap()
+                        .into_iter()
+                        .map(|d| {
+                            (
+                                d,
+                                bellman::gpu::OptParams {
+                                    n_g1: 32 * 1024 * 1024,
+                                    window_size_g1: 10,
+                                    groups_g1: 807,
+                                    n_g2: 16 * 1024 * 1024,
+                                    window_size_g2: 9,
+                                    groups_g2: 723,
+                                },
+                            )
+                        })
+                        .collect(),
+                )))
+            } else {
+                Backend::Cpu
             };
 
             let exec_wallet = bazuka::wallet::TxBuilder::new(&opt.seed.as_bytes().to_vec());
@@ -545,6 +467,8 @@ async fn main() {
 
             loop {
                 if let Err(e) = async {
+                    let backend = backend.clone();
+                    let zoro_params = zoro_params.clone();
                     let cancel = Arc::new(RwLock::new(false));
 
                     // Wait till mine is done
@@ -601,10 +525,6 @@ async fn main() {
                     let acc = client.get_account(exec_wallet.get_address()).await?.account;
 
                     let mempool = client.get_zero_mempool().await?;
-
-                    let task_deposit_params = deposit_params.clone();
-                    let task_withdraw_params = withdraw_params.clone();
-                    let task_update_params = update_params.clone();
                     let task_conf = conf.clone();
                     let task_opt_db = opt.db.clone();
                     let (mut updates, proofs, ops) = tokio::task::spawn_blocking(move || -> Result<(Vec< bazuka::core::ContractUpdate>,Vec<bazuka::zk::groth16::Groth16Proof>, Vec<bazuka::db::WriteOp>),ZoroError > {
@@ -615,8 +535,6 @@ async fn main() {
                             conf.mpn_log4_account_capacity,
                             conf.mpn_contract_id,
                             Some(Amount(1000000000)),
-                            opt.gpu,
-                            false,
                         );
 
                         let mut updates = Vec::new();
@@ -629,12 +547,10 @@ async fn main() {
                                 opt.deposit_batches
                             );
                             updates.push(process_deposits(
-                                &task_deposit_params,
                                 &task_conf,
                                 &mempool.deposits,
                                 &b,
                                 &mut db_mirror,
-                                &cancel,
                             )?);
                         }
 
@@ -646,12 +562,10 @@ async fn main() {
                                 opt.withdraw_batches
                             );
                             updates.push(process_withdraws(
-                                &task_withdraw_params,
                                 &task_conf,
                                 &mempool.withdraws,
                                 &b,
                                 &mut db_mirror,
-                                &cancel,
                             )?);
                         }
 
@@ -663,24 +577,22 @@ async fn main() {
                                 opt.update_batches
                             );
                             updates.push(process_updates(
-                                &task_update_params,
                                 &mempool.updates,
                                 &b,
                                 &mut db_mirror,
-                                &cancel,
                             )?);
                         }
 
                         let (updates, provers): (
                             Vec<bazuka::core::ContractUpdate>,
-                            Vec<Box<dyn bank::Provable>>,
+                            Vec<ZoroWork>,
                         ) = updates.into_iter().unzip();
 
                         let start = std::time::Instant::now();
                         alice_shuffle();
                         let proofs: Vec<bazuka::zk::groth16::Groth16Proof> = provers
                             .into_par_iter()
-                            .map(|p| p.prove())
+                            .map(|p| p.prove(zoro_params.clone(), backend.clone(), Some(cancel.clone())))
                             .collect::<Result<Vec<bazuka::zk::groth16::Groth16Proof>, bank::BankError>>(
                             )?;
                         println!(
