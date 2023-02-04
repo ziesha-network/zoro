@@ -30,6 +30,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::{Arc, RwLock};
 use structopt::StructOpt;
+use tokio::sync::RwLock as AsyncRwLock;
 use zeekit::BellmanFr;
 
 const LISTEN: &'static str = "0.0.0.0:8767";
@@ -135,6 +136,8 @@ pub enum ZoroError {
     JoinError(#[from] tokio::task::JoinError),
     #[error("http server error: {0}")]
     HttpServerError(#[from] hyper::Error),
+    #[error("bincode error: {0}")]
+    BincodeError(#[from] bincode::Error),
 }
 
 type ZoroWork = bank::ZoroWork<
@@ -300,17 +303,39 @@ fn alice_shuffle() {
     );
 }
 
-struct ZoroContext {}
+struct ZoroContext {
+    works: HashMap<u32, ZoroWork>,
+    counter: u32,
+}
+impl ZoroContext {
+    fn add_work(&mut self, work: ZoroWork) {
+        self.works.insert(self.counter, work);
+        self.counter += 1;
+    }
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct GetWorkRequest {}
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct GetWorkResponse {
+    works: HashMap<u32, ZoroWork>,
+}
 
 async fn process_request(
-    _context: Arc<RwLock<ZoroContext>>,
+    context: Arc<AsyncRwLock<ZoroContext>>,
     request: Request<Body>,
     _client: Option<SocketAddr>,
     opt: StartOpt,
 ) -> Result<Response<Body>, ZoroError> {
+    let ctx = context.read().await;
     let url = request.uri().path().to_string();
     Ok(match &url[..] {
-        "/get" => Response::new(Body::empty()),
+        "/get" => {
+            let resp = GetWorkResponse {
+                works: ctx.works.clone(),
+            };
+            Response::new(Body::from(bincode::serialize(&resp)?))
+        }
         "/post" => Response::new(Body::empty()),
         _ => {
             let mut resp = Response::new(Body::empty());
@@ -363,7 +388,10 @@ async fn main() {
         }
 
         Opt::Start(opt) => {
-            let context = Arc::new(RwLock::new(ZoroContext {}));
+            let context = Arc::new(AsyncRwLock::new(ZoroContext {
+                works: HashMap::new(),
+                counter: 0,
+            }));
 
             // Construct our SocketAddr to listen on...
             let addr = SocketAddr::from(opt.listen);
@@ -525,7 +553,7 @@ async fn main() {
                     let mempool = client.get_zero_mempool().await?;
                     let task_conf = conf.clone();
                     let task_opt_db = opt.db.clone();
-                    let (mut updates, proofs, ops) = tokio::task::spawn_blocking(move || -> Result<(Vec< bazuka::core::ContractUpdate>,Vec<bazuka::zk::groth16::Groth16Proof>, Vec<bazuka::db::WriteOp>),ZoroError > {
+                    let (mut updates, provers, ops) = tokio::task::spawn_blocking(move || -> Result<(Vec< bazuka::core::ContractUpdate>,Vec<ZoroWork>, Vec<bazuka::db::WriteOp>),ZoroError > {
                         let db_shutter = db_shutter(&task_opt_db);
                         let db = db_shutter.snapshot();
                         let mut db_mirror = db.mirror();
@@ -585,7 +613,17 @@ async fn main() {
                             Vec<bazuka::core::ContractUpdate>,
                             Vec<ZoroWork>,
                         ) = updates.into_iter().unzip();
+                        let ops = db_mirror.to_ops();
+                        Ok((updates, provers, ops))
+                    }).await??;
 
+                    let mut ctx = context.write().await;
+                    for work in provers.iter() {
+                        ctx.add_work(work.clone());
+                    }
+                    drop(ctx);
+
+                    let proofs = tokio::task::spawn_blocking(move || -> Result<Vec<bazuka::zk::groth16::Groth16Proof>,ZoroError > {
                         let start = std::time::Instant::now();
                         alice_shuffle();
                         let proofs: Vec<bazuka::zk::groth16::Groth16Proof> = provers
@@ -598,9 +636,10 @@ async fn main() {
                             "Proving took:".bright_green(),
                             (std::time::Instant::now() - start).as_millis()
                         );
-                        let ops = db_mirror.to_ops();
-                        Ok((updates, proofs, ops))
+                        Ok(proofs)
                     }).await??;
+
+                    context.write().await.works.clear();
 
                     for (upd, p) in updates.iter_mut().zip(proofs.into_iter()) {
                         match upd {
