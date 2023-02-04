@@ -45,13 +45,9 @@ struct GenerateParamsOpt {
 }
 
 #[derive(Debug, Clone, StructOpt)]
-struct ServeOpt {
+struct StartOpt {
     #[structopt(long, default_value = LISTEN)]
     listen: SocketAddr,
-}
-
-#[derive(Debug, Clone, StructOpt)]
-struct StartOpt {
     #[structopt(long)]
     seed: String,
     #[structopt(long)]
@@ -80,7 +76,6 @@ struct StartOpt {
 #[structopt(name = "Zoro", about = "Ziesha's MPN Executor")]
 enum Opt {
     Start(StartOpt),
-    Serve(ServeOpt),
     GenerateParams(GenerateParamsOpt),
 }
 
@@ -309,7 +304,7 @@ async fn process_request(
     _context: Arc<RwLock<ZoroContext>>,
     request: Request<Body>,
     _client: Option<SocketAddr>,
-    opt: ServeOpt,
+    opt: StartOpt,
 ) -> Result<Response<Body>, ZoroError> {
     let url = request.uri().path().to_string();
     Ok(match &url[..] {
@@ -365,7 +360,7 @@ async fn main() {
             >(opt.update_circuit_params, rng.clone());
         }
 
-        Opt::Serve(opt) => {
+        Opt::Start(opt) => {
             let context = Arc::new(RwLock::new(ZoroContext {}));
 
             // Construct our SocketAddr to listen on...
@@ -391,15 +386,11 @@ async fn main() {
                     }))
                 }
             });
-            Server::bind(&addr)
+            let server_fut = Server::bind(&addr)
                 .http1_only(true)
                 .http1_keepalive(false)
-                .serve(make_service)
-                .await
-                .unwrap();
-        }
+                .serve(make_service);
 
-        Opt::Start(opt) => {
             let deposit_params = load_params::<
                 circuits::DepositCircuit<
                     { config::LOG4_DEPOSIT_BATCH_SIZE },
@@ -465,8 +456,9 @@ async fn main() {
 
             let mut last_height = None;
 
-            loop {
-                if let Err(e) = async {
+            let prover_loop = async {
+                loop {
+                    if let Err(e) = async {
                     let backend = backend.clone();
                     let zoro_params = zoro_params.clone();
                     let cancel = Arc::new(RwLock::new(false));
@@ -651,7 +643,10 @@ async fn main() {
                     println!("Error happened! Error: {}", e);
                     std::thread::sleep(std::time::Duration::from_millis(1000));
                 }
-            }
+                }
+            };
+
+            tokio::join!(server_fut, prover_loop);
         }
     }
 }
