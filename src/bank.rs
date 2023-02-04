@@ -80,6 +80,26 @@ impl<
         LOG4_TOKENS_TREE_SIZE,
     >
 {
+    pub fn verify(&self, params: &ZoroParams, proof: &bazuka::zk::groth16::Groth16Proof) -> bool {
+        let verifier = unsafe {
+            std::mem::transmute::<
+                bellman::groth16::VerifyingKey<Bls12>,
+                bazuka::zk::groth16::Groth16VerifyingKey,
+            >(match self.circuit {
+                ZoroCircuit::Deposit(_) => params.deposit.vk.clone(),
+                ZoroCircuit::Withdraw(_) => params.withdraw.vk.clone(),
+                ZoroCircuit::Update(_) => params.update.vk.clone(),
+            })
+        };
+        bazuka::zk::groth16::groth16_verify(
+            &verifier,
+            self.height,
+            self.state,
+            self.aux_data,
+            self.next_state,
+            proof,
+        )
+    }
     pub fn prove(
         &self,
         params: ZoroParams,
@@ -114,25 +134,7 @@ impl<
             )
         };
 
-        let verifier = unsafe {
-            std::mem::transmute::<
-                bellman::groth16::VerifyingKey<Bls12>,
-                bazuka::zk::groth16::Groth16VerifyingKey,
-            >(match self.circuit {
-                ZoroCircuit::Deposit(_) => params.deposit.vk.clone(),
-                ZoroCircuit::Withdraw(_) => params.withdraw.vk.clone(),
-                ZoroCircuit::Update(_) => params.update.vk.clone(),
-            })
-        };
-
-        if bazuka::zk::groth16::groth16_verify(
-            &verifier,
-            self.height,
-            self.state,
-            self.aux_data,
-            self.next_state,
-            &proof,
-        ) {
+        if self.verify(&params, &proof) {
             Ok(proof)
         } else {
             Err(BankError::IncorrectProof)

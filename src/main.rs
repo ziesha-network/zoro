@@ -311,16 +311,10 @@ fn alice_shuffle() {
 }
 
 struct ZoroContext {
+    params: bank::ZoroParams,
     height: Option<u64>,
-    works: HashMap<u32, ZoroWork>,
-    submissions: HashMap<u32, bazuka::zk::groth16::Groth16Proof>,
-    counter: u32,
-}
-impl ZoroContext {
-    fn add_work(&mut self, work: ZoroWork) {
-        self.works.insert(self.counter, work);
-        self.counter += 1;
-    }
+    works: HashMap<usize, ZoroWork>,
+    submissions: HashMap<usize, bazuka::zk::groth16::Groth16Proof>,
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -328,7 +322,7 @@ struct GetWorkRequest {}
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct GetWorkResponse {
     height: Option<u64>,
-    works: HashMap<u32, ZoroWork>,
+    works: HashMap<usize, ZoroWork>,
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -341,7 +335,7 @@ struct GetStatsResponse {
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct PostProofRequest {
     height: u64,
-    proofs: HashMap<u32, bazuka::zk::groth16::Groth16Proof>,
+    proofs: HashMap<usize, bazuka::zk::groth16::Groth16Proof>,
 }
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct PostProofResponse {}
@@ -373,7 +367,12 @@ async fn process_request(
             if ctx.height == Some(req.height) {
                 let mut ctx = context.write().await;
                 for (id, p) in req.proofs {
-                    ctx.submissions.insert(id, p);
+                    if let Some(w) = ctx.works.get(&id) {
+                        if w.verify(&ctx.params, &p) {
+                            ctx.submissions.insert(id, p);
+                            ctx.works.remove(&id);
+                        }
+                    }
                 }
             }
             Response::new(Body::empty())
@@ -429,11 +428,47 @@ async fn main() {
         }
 
         Opt::Start(opt) => {
+            let deposit_params =
+                load_params::<
+                    circuits::DepositCircuit<
+                        { config::LOG4_DEPOSIT_BATCH_SIZE },
+                        { config::LOG4_TREE_SIZE },
+                        { config::LOG4_TOKENS_TREE_SIZE },
+                    >,
+                    _,
+                >(opt.deposit_circuit_params.clone(), None::<ChaCha20Rng>);
+
+            let withdraw_params =
+                load_params::<
+                    circuits::WithdrawCircuit<
+                        { config::LOG4_WITHDRAW_BATCH_SIZE },
+                        { config::LOG4_TREE_SIZE },
+                        { config::LOG4_TOKENS_TREE_SIZE },
+                    >,
+                    _,
+                >(opt.withdraw_circuit_params.clone(), None::<ChaCha20Rng>);
+
+            let update_params =
+                load_params::<
+                    circuits::UpdateCircuit<
+                        { config::LOG4_UPDATE_BATCH_SIZE },
+                        { config::LOG4_TREE_SIZE },
+                        { config::LOG4_TOKENS_TREE_SIZE },
+                    >,
+                    _,
+                >(opt.update_circuit_params.clone(), None::<ChaCha20Rng>);
+
+            let zoro_params = bank::ZoroParams {
+                update: update_params.clone(),
+                deposit: deposit_params.clone(),
+                withdraw: withdraw_params.clone(),
+            };
+
             let context = Arc::new(AsyncRwLock::new(ZoroContext {
+                params: zoro_params.clone(),
                 height: None,
                 works: HashMap::new(),
                 submissions: HashMap::new(),
-                counter: 0,
             }));
 
             // Construct our SocketAddr to listen on...
@@ -466,39 +501,6 @@ async fn main() {
                     .serve(make_service)
                     .await?;
                 Ok::<(), ZoroError>(())
-            };
-
-            let deposit_params = load_params::<
-                circuits::DepositCircuit<
-                    { config::LOG4_DEPOSIT_BATCH_SIZE },
-                    { config::LOG4_TREE_SIZE },
-                    { config::LOG4_TOKENS_TREE_SIZE },
-                >,
-                _,
-            >(opt.deposit_circuit_params, None::<ChaCha20Rng>);
-
-            let withdraw_params = load_params::<
-                circuits::WithdrawCircuit<
-                    { config::LOG4_WITHDRAW_BATCH_SIZE },
-                    { config::LOG4_TREE_SIZE },
-                    { config::LOG4_TOKENS_TREE_SIZE },
-                >,
-                _,
-            >(opt.withdraw_circuit_params, None::<ChaCha20Rng>);
-
-            let update_params = load_params::<
-                circuits::UpdateCircuit<
-                    { config::LOG4_UPDATE_BATCH_SIZE },
-                    { config::LOG4_TREE_SIZE },
-                    { config::LOG4_TOKENS_TREE_SIZE },
-                >,
-                _,
-            >(opt.update_circuit_params, None::<ChaCha20Rng>);
-
-            let zoro_params = bank::ZoroParams {
-                update: update_params.clone(),
-                deposit: deposit_params.clone(),
-                withdraw: withdraw_params.clone(),
             };
 
             let backend = if opt.gpu {
@@ -580,21 +582,22 @@ async fn main() {
                                 Ok::<(), ZoroError>(())
                             });
                             let start = std::time::Instant::now();
-                            let proofs: HashMap<u32, bazuka::zk::groth16::Groth16Proof> = work_resp
-                                .works
-                                .into_par_iter()
-                                .map(|(id, p)| {
-                                    p.prove(
-                                        zoro_params.clone(),
-                                        backend.clone(),
-                                        Some(cancel.clone()),
-                                    )
-                                    .map(|p| (id, p))
-                                })
-                                .collect::<Result<
-                                    HashMap<u32, bazuka::zk::groth16::Groth16Proof>,
-                                    bank::BankError,
-                                >>()?;
+                            let proofs: HashMap<usize, bazuka::zk::groth16::Groth16Proof> =
+                                work_resp
+                                    .works
+                                    .into_par_iter()
+                                    .map(|(id, p)| {
+                                        p.prove(
+                                            zoro_params.clone(),
+                                            backend.clone(),
+                                            Some(cancel.clone()),
+                                        )
+                                        .map(|p| (id, p))
+                                    })
+                                    .collect::<Result<
+                                        HashMap<usize, bazuka::zk::groth16::Groth16Proof>,
+                                        bank::BankError,
+                                    >>()?;
                             println!(
                                 "{} {}ms",
                                 "Proving took:".bright_green(),
@@ -627,9 +630,6 @@ async fn main() {
             let packager_loop = async {
                 loop {
                     if let Err(e) = async {
-                    let backend = backend.clone();
-                    let zoro_params = zoro_params.clone();
-                    let cancel = Arc::new(RwLock::new(false));
 
                     // Wait till mine is done
                     if client.is_mining().await? {
@@ -727,32 +727,18 @@ async fn main() {
                         Ok((updates, provers, ops))
                     }).await??;
 
-                    let mut ctx = context.write().await;
-                    for work in provers.iter() {
-                        ctx.add_work(work.clone());
-                    }
-                    drop(ctx);
+                    context.write().await.works= provers.iter().enumerate().map(|(i, w)| (i, w.clone())).collect();
 
                     alice_shuffle();
 
-                    let proofs = tokio::task::spawn_blocking(move || -> Result<Vec<bazuka::zk::groth16::Groth16Proof>,ZoroError > {
-                        let start = std::time::Instant::now();
-                        let proofs: Vec<bazuka::zk::groth16::Groth16Proof> = provers
-                            .into_par_iter()
-                            .map(|p| p.prove(zoro_params.clone(), backend.clone(), Some(cancel.clone())))
-                            .collect::<Result<Vec<bazuka::zk::groth16::Groth16Proof>, bank::BankError>>(
-                            )?;
-                        println!(
-                            "{} {}ms",
-                            "Proving took:".bright_green(),
-                            (std::time::Instant::now() - start).as_millis()
-                        );
-                        Ok(proofs)
-                    }).await??;
+                    while context.read().await.works.len() > 0 {
 
-                    context.write().await.works.clear();
+                        std::thread::sleep(std::time::Duration::from_millis(1000));
+                    }
 
-                    for (upd, p) in updates.iter_mut().zip(proofs.into_iter()) {
+                    let ctx = context.read().await;
+                    for (i, upd) in updates.iter_mut().enumerate() {
+                        let p = ctx.submissions.get(&i).unwrap().clone();
                         match upd {
                             bazuka::core::ContractUpdate::Deposit { proof, .. } => {
                                 *proof = bazuka::zk::ZkProof::Groth16(Box::new(p));
@@ -765,6 +751,7 @@ async fn main() {
                             }
                         }
                     }
+                    drop(ctx);
 
                     let mut update = bazuka::core::Transaction {
                         memo: String::new(),
