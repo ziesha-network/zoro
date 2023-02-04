@@ -19,7 +19,8 @@ use client::SyncClient;
 use colored::Colorize;
 use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Request, Response, Server, StatusCode};
+use hyper::Client;
+use hyper::{Body, Method, Request, Response, Server, StatusCode};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use rayon::prelude::*;
@@ -49,6 +50,8 @@ struct GenerateParamsOpt {
 struct StartOpt {
     #[structopt(long, default_value = LISTEN)]
     listen: SocketAddr,
+    #[structopt(long, default_value = LISTEN)]
+    connect: SocketAddr,
     #[structopt(long)]
     seed: String,
     #[structopt(long)]
@@ -136,8 +139,14 @@ pub enum ZoroError {
     JoinError(#[from] tokio::task::JoinError),
     #[error("http server error: {0}")]
     HttpServerError(#[from] hyper::Error),
+    #[error("http client error: {0}")]
+    HttpError(#[from] hyper::http::Error),
     #[error("bincode error: {0}")]
     BincodeError(#[from] bincode::Error),
+    #[error("json error: {0}")]
+    JsonError(#[from] serde_json::Error),
+    #[error("someone else found a block sooner than you!")]
+    Aborted,
 }
 
 type ZoroWork = bank::ZoroWork<
@@ -304,22 +313,34 @@ fn alice_shuffle() {
 }
 
 struct ZoroContext {
-    works: HashMap<u32, ZoroWork>,
-    counter: u32,
-}
-impl ZoroContext {
-    fn add_work(&mut self, work: ZoroWork) {
-        self.works.insert(self.counter, work);
-        self.counter += 1;
-    }
+    params: bank::ZoroParams,
+    height: Option<u64>,
+    works: HashMap<usize, ZoroWork>,
+    submissions: HashMap<usize, bazuka::zk::groth16::Groth16Proof>,
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct GetWorkRequest {}
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct GetWorkResponse {
-    works: HashMap<u32, ZoroWork>,
+    height: Option<u64>,
+    works: HashMap<usize, ZoroWork>,
 }
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct GetStatsRequest {}
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct GetStatsResponse {
+    height: Option<u64>,
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct PostProofRequest {
+    height: u64,
+    proofs: HashMap<usize, bazuka::zk::groth16::Groth16Proof>,
+}
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct PostProofResponse {}
 
 async fn process_request(
     context: Arc<AsyncRwLock<ZoroContext>>,
@@ -327,16 +348,39 @@ async fn process_request(
     _client: Option<SocketAddr>,
     opt: StartOpt,
 ) -> Result<Response<Body>, ZoroError> {
-    let ctx = context.read().await;
     let url = request.uri().path().to_string();
     Ok(match &url[..] {
+        "/stats" => {
+            let resp = GetStatsResponse {
+                height: context.read().await.height,
+            };
+            Response::new(Body::from(serde_json::to_vec(&resp)?))
+        }
         "/get" => {
+            let ctx = context.read().await;
             let resp = GetWorkResponse {
+                height: ctx.height,
                 works: ctx.works.clone(),
             };
             Response::new(Body::from(bincode::serialize(&resp)?))
         }
-        "/post" => Response::new(Body::empty()),
+        "/post" => {
+            let body = request.into_body();
+            let body_bytes = hyper::body::to_bytes(body).await?;
+            let req: PostProofRequest = bincode::deserialize(&body_bytes)?;
+            let mut ctx = context.write().await;
+            if ctx.height == Some(req.height) {
+                for (id, p) in req.proofs {
+                    if let Some(w) = ctx.works.get(&id) {
+                        if w.verify(&ctx.params, &p) {
+                            ctx.submissions.insert(id, p);
+                            ctx.works.remove(&id);
+                        }
+                    }
+                }
+            }
+            Response::new(Body::empty())
+        }
         _ => {
             let mut resp = Response::new(Body::empty());
             *resp.status_mut() = StatusCode::NOT_FOUND;
@@ -388,9 +432,47 @@ async fn main() {
         }
 
         Opt::Start(opt) => {
+            let deposit_params =
+                load_params::<
+                    circuits::DepositCircuit<
+                        { config::LOG4_DEPOSIT_BATCH_SIZE },
+                        { config::LOG4_TREE_SIZE },
+                        { config::LOG4_TOKENS_TREE_SIZE },
+                    >,
+                    _,
+                >(opt.deposit_circuit_params.clone(), None::<ChaCha20Rng>);
+
+            let withdraw_params =
+                load_params::<
+                    circuits::WithdrawCircuit<
+                        { config::LOG4_WITHDRAW_BATCH_SIZE },
+                        { config::LOG4_TREE_SIZE },
+                        { config::LOG4_TOKENS_TREE_SIZE },
+                    >,
+                    _,
+                >(opt.withdraw_circuit_params.clone(), None::<ChaCha20Rng>);
+
+            let update_params =
+                load_params::<
+                    circuits::UpdateCircuit<
+                        { config::LOG4_UPDATE_BATCH_SIZE },
+                        { config::LOG4_TREE_SIZE },
+                        { config::LOG4_TOKENS_TREE_SIZE },
+                    >,
+                    _,
+                >(opt.update_circuit_params.clone(), None::<ChaCha20Rng>);
+
+            let zoro_params = bank::ZoroParams {
+                update: update_params.clone(),
+                deposit: deposit_params.clone(),
+                withdraw: withdraw_params.clone(),
+            };
+
             let context = Arc::new(AsyncRwLock::new(ZoroContext {
+                params: zoro_params.clone(),
+                height: None,
                 works: HashMap::new(),
-                counter: 0,
+                submissions: HashMap::new(),
             }));
 
             // Construct our SocketAddr to listen on...
@@ -423,39 +505,6 @@ async fn main() {
                     .serve(make_service)
                     .await?;
                 Ok::<(), ZoroError>(())
-            };
-
-            let deposit_params = load_params::<
-                circuits::DepositCircuit<
-                    { config::LOG4_DEPOSIT_BATCH_SIZE },
-                    { config::LOG4_TREE_SIZE },
-                    { config::LOG4_TOKENS_TREE_SIZE },
-                >,
-                _,
-            >(opt.deposit_circuit_params, None::<ChaCha20Rng>);
-
-            let withdraw_params = load_params::<
-                circuits::WithdrawCircuit<
-                    { config::LOG4_WITHDRAW_BATCH_SIZE },
-                    { config::LOG4_TREE_SIZE },
-                    { config::LOG4_TOKENS_TREE_SIZE },
-                >,
-                _,
-            >(opt.withdraw_circuit_params, None::<ChaCha20Rng>);
-
-            let update_params = load_params::<
-                circuits::UpdateCircuit<
-                    { config::LOG4_UPDATE_BATCH_SIZE },
-                    { config::LOG4_TREE_SIZE },
-                    { config::LOG4_TOKENS_TREE_SIZE },
-                >,
-                _,
-            >(opt.update_circuit_params, None::<ChaCha20Rng>);
-
-            let zoro_params = bank::ZoroParams {
-                update: update_params.clone(),
-                deposit: deposit_params.clone(),
-                withdraw: withdraw_params.clone(),
             };
 
             let backend = if opt.gpu {
@@ -493,9 +542,103 @@ async fn main() {
             let prover_loop = async {
                 loop {
                     if let Err(e) = async {
-                    let backend = backend.clone();
-                    let zoro_params = zoro_params.clone();
-                    let cancel = Arc::new(RwLock::new(false));
+                        let cancel = Arc::new(RwLock::new(false));
+                        let req = Request::builder()
+                            .method(Method::GET)
+                            .uri(format!("http://{}/get", opt.connect))
+                            .body(Body::empty())?;
+                        let client = Client::new();
+                        let resp =
+                            hyper::body::to_bytes(client.request(req).await?.into_body()).await?;
+                        let work_resp: GetWorkResponse = bincode::deserialize(&resp)?;
+                        if let Some(height) = work_resp.height {
+                            let (cancel_controller_tx, mut cancel_controller_rx) =
+                                tokio::sync::mpsc::unbounded_channel::<()>();
+                            let cancel_cloned = cancel.clone();
+                            let cancel_controller = tokio::task::spawn(async move {
+                                loop {
+                                    match cancel_controller_rx.try_recv() {
+                                        Ok(_)
+                                        | Err(
+                                            tokio::sync::mpsc::error::TryRecvError::Disconnected,
+                                        ) => {
+                                            break;
+                                        }
+                                        Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
+                                            let req = Request::builder()
+                                                .method(Method::GET)
+                                                .uri(format!("http://{}/stats", opt.connect))
+                                                .body(Body::empty())?;
+                                            let client = Client::new();
+                                            let resp = hyper::body::to_bytes(
+                                                client.request(req).await?.into_body(),
+                                            )
+                                            .await?;
+                                            let resp: GetStatsResponse =
+                                                serde_json::from_slice(&resp)?;
+                                            if resp.height != Some(height) {
+                                                *cancel_cloned.write().unwrap() = true;
+                                            }
+                                        }
+                                    }
+                                    std::thread::sleep(std::time::Duration::from_millis(2000));
+                                }
+                                Ok::<(), ZoroError>(())
+                            });
+                            let start = std::time::Instant::now();
+                            let proofs: HashMap<usize, bazuka::zk::groth16::Groth16Proof> =
+                                work_resp
+                                    .works
+                                    .into_par_iter()
+                                    .map(|(id, p)| {
+                                        p.prove(
+                                            zoro_params.clone(),
+                                            backend.clone(),
+                                            Some(cancel.clone()),
+                                        )
+                                        .map(|p| (id, p))
+                                    })
+                                    .collect::<Result<
+                                        HashMap<usize, bazuka::zk::groth16::Groth16Proof>,
+                                        bank::BankError,
+                                    >>()?;
+                            println!(
+                                "{} {}ms",
+                                "Proving took:".bright_green(),
+                                (std::time::Instant::now() - start).as_millis()
+                            );
+                            let req = Request::builder()
+                                .method(Method::POST)
+                                .uri(format!("http://{}/post", opt.connect))
+                                .body(Body::from(bincode::serialize(&PostProofRequest {
+                                    height,
+                                    proofs,
+                                })?))?;
+                            let client = Client::new();
+                            client.request(req).await?;
+
+                            let _ = cancel_controller_tx.send(());
+                            cancel_controller.await??;
+                        }
+                        Ok::<(), ZoroError>(())
+                    }
+                    .await
+                    {
+                        println!("Error while proving: {}", e);
+                        std::thread::sleep(std::time::Duration::from_millis(1000));
+                    }
+                }
+                Ok::<(), ZoroError>(())
+            };
+
+            let packager_loop = async {
+                loop {
+                    if let Err(e) = async {
+
+                    let mut ctx = context.write().await;
+                    ctx.works.clear();
+                    ctx.height=None;
+                    drop(ctx);
 
                     // Wait till mine is done
                     if client.is_mining().await? {
@@ -522,31 +665,6 @@ async fn main() {
                     }
 
                     println!("Started on height: {}", curr_height);
-
-                    let cancel_cloned = cancel.clone();
-                    let cancel_controller_client = client.clone();
-                    let (cancel_controller_tx, mut cancel_controller_rx) =
-                        tokio::sync::mpsc::unbounded_channel();
-                    let cancel_controller = tokio::task::spawn(async move {
-                        loop {
-                            match cancel_controller_rx.try_recv() {
-                                Ok(_)
-                                | Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
-                                    break;
-                                }
-                                Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
-                                    if let Ok(height) = cancel_controller_client.get_height().await
-                                    {
-                                        if height != curr_height {
-                                            *cancel_cloned.write().unwrap() = true;
-                                        }
-                                    }
-                                }
-                            }
-                            std::thread::sleep(std::time::Duration::from_millis(2000));
-                        }
-                        Ok::<(), ZoroError>(())
-                    });
 
                     let acc = client.get_account(exec_wallet.get_address()).await?.account;
 
@@ -618,30 +736,23 @@ async fn main() {
                     }).await??;
 
                     let mut ctx = context.write().await;
-                    for work in provers.iter() {
-                        ctx.add_work(work.clone());
-                    }
+                    ctx.works = provers.iter().enumerate().map(|(i, w)| (i, w.clone())).collect();
+                    ctx.height = Some(curr_height);
                     drop(ctx);
 
-                    let proofs = tokio::task::spawn_blocking(move || -> Result<Vec<bazuka::zk::groth16::Groth16Proof>,ZoroError > {
-                        let start = std::time::Instant::now();
-                        alice_shuffle();
-                        let proofs: Vec<bazuka::zk::groth16::Groth16Proof> = provers
-                            .into_par_iter()
-                            .map(|p| p.prove(zoro_params.clone(), backend.clone(), Some(cancel.clone())))
-                            .collect::<Result<Vec<bazuka::zk::groth16::Groth16Proof>, bank::BankError>>(
-                            )?;
-                        println!(
-                            "{} {}ms",
-                            "Proving took:".bright_green(),
-                            (std::time::Instant::now() - start).as_millis()
-                        );
-                        Ok(proofs)
-                    }).await??;
+                    alice_shuffle();
 
-                    context.write().await.works.clear();
+                    while context.read().await.works.len() > 0 {
+                        let remote_height = client.get_height().await?;
+                        if remote_height != curr_height {
+                            return Err(ZoroError::Aborted);
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(1000));
+                    }
 
-                    for (upd, p) in updates.iter_mut().zip(proofs.into_iter()) {
+                    let ctx = context.read().await;
+                    for (i, upd) in updates.iter_mut().enumerate() {
+                        let p = ctx.submissions.get(&i).unwrap().clone();
                         match upd {
                             bazuka::core::ContractUpdate::Deposit { proof, .. } => {
                                 *proof = bazuka::zk::ZkProof::Groth16(Box::new(p));
@@ -654,6 +765,7 @@ async fn main() {
                             }
                         }
                     }
+                    drop(ctx);
 
                     let mut update = bazuka::core::Transaction {
                         memo: String::new(),
@@ -678,21 +790,18 @@ async fn main() {
 
                     client.transact(tx_delta).await?;
 
-                    let _ = cancel_controller_tx.send(());
-                    cancel_controller.await??;
-
                     Ok(())
                 }
                 .await
                 {
-                    println!("Error happened! Error: {}", e);
+                    println!("Error while packaging: {}", e);
                     std::thread::sleep(std::time::Duration::from_millis(1000));
                 }
                 }
                 Ok::<(), ZoroError>(())
             };
 
-            tokio::try_join!(server_fut, prover_loop).unwrap();
+            tokio::try_join!(server_fut, packager_loop, prover_loop).unwrap();
         }
     }
 }
