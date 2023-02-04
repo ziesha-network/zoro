@@ -145,6 +145,8 @@ pub enum ZoroError {
     BincodeError(#[from] bincode::Error),
     #[error("json error: {0}")]
     JsonError(#[from] serde_json::Error),
+    #[error("someone else found a block sooner than you!")]
+    Aborted,
 }
 
 type ZoroWork = bank::ZoroWork<
@@ -633,6 +635,11 @@ async fn main() {
                 loop {
                     if let Err(e) = async {
 
+                    let mut ctx = context.write().await;
+                    ctx.works.clear();
+                    ctx.height=None;
+                    drop(ctx);
+
                     // Wait till mine is done
                     if client.is_mining().await? {
                         log::info!("Nothing to mine!");
@@ -657,7 +664,6 @@ async fn main() {
                         last_height = Some(curr_height);
                     }
 
-                    context.write().await.height = Some(curr_height);
                     println!("Started on height: {}", curr_height);
 
                     let acc = client.get_account(exec_wallet.get_address()).await?.account;
@@ -729,12 +735,18 @@ async fn main() {
                         Ok((updates, provers, ops))
                     }).await??;
 
-                    context.write().await.works= provers.iter().enumerate().map(|(i, w)| (i, w.clone())).collect();
+                    let mut ctx = context.write().await;
+                    ctx.works = provers.iter().enumerate().map(|(i, w)| (i, w.clone())).collect();
+                    ctx.height = Some(curr_height);
+                    drop(ctx);
 
                     alice_shuffle();
 
                     while context.read().await.works.len() > 0 {
-
+                        let remote_height = client.get_height().await?;
+                        if remote_height != curr_height {
+                            return Err(ZoroError::Aborted);
+                        }
                         std::thread::sleep(std::time::Duration::from_millis(1000));
                     }
 
