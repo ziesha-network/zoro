@@ -133,6 +133,8 @@ pub enum ZoroError {
     BankError(#[from] bank::BankError),
     #[error("async task join error: {0}")]
     JoinError(#[from] tokio::task::JoinError),
+    #[error("http server error: {0}")]
+    HttpServerError(#[from] hyper::Error),
 }
 
 type ZoroWork = bank::ZoroWork<
@@ -386,10 +388,14 @@ async fn main() {
                     }))
                 }
             });
-            let server_fut = Server::bind(&addr)
-                .http1_only(true)
-                .http1_keepalive(false)
-                .serve(make_service);
+            let server_fut = async {
+                Server::bind(&addr)
+                    .http1_only(true)
+                    .http1_keepalive(false)
+                    .serve(make_service)
+                    .await?;
+                Ok::<(), ZoroError>(())
+            };
 
             let deposit_params = load_params::<
                 circuits::DepositCircuit<
@@ -644,9 +650,10 @@ async fn main() {
                     std::thread::sleep(std::time::Duration::from_millis(1000));
                 }
                 }
+                Ok::<(), ZoroError>(())
             };
 
-            tokio::join!(server_fut, prover_loop);
+            tokio::try_join!(server_fut, prover_loop).unwrap();
         }
     }
 }
