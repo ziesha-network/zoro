@@ -626,11 +626,13 @@ async fn main() {
                     let proofs = tokio::task::spawn_blocking(move || -> Result<Vec<bazuka::zk::groth16::Groth16Proof>,ZoroError > {
                         let start = std::time::Instant::now();
                         alice_shuffle();
-                        let proofs: Vec<bazuka::zk::groth16::Groth16Proof> = provers
-                            .into_par_iter()
-                            .map(|p| p.prove(zoro_params.clone(), backend.clone(), Some(cancel.clone())))
-                            .collect::<Result<Vec<bazuka::zk::groth16::Groth16Proof>, bank::BankError>>(
-                            )?;
+                        let pool = rayon::ThreadPoolBuilder::new().num_threads(32).build().unwrap();
+                        let proofs = pool.install(|| -> Result<Vec<bazuka::zk::groth16::Groth16Proof>, bank::BankError> {
+                            provers
+                                .into_par_iter()
+                                .map(|p| p.prove(zoro_params.clone(), backend.clone(), Some(cancel.clone())))
+                                .collect()
+                        })?;
                         println!(
                             "{} {}ms",
                             "Proving took:".bright_green(),
