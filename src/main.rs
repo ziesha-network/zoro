@@ -34,7 +34,7 @@ use structopt::StructOpt;
 use tokio::sync::RwLock as AsyncRwLock;
 use zeekit::BellmanFr;
 
-const LISTEN: &'static str = "0.0.0.0:8767";
+const LISTEN: &'static str = "127.0.0.1:8767";
 
 #[derive(Debug, Clone, StructOpt)]
 struct GenerateParamsOpt {
@@ -586,7 +586,14 @@ async fn main() {
                                 Ok::<(), ZoroError>(())
                             });
                             let start = std::time::Instant::now();
-                            let proofs: HashMap<usize, bazuka::zk::groth16::Groth16Proof> =
+                            let pool = rayon::ThreadPoolBuilder::new()
+                                .num_threads(32)
+                                .build()
+                                .unwrap();
+                            let proofs = pool.install(|| -> Result<
+                                HashMap<usize, bazuka::zk::groth16::Groth16Proof>,
+                                bank::BankError,
+                            > {
                                 work_resp
                                     .works
                                     .into_par_iter()
@@ -598,10 +605,8 @@ async fn main() {
                                         )
                                         .map(|p| (id, p))
                                     })
-                                    .collect::<Result<
-                                        HashMap<usize, bazuka::zk::groth16::Groth16Proof>,
-                                        bank::BankError,
-                                    >>()?;
+                                    .collect()
+                            })?;
                             println!(
                                 "{} {}ms",
                                 "Proving took:".bright_green(),
