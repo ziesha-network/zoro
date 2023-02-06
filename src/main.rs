@@ -611,6 +611,7 @@ async fn main() {
                                 }
                                 Ok::<(), ZoroError>(())
                             });
+                            println!("Got {} SNARK-works to solve...", work_resp.works.len());
                             let start = std::time::Instant::now();
                             let pool = rayon::ThreadPoolBuilder::new()
                                 .num_threads(32)
