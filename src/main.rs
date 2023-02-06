@@ -21,10 +21,11 @@ use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::Client;
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
+use rand::seq::IteratorRandom;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use rayon::prelude::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -74,6 +75,8 @@ struct StartOpt {
     gpu: bool,
     #[structopt(long, default_value = "")]
     miner_token: String,
+    #[structopt(long, default_value = "3")]
+    work_per_worker: usize,
 }
 
 #[derive(Debug, Clone, StructOpt)]
@@ -316,6 +319,7 @@ struct ZoroContext {
     params: bank::ZoroParams,
     height: Option<u64>,
     works: HashMap<usize, ZoroWork>,
+    remaining_works: HashSet<usize>,
     submissions: HashMap<usize, bazuka::zk::groth16::Groth16Proof>,
 }
 
@@ -357,10 +361,31 @@ async fn process_request(
             Response::new(Body::from(serde_json::to_vec(&resp)?))
         }
         "/get" => {
-            let ctx = context.read().await;
+            let mut ctx = context.write().await;
+            if ctx.remaining_works.is_empty() {
+                ctx.remaining_works = ctx.works.keys().cloned().collect();
+            }
+            let work_ids = ctx
+                .remaining_works
+                .iter()
+                .cloned()
+                .choose_multiple(&mut rand::thread_rng(), opt.work_per_worker);
+            for id in work_ids.iter() {
+                ctx.remaining_works.remove(id);
+            }
+            let works: HashMap<usize, ZoroWork> = work_ids
+                .into_iter()
+                .filter_map(|id| {
+                    if let Some(w) = ctx.works.get(&id) {
+                        Some((id, w.clone()))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
             let resp = GetWorkResponse {
                 height: ctx.height,
-                works: ctx.works.clone(),
+                works,
             };
             Response::new(Body::from(bincode::serialize(&resp)?))
         }
@@ -472,6 +497,7 @@ async fn main() {
                 params: zoro_params.clone(),
                 height: None,
                 works: HashMap::new(),
+                remaining_works: HashSet::new(),
                 submissions: HashMap::new(),
             }));
 
