@@ -59,6 +59,8 @@ struct ProveOpt {
     withdraw_circuit_params: PathBuf,
     #[structopt(long)]
     gpu: bool,
+    #[structopt(long, default_value = "4")]
+    workers: usize,
 }
 
 #[derive(Debug, Clone, StructOpt)]
@@ -629,7 +631,7 @@ async fn main() {
                     }
                 }
             };
-            let workers: Vec<_> = (0..3).map(|_| new_worker()).collect();
+            let workers: Vec<_> = (0..opt.workers).map(|_| new_worker()).collect();
             futures::future::join_all(workers).await;
         }
 
