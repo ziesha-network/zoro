@@ -81,16 +81,12 @@ impl<
     >
 {
     pub fn verify(&self, params: &ZoroParams, proof: &bazuka::zk::groth16::Groth16Proof) -> bool {
-        let verifier = unsafe {
-            std::mem::transmute::<
-                bellman::groth16::VerifyingKey<Bls12>,
-                bazuka::zk::groth16::Groth16VerifyingKey,
-            >(match self.circuit {
-                ZoroCircuit::Deposit(_) => params.deposit.vk.clone(),
-                ZoroCircuit::Withdraw(_) => params.withdraw.vk.clone(),
-                ZoroCircuit::Update(_) => params.update.vk.clone(),
-            })
-        };
+        let verifier: bazuka::zk::groth16::Groth16VerifyingKey = match self.circuit {
+            ZoroCircuit::Deposit(_) => params.deposit.vk.clone(),
+            ZoroCircuit::Withdraw(_) => params.withdraw.vk.clone(),
+            ZoroCircuit::Update(_) => params.update.vk.clone(),
+        }
+        .into();
         bazuka::zk::groth16::groth16_verify(
             &verifier,
             self.height,
