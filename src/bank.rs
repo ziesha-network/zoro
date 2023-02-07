@@ -717,8 +717,6 @@ impl<
             .into_par_iter()
             .filter(|tx| {
                 tx.fee.token_id == fee_token
-                    && tx.src_index(self.mpn_log4_account_capacity)
-                        != tx.dst_index(self.mpn_log4_account_capacity)
                     && tx.src_pub_key.is_on_curve()
                     && tx.dst_pub_key.is_on_curve()
                     && tx.verify()
