@@ -738,6 +738,9 @@ async fn main() {
 
                     let mut ctx = context.write().await;
                     ctx.works.clear();
+                    ctx.submissions.clear();
+                    ctx.remaining_works.clear();
+                    ctx.sent.clear();
                     ctx.height=None;
                     drop(ctx);
 
