@@ -863,6 +863,13 @@ impl<
                     .unwrap(),
                 );
 
+                let dst_before = KvStoreStateManager::<ZkHasher>::get_mpn_account(
+                    &mirror,
+                    self.mpn_contract_id,
+                    tx.dst_index(self.mpn_log4_account_capacity),
+                )
+                .unwrap();
+
                 let mut dst_after = MpnAccount {
                     address: tx.dst_pub_key.0.decompress(),
                     tokens: dst_before.tokens.clone(),

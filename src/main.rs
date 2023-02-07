@@ -683,7 +683,7 @@ async fn main() {
                         let b = bank::Bank::new(
                             conf.mpn_log4_account_capacity,
                             conf.mpn_contract_id,
-                            Some(Amount(1000000000)),
+                            Some(Amount(0)),
                         );
 
                         let mut updates = Vec::new();
