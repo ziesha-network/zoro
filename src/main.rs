@@ -332,6 +332,7 @@ struct ZoroContext {
     params: bank::ZoroParams,
     height: Option<u64>,
     works: HashMap<usize, ZoroWork>,
+    sent: HashMap<SocketAddr, HashSet<usize>>,
     remaining_works: HashSet<usize>,
     submissions: HashMap<usize, bazuka::zk::groth16::Groth16Proof>,
 }
@@ -362,7 +363,7 @@ struct PostProofResponse {}
 async fn process_request(
     context: Arc<AsyncRwLock<ZoroContext>>,
     request: Request<Body>,
-    _client: Option<SocketAddr>,
+    client: Option<SocketAddr>,
     opt: PackOpt,
 ) -> Result<Response<Body>, ZoroError> {
     let url = request.uri().path().to_string();
@@ -374,33 +375,43 @@ async fn process_request(
             Response::new(Body::from(serde_json::to_vec(&resp)?))
         }
         "/get" => {
-            let mut ctx = context.write().await;
-            if ctx.remaining_works.is_empty() {
-                ctx.remaining_works = ctx.works.keys().cloned().collect();
+            if let Some(client) = client {
+                let mut ctx = context.write().await;
+                let already_sent = ctx.sent.get(&client).cloned().unwrap_or_default();
+                if ctx.remaining_works.is_empty() {
+                    ctx.remaining_works = ctx.works.keys().cloned().collect();
+                }
+                let remaining_works: HashSet<usize> = ctx.remaining_works.iter().cloned().collect();
+                let sendable: Vec<usize> =
+                    remaining_works.difference(&already_sent).cloned().collect();
+                let work_ids = sendable
+                    .iter()
+                    .cloned()
+                    .choose_multiple(&mut rand::thread_rng(), opt.work_per_worker);
+                for id in work_ids.iter() {
+                    ctx.remaining_works.remove(id);
+                }
+                let works: HashMap<usize, ZoroWork> = work_ids
+                    .into_iter()
+                    .filter_map(|id| {
+                        if let Some(w) = ctx.works.get(&id) {
+                            Some((id, w.clone()))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                for id in works.keys() {
+                    ctx.sent.entry(client).or_default().insert(*id);
+                }
+                let resp = GetWorkResponse {
+                    height: ctx.height,
+                    works,
+                };
+                Response::new(Body::from(bincode::serialize(&resp)?))
+            } else {
+                Response::new(Body::empty())
             }
-            let work_ids = ctx
-                .remaining_works
-                .iter()
-                .cloned()
-                .choose_multiple(&mut rand::thread_rng(), opt.work_per_worker);
-            for id in work_ids.iter() {
-                ctx.remaining_works.remove(id);
-            }
-            let works: HashMap<usize, ZoroWork> = work_ids
-                .into_iter()
-                .filter_map(|id| {
-                    if let Some(w) = ctx.works.get(&id) {
-                        Some((id, w.clone()))
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            let resp = GetWorkResponse {
-                height: ctx.height,
-                works,
-            };
-            Response::new(Body::from(bincode::serialize(&resp)?))
         }
         "/post" => {
             let body = request.into_body();
@@ -678,6 +689,7 @@ async fn main() {
                 works: HashMap::new(),
                 remaining_works: HashSet::new(),
                 submissions: HashMap::new(),
+                sent: HashMap::new(),
             }));
 
             // Construct our SocketAddr to listen on...
