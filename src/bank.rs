@@ -867,6 +867,7 @@ impl<
                     tx.dst_index(self.mpn_log4_account_capacity),
                 )
                 .unwrap();
+                let dst_token = dst_before.tokens.get(&tx.dst_token_index);
 
                 let mut dst_after = MpnAccount {
                     address: tx.dst_pub_key.0.decompress(),
