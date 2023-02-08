@@ -792,14 +792,7 @@ async fn main() {
                         std::thread::sleep(std::time::Duration::from_millis(1000));
                         return Ok::<(), ZoroError>(());
                     }
-
-                    // Wait till mine is done
-                    if client.is_mining().await? {
-                        log::info!("Nothing to mine!");
-                        std::thread::sleep(std::time::Duration::from_millis(1000));
-                        return Ok::<(), ZoroError>(());
-                    }
-
+                    
                     // Wait till chain gets updated
                     if client.is_outdated().await? {
                         log::info!("Chain is outdated!");
