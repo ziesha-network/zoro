@@ -42,7 +42,7 @@ use structopt::StructOpt;
 use tokio::sync::RwLock as AsyncRwLock;
 use zeekit::BellmanFr;
 
-const LISTEN: &'static str = "127.0.0.1:8767";
+const LISTEN: &'static str = "0.0.0.0:8767";
 
 #[derive(Debug, Clone, StructOpt)]
 struct GenerateParamsOpt {
