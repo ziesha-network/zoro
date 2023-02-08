@@ -652,6 +652,8 @@ async fn main() {
 
                                 let _ = cancel_controller_tx.send(());
                                 cancel_controller.await??;
+                            } else {
+                                println!("No work to do!");
                             }
                         }
                         Ok::<(), ZoroError>(())
