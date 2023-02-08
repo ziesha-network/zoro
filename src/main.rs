@@ -73,12 +73,6 @@ struct PackOpt {
     node: String,
     #[structopt(long)]
     db: String,
-    #[structopt(long, default_value = "update_params.dat")]
-    update_circuit_params: PathBuf,
-    #[structopt(long, default_value = "deposit_params.dat")]
-    deposit_circuit_params: PathBuf,
-    #[structopt(long, default_value = "withdraw_params.dat")]
-    withdraw_circuit_params: PathBuf,
     #[structopt(long, default_value = "1")]
     deposit_batches: usize,
     #[structopt(long, default_value = "1")]
@@ -329,7 +323,7 @@ fn alice_shuffle() {
 }
 
 struct ZoroContext {
-    params: bank::ZoroParams,
+    verif_keys: bank::ZoroVerifyKeys,
     height: Option<u64>,
     works: HashMap<usize, ZoroWork>,
     sent: HashMap<SocketAddr, HashSet<usize>>,
@@ -421,7 +415,7 @@ async fn process_request(
             if ctx.height == Some(req.height) {
                 for (id, p) in req.proofs {
                     if let Some(w) = ctx.works.get(&id) {
-                        if w.verify(&ctx.params, &p) {
+                        if w.verify(&ctx.verif_keys, &p) {
                             ctx.submissions.insert(id, p);
                             ctx.works.remove(&id);
                         }
@@ -647,44 +641,14 @@ async fn main() {
         }
 
         Opt::Pack(opt) => {
-            let deposit_params =
-                load_params::<
-                    circuits::DepositCircuit<
-                        { config::LOG4_DEPOSIT_BATCH_SIZE },
-                        { config::LOG4_TREE_SIZE },
-                        { config::LOG4_TOKENS_TREE_SIZE },
-                    >,
-                    _,
-                >(opt.deposit_circuit_params.clone(), None::<ChaCha20Rng>);
-
-            let withdraw_params =
-                load_params::<
-                    circuits::WithdrawCircuit<
-                        { config::LOG4_WITHDRAW_BATCH_SIZE },
-                        { config::LOG4_TREE_SIZE },
-                        { config::LOG4_TOKENS_TREE_SIZE },
-                    >,
-                    _,
-                >(opt.withdraw_circuit_params.clone(), None::<ChaCha20Rng>);
-
-            let update_params =
-                load_params::<
-                    circuits::UpdateCircuit<
-                        { config::LOG4_UPDATE_BATCH_SIZE },
-                        { config::LOG4_TREE_SIZE },
-                        { config::LOG4_TOKENS_TREE_SIZE },
-                    >,
-                    _,
-                >(opt.update_circuit_params.clone(), None::<ChaCha20Rng>);
-
-            let zoro_params = bank::ZoroParams {
-                update: update_params.clone(),
-                deposit: deposit_params.clone(),
-                withdraw: withdraw_params.clone(),
+            let verif_keys = bank::ZoroVerifyKeys {
+                update: bazuka::config::blockchain::MPN_UPDATE_VK.clone(),
+                deposit: bazuka::config::blockchain::MPN_DEPOSIT_VK.clone(),
+                withdraw: bazuka::config::blockchain::MPN_WITHDRAW_VK.clone(),
             };
 
             let context = Arc::new(AsyncRwLock::new(ZoroContext {
-                params: zoro_params.clone(),
+                verif_keys: verif_keys.clone(),
                 height: None,
                 works: HashMap::new(),
                 remaining_works: HashSet::new(),

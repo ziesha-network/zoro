@@ -44,6 +44,23 @@ pub struct ZoroParams {
     pub update: groth16::Parameters<Bls12>,
 }
 
+impl ZoroParams {
+    fn verify_keys(&self) -> ZoroVerifyKeys {
+        ZoroVerifyKeys {
+            update: self.update.vk.clone().into(),
+            deposit: self.deposit.vk.clone().into(),
+            withdraw: self.withdraw.vk.clone().into(),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct ZoroVerifyKeys {
+    pub deposit: bazuka::zk::groth16::Groth16VerifyingKey,
+    pub withdraw: bazuka::zk::groth16::Groth16VerifyingKey,
+    pub update: bazuka::zk::groth16::Groth16VerifyingKey,
+}
+
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct ZoroWork<
     const LOG4_DEPOSIT_BATCH_SIZE: u8,
@@ -80,11 +97,15 @@ impl<
         LOG4_TOKENS_TREE_SIZE,
     >
 {
-    pub fn verify(&self, params: &ZoroParams, proof: &bazuka::zk::groth16::Groth16Proof) -> bool {
-        let verifier: bazuka::zk::groth16::Groth16VerifyingKey = match self.circuit {
-            ZoroCircuit::Deposit(_) => params.deposit.vk.clone(),
-            ZoroCircuit::Withdraw(_) => params.withdraw.vk.clone(),
-            ZoroCircuit::Update(_) => params.update.vk.clone(),
+    pub fn verify(
+        &self,
+        params: &ZoroVerifyKeys,
+        proof: &bazuka::zk::groth16::Groth16Proof,
+    ) -> bool {
+        let verifier: bazuka::zk::groth16::Groth16VerifyingKey = match &self.circuit {
+            ZoroCircuit::Deposit(_) => params.deposit.clone(),
+            ZoroCircuit::Withdraw(_) => params.withdraw.clone(),
+            ZoroCircuit::Update(_) => params.update.clone(),
         }
         .into();
         bazuka::zk::groth16::groth16_verify(
@@ -129,8 +150,9 @@ impl<
                 },
             )
         };
+        let vks = params.verify_keys();
 
-        if self.verify(&params, &proof) {
+        if self.verify(&vks, &proof) {
             Ok(proof)
         } else {
             Err(BankError::IncorrectProof)
