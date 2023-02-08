@@ -49,8 +49,8 @@ struct GenerateParamsOpt {
 
 #[derive(Debug, Clone, StructOpt)]
 struct ProveOpt {
-    #[structopt(long, default_value = LISTEN)]
-    connect: SocketAddr,
+    #[structopt(long)]
+    connect: Vec<SocketAddr>,
     #[structopt(long, default_value = "update_params.dat")]
     update_circuit_params: PathBuf,
     #[structopt(long, default_value = "deposit_params.dat")]
@@ -157,6 +157,8 @@ pub enum ZoroError {
     JsonError(#[from] serde_json::Error),
     #[error("someone else found a block sooner than you!")]
     Aborted,
+    #[error("you are not the validator anymore!")]
+    NotValidator,
 }
 
 type ZoroWork = bank::ZoroWork<
@@ -542,94 +544,100 @@ async fn main() {
             let new_worker = || async {
                 let backend = backend.clone();
                 let zoro_params = zoro_params.clone();
+                let opt = opt.clone();
                 loop {
                     let backend = backend.clone();
                     let zoro_params = zoro_params.clone();
+                    let opt = opt.clone();
                     if let Err(e) = async move {
-                        let cancel = Arc::new(RwLock::new(false));
-                        let req = Request::builder()
-                            .method(Method::GET)
-                            .uri(format!("http://{}/get", opt.connect))
-                            .body(Body::empty())?;
-                        let client = Client::new();
-                        let resp =
-                            hyper::body::to_bytes(client.request(req).await?.into_body()).await?;
-                        let work_resp: GetWorkResponse = bincode::deserialize(&resp)?;
-                        if let Some(height) = work_resp.height {
-                            let (cancel_controller_tx, mut cancel_controller_rx) =
-                                tokio::sync::mpsc::unbounded_channel::<()>();
-                            let cancel_cloned = cancel.clone();
-                            let cancel_controller =
-                                tokio::task::spawn(async move {
-                                    loop {
-                                        match cancel_controller_rx.try_recv() {
-                                    Ok(_)
-                                    | Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
-                                        break;
-                                    }
-                                    Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
-                                        let req = Request::builder()
-                                            .method(Method::GET)
-                                            .uri(format!("http://{}/stats", opt.connect))
-                                            .body(Body::empty())?;
-                                        let client = Client::new();
-                                        let resp = hyper::body::to_bytes(
-                                            client.request(req).await?.into_body(),
-                                        )
-                                        .await?;
-                                        let resp: GetStatsResponse = serde_json::from_slice(&resp)?;
-                                        if resp.height != Some(height) {
-                                            *cancel_cloned.write().unwrap() = true;
+                        for connect in opt.connect.clone() {
+                            let backend = backend.clone();
+                            let zoro_params = zoro_params.clone();
+                            let cancel = Arc::new(RwLock::new(false));
+                            let req = Request::builder()
+                                .method(Method::GET)
+                                .uri(format!("http://{}/get", connect))
+                                .body(Body::empty())?;
+                            let client = Client::new();
+                            let resp =
+                                hyper::body::to_bytes(client.request(req).await?.into_body()).await?;
+                            let work_resp: GetWorkResponse = bincode::deserialize(&resp)?;
+                            if let Some(height) = work_resp.height {
+                                let (cancel_controller_tx, mut cancel_controller_rx) =
+                                    tokio::sync::mpsc::unbounded_channel::<()>();
+                                let cancel_cloned = cancel.clone();
+                                let cancel_controller =
+                                    tokio::task::spawn(async move {
+                                        loop {
+                                            match cancel_controller_rx.try_recv() {
+                                        Ok(_)
+                                        | Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+                                            break;
+                                        }
+                                        Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
+                                            let req = Request::builder()
+                                                .method(Method::GET)
+                                                .uri(format!("http://{}/stats", connect))
+                                                .body(Body::empty())?;
+                                            let client = Client::new();
+                                            let resp = hyper::body::to_bytes(
+                                                client.request(req).await?.into_body(),
+                                            )
+                                            .await?;
+                                            let resp: GetStatsResponse = serde_json::from_slice(&resp)?;
+                                            if resp.height != Some(height) {
+                                                *cancel_cloned.write().unwrap() = true;
+                                            }
                                         }
                                     }
-                                }
-                                        std::thread::sleep(std::time::Duration::from_millis(2000));
-                                    }
-                                    Ok::<(), ZoroError>(())
-                                });
-                            println!("Got {} SNARK-works to solve...", work_resp.works.len());
-                            let start = std::time::Instant::now();
-                            let pool = rayon::ThreadPoolBuilder::new()
-                                .num_threads(32)
-                                .build()
-                                .unwrap();
-                            let proofs = tokio::task::spawn_blocking(move || {
-                                pool.install(|| -> Result<
-                                HashMap<usize, bazuka::zk::groth16::Groth16Proof>,
-                                bank::BankError,
-                            > {
-                                work_resp
-                                    .works
-                                    .into_par_iter()
-                                    .map(|(id, p)| {
-                                        p.prove(
-                                            zoro_params.clone(),
-                                            backend.clone(),
-                                            Some(cancel.clone()),
-                                        )
-                                        .map(|p| (id, p))
-                                    })
-                                    .collect()
-                            })
-                            })
-                            .await??;
-                            println!(
-                                "{} {}ms",
-                                "Proving took:".bright_green(),
-                                (std::time::Instant::now() - start).as_millis()
-                            );
-                            let req = Request::builder()
-                                .method(Method::POST)
-                                .uri(format!("http://{}/post", opt.connect))
-                                .body(Body::from(bincode::serialize(&PostProofRequest {
-                                    height,
-                                    proofs,
-                                })?))?;
-                            let client = Client::new();
-                            client.request(req).await?;
+                                            std::thread::sleep(std::time::Duration::from_millis(2000));
+                                        }
+                                        Ok::<(), ZoroError>(())
+                                    });
+                                println!("Got {} SNARK-works to solve...", work_resp.works.len());
+                                let start = std::time::Instant::now();
+                                let pool = rayon::ThreadPoolBuilder::new()
+                                    .num_threads(32)
+                                    .build()
+                                    .unwrap();
+                                let proofs = tokio::task::spawn_blocking(move || {
+                                    pool.install(|| -> Result<
+                                    HashMap<usize, bazuka::zk::groth16::Groth16Proof>,
+                                    bank::BankError,
+                                > {
+                                    work_resp
+                                        .works
+                                        .into_par_iter()
+                                        .map(|(id, p)| {
+                                            p.prove(
+                                                zoro_params.clone(),
+                                                backend.clone(),
+                                                Some(cancel.clone()),
+                                            )
+                                            .map(|p| (id, p))
+                                        })
+                                        .collect()
+                                })
+                                })
+                                .await??;
+                                println!(
+                                    "{} {}ms",
+                                    "Proving took:".bright_green(),
+                                    (std::time::Instant::now() - start).as_millis()
+                                );
+                                let req = Request::builder()
+                                    .method(Method::POST)
+                                    .uri(format!("http://{}/post", connect))
+                                    .body(Body::from(bincode::serialize(&PostProofRequest {
+                                        height,
+                                        proofs,
+                                    })?))?;
+                                let client = Client::new();
+                                client.request(req).await?;
 
-                            let _ = cancel_controller_tx.send(());
-                            cancel_controller.await??;
+                                let _ = cancel_controller_tx.send(());
+                                cancel_controller.await??;
+                            }
                         }
                         Ok::<(), ZoroError>(())
                     }
@@ -832,6 +840,9 @@ async fn main() {
                         let remote_height = client.get_height().await?;
                         if remote_height != curr_height {
                             return Err(ZoroError::Aborted);
+                        }
+                        if client.validator_proof().await?.is_none() {
+                            return Err(ZoroError::NotValidator);
                         }
                         std::thread::sleep(std::time::Duration::from_millis(1000));
                     }
