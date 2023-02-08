@@ -572,6 +572,7 @@ async fn main() {
                                             let resp :Result<GetStatsResponse,_>=  serde_json::from_slice(&res);
                                             if let Ok(resp) = resp {
                                                 if resp.height.is_none() {
+                                                    println!("Remote is not a validator!");
                                                     continue;
                                                 }
                                             } else {
