@@ -159,6 +159,8 @@ pub enum ZoroError {
     Aborted,
     #[error("you are not the validator anymore!")]
     NotValidator,
+    #[error("http request timed out!")]
+    HttpTimeout(#[from] tokio::time::error::Elapsed),
 }
 
 type ZoroWork = bank::ZoroWork<
@@ -553,6 +555,7 @@ async fn main() {
                     let opt = opt.clone();
                     if let Err(e) = async move {
                         for connect in opt.connect.clone() {
+                            println!("Checking {}...", connect);
                             let backend = backend.clone();
                             let zoro_params = zoro_params.clone();
                             let cancel = Arc::new(RwLock::new(false));
@@ -562,9 +565,12 @@ async fn main() {
                                 .body(Body::empty())?;
                             let client = Client::new();
                             let resp =
-                                hyper::body::to_bytes(client.request(req).await?.into_body()).await?;
+                                tokio::time::timeout(std::time::Duration::from_millis(1000), async {
+                                        hyper::body::to_bytes(client.request(req).await?.into_body()).await
+                                    }).await??;
                             let work_resp: GetWorkResponse = bincode::deserialize(&resp)?;
                             if let Some(height) = work_resp.height {
+                                println!("Work found! Starting...");
                                 let (cancel_controller_tx, mut cancel_controller_rx) =
                                     tokio::sync::mpsc::unbounded_channel::<()>();
                                 let cancel_cloned = cancel.clone();
@@ -635,7 +641,8 @@ async fn main() {
                                         proofs,
                                     })?))?;
                                 let client = Client::new();
-                                client.request(req).await?;
+
+                                tokio::time::timeout(std::time::Duration::from_millis(5000), client.request(req)).await??;
 
                                 let _ = cancel_controller_tx.send(());
                                 cancel_controller.await??;
