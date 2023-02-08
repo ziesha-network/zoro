@@ -559,13 +559,38 @@ async fn main() {
                             let backend = backend.clone();
                             let zoro_params = zoro_params.clone();
                             let cancel = Arc::new(RwLock::new(false));
+
+                            let req = Request::builder()
+                                .method(Method::GET)
+                                .uri(format!("http://{}/stats", connect))
+                                .body(Body::empty())?;
+                            let client = Client::new();
+                                if let Ok(res) = tokio::time::timeout(std::time::Duration::from_millis(2000), async {
+                                        hyper::body::to_bytes(client.request(req).await?.into_body()).await
+                                    }).await {
+                                        if let Ok(res) = res {
+                                            let resp :Result<GetStatsResponse,_>=  serde_json::from_slice(&res);
+                                            if let Ok(resp) = resp {
+                                                if resp.height.is_none() {
+                                                    continue;
+                                                }
+                                            } else {
+                                                continue;
+                                            }
+                                        } else {
+                                            continue;
+                                        }
+                                    } else {
+                                        continue;
+                                    };
+
                             let req = Request::builder()
                                 .method(Method::GET)
                                 .uri(format!("http://{}/get", connect))
                                 .body(Body::empty())?;
                             let client = Client::new();
                             let resp =
-                                if let Ok(res) = tokio::time::timeout(std::time::Duration::from_millis(2000), async {
+                                if let Ok(res) = tokio::time::timeout(std::time::Duration::from_millis(15000), async {
                                         hyper::body::to_bytes(client.request(req).await?.into_body()).await
                                     }).await {
                                         if let Ok(res) = res {
