@@ -82,8 +82,6 @@ struct PackOpt {
     #[structopt(long, default_value = "")]
     miner_token: String,
     #[structopt(long, default_value = "1")]
-    work_per_worker: usize,
-    #[structopt(long, default_value = "1")]
     work_per_ip: usize,
 }
 
@@ -401,7 +399,7 @@ async fn process_request(
                 let work_ids = sendable
                     .iter()
                     .cloned()
-                    .choose_multiple(&mut rand::thread_rng(), opt.work_per_worker);
+                    .choose_multiple(&mut rand::thread_rng(), opt.work_per_ip);
                 for id in work_ids.iter() {
                     ctx.remaining_works.remove(id);
                 }
