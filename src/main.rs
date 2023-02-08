@@ -7,9 +7,13 @@ use circuits::{Deposit, Withdraw};
 
 use bazuka::blockchain::{BlockchainConfig, ValidatorProof};
 use bazuka::config::blockchain::get_blockchain_config;
-use bazuka::core::{Amount, Money, MpnAddress, MpnDeposit, MpnWithdraw, TokenId};
+use bazuka::core::{
+    Amount, ChainSourcedTx, Header, Money, MpnAddress, MpnDeposit, MpnSourcedTx, MpnWithdraw,
+    TokenId,
+};
 use bazuka::db::KvStore;
 use bazuka::db::ReadOnlyLevelDbKvStore;
+use bazuka::wallet::{TxBuilder, Wallet};
 use bazuka::zk::MpnTransaction;
 use bellman::gpu::{Brand, Device};
 use bellman::groth16::Backend;
@@ -27,7 +31,9 @@ use rand_chacha::ChaCha20Rng;
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
+use std::io::{Read, Write};
 use std::net::SocketAddr;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::{Arc, RwLock};
@@ -86,6 +92,8 @@ struct PackOpt {
     miner_token: String,
     #[structopt(long, default_value = "1")]
     work_per_ip: usize,
+    #[structopt(long, default_value = "10")]
+    reward_delay: u64,
 }
 
 #[derive(Debug, Clone, StructOpt)]
@@ -166,6 +174,10 @@ pub enum ZoroError {
     NotValidator,
     #[error("http request timed out!")]
     HttpTimeout(#[from] tokio::time::error::Elapsed),
+    #[error("from-hex error happened: {0}")]
+    FromHexError(#[from] hex::FromHexError),
+    #[error("mpn-address parse error happened: {0}")]
+    MpnAddressError(#[from] bazuka::core::ParseMpnAddressError),
 }
 
 type ZoroWork = bank::ZoroWork<
@@ -368,6 +380,82 @@ struct PostProofRequest {
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct PostProofResponse {
     accepted: usize,
+}
+
+fn create_tx(
+    wallet: &mut Wallet,
+    memo: String,
+    entries: HashMap<MpnAddress, Amount>,
+    remote_nonce: u32,
+    remote_mpn_nonce: u64,
+) -> Result<(bazuka::core::MpnDeposit, Vec<MpnTransaction>), ZoroError> {
+    let mpn_id = bazuka::config::blockchain::get_blockchain_config().mpn_contract_id;
+    let tx_builder = TxBuilder::new(&wallet.seed());
+    let new_nonce = wallet.new_r_nonce().unwrap_or(remote_nonce + 1);
+    let pool_mpn_address = MpnAddress {
+        pub_key: tx_builder.get_zk_address(),
+    };
+    let new_mpn_nonce = wallet
+        .new_z_nonce(&pool_mpn_address)
+        .unwrap_or(remote_mpn_nonce);
+    let sum_all = entries
+        .iter()
+        .map(|(_, m)| Into::<u64>::into(*m))
+        .sum::<u64>();
+    let tx = tx_builder.deposit_mpn(
+        memo,
+        mpn_id,
+        pool_mpn_address.clone(),
+        0,
+        new_nonce,
+        Money::ziesha(sum_all),
+        Money::ziesha(0),
+    );
+    wallet.add_deposit(tx.clone());
+    let mut ztxs = Vec::new();
+    for (i, (addr, mon)) in entries.iter().enumerate() {
+        if *addr != pool_mpn_address {
+            let tx = tx_builder.create_mpn_transaction(
+                0,
+                addr.clone(),
+                0,
+                Money::ziesha((*mon).into()),
+                0,
+                Money::ziesha(0),
+                new_mpn_nonce + i as u64,
+            );
+            wallet.add_zsend(tx.clone());
+            ztxs.push(tx);
+        }
+    }
+    Ok((tx, ztxs))
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct History {
+    solved: HashMap<Header, HashMap<MpnAddress, Amount>>,
+    sent: HashMap<Header, (MpnDeposit, Vec<MpnTransaction>)>,
+}
+
+fn save_history(h: &History) -> Result<(), ZoroError> {
+    let history_path = home::home_dir().unwrap().join(Path::new(".zoro-history"));
+    File::create(history_path)?.write_all(&bincode::serialize(h)?)?;
+    Ok(())
+}
+
+fn get_history() -> Result<History, ZoroError> {
+    let history_path = home::home_dir().unwrap().join(Path::new(".zoro-history"));
+    Ok(if let Ok(mut f) = File::open(history_path.clone()) {
+        let mut bytes = Vec::new();
+        f.read_to_end(&mut bytes)?;
+        drop(f);
+        bincode::deserialize(&bytes)?
+    } else {
+        History {
+            solved: HashMap::new(),
+            sent: HashMap::new(),
+        }
+    })
 }
 
 async fn process_request(
@@ -810,7 +898,107 @@ async fn main() {
             let client = SyncClient::new(node_addr, "mainnet", opt.miner_token.clone());
 
             let conf = get_blockchain_config();
+
+            let opt_reward_sender = opt.clone();
+            let client_reward_sender = client.clone();
+            let reward_sender_loop = {
+                let opt = opt_reward_sender.clone();
+                let client = client_reward_sender.clone();
+                async move {
+                    loop {
+                        let opt = opt.clone();
+                        let client = client.clone();
+                        if let Err(e) = async move {
+                            let mpn_log4_acc_cap =
+                                bazuka::config::blockchain::get_blockchain_config()
+                                    .mpn_log4_account_capacity;
+
+                            let mut hist = get_history()?;
+                            let curr_height = client.get_height().await?;
+                            let wallet_path =
+                                home::home_dir().unwrap().join(Path::new(".bazuka-wallet"));
+                            let mut wallet = Wallet::open(wallet_path.clone()).unwrap().unwrap();
+                            let pool_mpn_address = MpnAddress {
+                                pub_key: TxBuilder::new(&wallet.seed()).get_zk_address(),
+                            };
+                            let curr_nonce = client
+                                .get_account(TxBuilder::new(&wallet.seed()).get_address())
+                                .await?
+                                .account
+                                .nonce;
+                            let curr_mpn_nonce = client
+                                .get_mpn_account(pool_mpn_address.account_index(mpn_log4_acc_cap))
+                                .await?
+                                .account
+                                .nonce;
+                            for (h, entries) in hist.solved.clone().into_iter() {
+                                if let Some(actual_header) = client.get_header(h.number).await? {
+                                    if curr_height - h.number >= opt.reward_delay {
+                                        hist.solved.remove(&h);
+                                        if actual_header == h {
+                                            let (tx, ztxs) = create_tx(
+                                                &mut wallet,
+                                                format!("Pool-Reward, block #{}", h.number).into(),
+                                                entries,
+                                                curr_nonce,
+                                                curr_mpn_nonce,
+                                            )?;
+                                            wallet.save(wallet_path.clone()).unwrap();
+                                            println!(
+                                                "Tx with nonce {} created...",
+                                                tx.payment.nonce
+                                            );
+                                            hist.sent.insert(h, (tx, ztxs));
+                                        }
+                                        save_history(&hist)?;
+                                    }
+                                }
+                            }
+                            println!("Current nonce: {}", curr_nonce);
+
+                            println!("Resending unprocessed transactions...");
+                            for tx in wallet.chain_sourced_txs.iter() {
+                                if tx.nonce() > curr_nonce {
+                                    match tx {
+                                        ChainSourcedTx::MpnDeposit(tx) => {
+                                            client.transact_deposit(tx.clone()).await?;
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                            for tx in wallet
+                                .mpn_sourced_txs
+                                .get(&pool_mpn_address)
+                                .cloned()
+                                .unwrap_or_default()
+                                .iter()
+                            {
+                                if tx.nonce() >= curr_mpn_nonce {
+                                    match tx {
+                                        MpnSourcedTx::MpnTransaction(tx) => {
+                                            client.transact_zero(tx.clone()).await?;
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+
+                            Ok::<_, ZoroError>(())
+                        }
+                        .await
+                        {
+                            log::error!("Error: {}", e);
+                        }
+                        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                    }
+
+                    Ok::<(), ZoroError>(())
+                }
+            };
+
             let mut last_solved_height = None;
+
             let packager_loop = async {
                 loop {
                     if let Err(e) = async {
@@ -996,7 +1184,7 @@ async fn main() {
                 Ok::<(), ZoroError>(())
             };
 
-            tokio::try_join!(server_fut, packager_loop).unwrap();
+            tokio::try_join!(server_fut, packager_loop, reward_sender_loop).unwrap();
         }
     }
 }

@@ -77,4 +77,31 @@ impl SyncClient {
         })
         .await
     }
+    pub async fn get_header(&self, index: u64) -> Result<Option<bazuka::core::Header>, NodeError> {
+        self.call(move |client| async move {
+            Ok(client.get_headers(index, 1).await?.headers.first().cloned())
+        })
+        .await
+    }
+    pub async fn get_mpn_account(
+        &self,
+        index: u64,
+    ) -> Result<bazuka::client::messages::GetMpnAccountResponse, NodeError> {
+        self.call(move |client| async move { Ok(client.get_mpn_account(index).await?) })
+            .await
+    }
+    pub async fn transact_deposit(
+        &self,
+        tx: bazuka::core::MpnDeposit,
+    ) -> Result<bazuka::client::messages::PostMpnDepositResponse, NodeError> {
+        self.call(move |client| async move { Ok(client.transact_contract_deposit(tx).await?) })
+            .await
+    }
+    pub async fn transact_zero(
+        &self,
+        tx: bazuka::zk::MpnTransaction,
+    ) -> Result<bazuka::client::messages::PostMpnTransactionResponse, NodeError> {
+        self.call(move |client| async move { Ok(client.zero_transact(tx).await?) })
+            .await
+    }
 }

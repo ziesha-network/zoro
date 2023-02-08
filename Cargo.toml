@@ -26,6 +26,7 @@ serde_json = "1.0"
 thiserror = "1.0"
 structopt = { version = "0.3", default-features = false }
 rayon = "1.5.3"
+home = "0.5.3"
 
 # Serialization of VKs
 hex = "0.4.3"
