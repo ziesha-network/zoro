@@ -1,3 +1,4 @@
+use bazuka::blockchain::ValidatorProof;
 use bazuka::client::NodeError;
 use std::future::Future;
 
@@ -78,5 +79,11 @@ impl SyncClient {
     pub async fn get_height(&self) -> Result<u64, NodeError> {
         self.call(move |client| async move { Ok(client.stats().await.map(|resp| resp.height)?) })
             .await
+    }
+    pub async fn validator_proof(&self) -> Result<Option<ValidatorProof>, NodeError> {
+        self.call(move |client| async move {
+            Ok(client.stats().await.map(|resp| resp.validator_proof)?)
+        })
+        .await
     }
 }

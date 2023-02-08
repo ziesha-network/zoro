@@ -5,7 +5,7 @@ mod config;
 
 use circuits::{Deposit, Withdraw};
 
-use bazuka::blockchain::BlockchainConfig;
+use bazuka::blockchain::{BlockchainConfig, ValidatorProof};
 use bazuka::config::blockchain::get_blockchain_config;
 use bazuka::core::{Amount, Money, MpnDeposit, MpnWithdraw, TokenId};
 use bazuka::db::KvStore;
@@ -329,6 +329,7 @@ struct ZoroContext {
     sent: HashMap<SocketAddr, HashSet<usize>>,
     remaining_works: HashSet<usize>,
     submissions: HashMap<usize, bazuka::zk::groth16::Groth16Proof>,
+    validator_proof: Option<ValidatorProof>,
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -344,6 +345,7 @@ struct GetStatsRequest {}
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct GetStatsResponse {
     height: Option<u64>,
+    validator_proof: Option<ValidatorProof>,
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -363,8 +365,10 @@ async fn process_request(
     let url = request.uri().path().to_string();
     Ok(match &url[..] {
         "/stats" => {
+            let ctx = context.read().await;
             let resp = GetStatsResponse {
-                height: context.read().await.height,
+                height: ctx.height,
+                validator_proof: ctx.validator_proof.clone(),
             };
             Response::new(Body::from(serde_json::to_vec(&resp)?))
         }
@@ -650,6 +654,7 @@ async fn main() {
             let context = Arc::new(AsyncRwLock::new(ZoroContext {
                 verif_keys: verif_keys.clone(),
                 height: None,
+                validator_proof: None,
                 works: HashMap::new(),
                 remaining_works: HashSet::new(),
                 submissions: HashMap::new(),
@@ -705,8 +710,20 @@ async fn main() {
                     ctx.submissions.clear();
                     ctx.remaining_works.clear();
                     ctx.sent.clear();
-                    ctx.height=None;
+                    ctx.height = None;
+                    ctx.validator_proof = None;
                     drop(ctx);
+
+                    let validator_proof = client.validator_proof().await?;
+
+                    // Wait till mine is done
+                    if let Some(validator_proof) = validator_proof {
+                        context.write().await.validator_proof=Some(validator_proof);
+                    } else {
+                        log::info!("You are not the selected validator!");
+                        std::thread::sleep(std::time::Duration::from_millis(1000));
+                        return Ok::<(), ZoroError>(());
+                    }
 
                     // Wait till mine is done
                     if client.is_mining().await? {
