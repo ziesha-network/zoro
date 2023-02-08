@@ -83,6 +83,8 @@ struct PackOpt {
     miner_token: String,
     #[structopt(long, default_value = "1")]
     work_per_worker: usize,
+    #[structopt(long, default_value = "1")]
+    work_per_ip: usize,
 }
 
 #[derive(Debug, Clone, StructOpt)]
@@ -382,6 +384,13 @@ async fn process_request(
             if let Some(client) = client {
                 let mut ctx = context.write().await;
                 let already_sent = ctx.sent.get(&client).cloned().unwrap_or_default();
+                if already_sent.len() >= opt.work_per_ip {
+                    let resp = GetWorkResponse {
+                        height: ctx.height,
+                        works: Default::default(),
+                    };
+                    return Ok(Response::new(Body::from(bincode::serialize(&resp)?)));
+                }
                 if ctx.remaining_works.is_empty() {
                     ctx.remaining_works = ctx.works.keys().cloned().collect();
                 }
