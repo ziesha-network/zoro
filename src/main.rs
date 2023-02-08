@@ -59,7 +59,7 @@ struct ProveOpt {
     withdraw_circuit_params: PathBuf,
     #[structopt(long)]
     gpu: bool,
-    #[structopt(long, default_value = "4")]
+    #[structopt(long, default_value = "1")]
     workers: usize,
 }
 
@@ -81,7 +81,7 @@ struct PackOpt {
     update_batches: usize,
     #[structopt(long, default_value = "")]
     miner_token: String,
-    #[structopt(long, default_value = "3")]
+    #[structopt(long, default_value = "1")]
     work_per_worker: usize,
 }
 
