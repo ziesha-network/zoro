@@ -568,7 +568,11 @@ async fn main() {
                                 if let Ok(res) = tokio::time::timeout(std::time::Duration::from_millis(2000), async {
                                         hyper::body::to_bytes(client.request(req).await?.into_body()).await
                                     }).await {
-                                        res?
+                                        if let Ok(res) = res {
+                                            res
+                                        } else {
+                                            continue;
+                                        }
                                     } else {
                                         continue;
                                     };
