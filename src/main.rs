@@ -348,6 +348,7 @@ struct GetStatsRequest {}
 struct GetStatsResponse {
     height: Option<u64>,
     validator_proof: Option<ValidatorProof>,
+    version: String,
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -371,6 +372,7 @@ async fn process_request(
             let resp = GetStatsResponse {
                 height: ctx.height,
                 validator_proof: ctx.validator_proof.clone(),
+                version: env!("CARGO_PKG_VERSION").into(),
             };
             Response::new(Body::from(serde_json::to_vec(&resp)?))
         }
