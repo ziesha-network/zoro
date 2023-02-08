@@ -565,9 +565,13 @@ async fn main() {
                                 .body(Body::empty())?;
                             let client = Client::new();
                             let resp =
-                                tokio::time::timeout(std::time::Duration::from_millis(1000), async {
+                                if let Ok(res) = tokio::time::timeout(std::time::Duration::from_millis(2000), async {
                                         hyper::body::to_bytes(client.request(req).await?.into_body()).await
-                                    }).await??;
+                                    }).await {
+                                        res?
+                                    } else {
+                                        continue;
+                                    };
                             let work_resp: GetWorkResponse = bincode::deserialize(&resp)?;
                             if let Some(height) = work_resp.height {
                                 println!("Work found! Starting...");
@@ -642,7 +646,9 @@ async fn main() {
                                     })?))?;
                                 let client = Client::new();
 
-                                tokio::time::timeout(std::time::Duration::from_millis(5000), client.request(req)).await??;
+                                if tokio::time::timeout(std::time::Duration::from_millis(5000), client.request(req)).await.is_err() {
+                                    continue;
+                                }
 
                                 let _ = cancel_controller_tx.send(());
                                 cancel_controller.await??;
