@@ -31,6 +31,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 use structopt::StructOpt;
 use tokio::sync::RwLock as AsyncRwLock;
 use zeekit::BellmanFr;
@@ -92,6 +93,8 @@ enum Opt {
     Prove(ProveOpt),
     GenerateParams(GenerateParamsOpt),
 }
+
+const MAXIMUM_PROVING_TIME: Duration = Duration::from_secs(50);
 
 fn load_params<C: Circuit<BellmanFr> + Default, R: Rng>(
     path: PathBuf,
@@ -577,7 +580,7 @@ async fn main() {
                                 .uri(format!("http://{}/stats", connect))
                                 .body(Body::empty())?;
                             let client = Client::new();
-                                if let Ok(res) = tokio::time::timeout(std::time::Duration::from_millis(2000), async {
+                                if let Ok(res) = tokio::time::timeout(Duration::from_millis(2000), async {
                                         hyper::body::to_bytes(client.request(req).await?.into_body()).await
                                     }).await {
                                         if let Ok(res) = res {
@@ -607,7 +610,7 @@ async fn main() {
                                 .body(Body::empty())?;
                             let client = Client::new();
                             let resp =
-                                if let Ok(res) = tokio::time::timeout(std::time::Duration::from_millis(15000), async {
+                                if let Ok(res) = tokio::time::timeout(Duration::from_millis(15000), async {
                                         hyper::body::to_bytes(client.request(req).await?.into_body()).await
                                     }).await {
                                         if let Ok(res) = res {
@@ -683,8 +686,12 @@ async fn main() {
                                 println!(
                                     "{} {}ms",
                                     "Proving took:".bright_green(),
-                                    (std::time::Instant::now() - start).as_millis()
+                                    start.elapsed().as_millis()
                                 );
+                                if start.elapsed() > MAXIMUM_PROVING_TIME {
+                                    println!("{} {}", "WARNING:".bright_red(), "Your proving time is too high! You will most probably not win any rewards with this latency.");
+                                }
+
                                 let req = Request::builder()
                                     .method(Method::POST)
                                     .uri(format!("http://{}/post", connect))
