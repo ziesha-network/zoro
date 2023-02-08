@@ -7,7 +7,7 @@ use circuits::{Deposit, Withdraw};
 
 use bazuka::blockchain::{BlockchainConfig, ValidatorProof};
 use bazuka::config::blockchain::get_blockchain_config;
-use bazuka::core::{Amount, Money, MpnDeposit, MpnWithdraw, TokenId};
+use bazuka::core::{Amount, Money, MpnAddress, MpnDeposit, MpnWithdraw, TokenId};
 use bazuka::db::KvStore;
 use bazuka::db::ReadOnlyLevelDbKvStore;
 use bazuka::zk::MpnTransaction;
@@ -50,6 +50,8 @@ struct GenerateParamsOpt {
 
 #[derive(Debug, Clone, StructOpt)]
 struct ProveOpt {
+    #[structopt(long)]
+    address: MpnAddress,
     #[structopt(long)]
     connect: Vec<SocketAddr>,
     #[structopt(long, default_value = "update_params.dat")]
@@ -336,6 +338,7 @@ struct ZoroContext {
     sent: HashMap<SocketAddr, HashSet<usize>>,
     remaining_works: HashSet<usize>,
     submissions: HashMap<usize, bazuka::zk::groth16::Groth16Proof>,
+    rewards: HashMap<MpnAddress, usize>,
     validator_proof: Option<ValidatorProof>,
 }
 
@@ -360,9 +363,12 @@ struct GetStatsResponse {
 struct PostProofRequest {
     height: u64,
     proofs: HashMap<usize, bazuka::zk::groth16::Groth16Proof>,
+    address: MpnAddress,
 }
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
-struct PostProofResponse {}
+struct PostProofResponse {
+    accepted: usize,
+}
 
 async fn process_request(
     context: Arc<AsyncRwLock<ZoroContext>>,
@@ -430,6 +436,7 @@ async fn process_request(
             }
         }
         "/post" => {
+            let mut accepted = 0;
             if let Some(client) = client {
                 let body = request.into_body();
                 let body_bytes = hyper::body::to_bytes(body).await?;
@@ -441,13 +448,17 @@ async fn process_request(
                             if w.verify(&ctx.verif_keys, &p) {
                                 println!("Client {} sent the solution for work-id {}", client, id);
                                 ctx.submissions.insert(id, p);
+                                *ctx.rewards.entry(req.address.clone()).or_default() += 1;
                                 ctx.works.remove(&id);
+                                accepted += 1;
                             }
                         }
                     }
                 }
             }
-            Response::new(Body::empty())
+            Response::new(Body::from(bincode::serialize(&PostProofResponse {
+                accepted,
+            })?))
         }
         _ => {
             let mut resp = Response::new(Body::empty());
@@ -573,6 +584,7 @@ async fn main() {
                             println!("Checking {}...", connect);
                             let backend = backend.clone();
                             let zoro_params = zoro_params.clone();
+                            let opt = opt.clone();
                             let cancel = Arc::new(RwLock::new(false));
 
                             let req = Request::builder()
@@ -696,12 +708,31 @@ async fn main() {
                                     .method(Method::POST)
                                     .uri(format!("http://{}/post", connect))
                                     .body(Body::from(bincode::serialize(&PostProofRequest {
+                                        address: opt.address,
                                         height,
                                         proofs,
                                     })?))?;
                                 let client = Client::new();
 
-                                if tokio::time::timeout(std::time::Duration::from_millis(5000), client.request(req)).await.is_err() {
+                                if let Ok(res) = tokio::time::timeout(std::time::Duration::from_millis(5000), async {
+                                        hyper::body::to_bytes(client.request(req).await?.into_body()).await
+                                    }).await
+                                    {
+                                    if let Ok(res) = res {
+                                        let resp :Result<PostProofResponse,_>=  serde_json::from_slice(&res);
+                                        if let Ok(resp) = resp {
+                                            println!("{} of your proofs were accepted!", resp.accepted);
+                                        } else {
+                                            println!("Error parsing response");
+                                            continue;
+                                        }
+                                    } else {
+                                        println!("Error while sending solution");
+                                        continue;
+                                    }
+                                }
+                                else {
+                                    println!("Timed out when sending solution!");
                                     continue;
                                 }
 
@@ -738,6 +769,7 @@ async fn main() {
                 works: HashMap::new(),
                 remaining_works: HashSet::new(),
                 submissions: HashMap::new(),
+                rewards: HashMap::new(),
                 sent: HashMap::new(),
             }));
 
@@ -786,6 +818,7 @@ async fn main() {
                     let mut ctx = context.write().await;
                     ctx.works.clear();
                     ctx.submissions.clear();
+                    ctx.rewards.clear();
                     ctx.remaining_works.clear();
                     ctx.sent.clear();
                     ctx.height = None;
