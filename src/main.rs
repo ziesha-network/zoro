@@ -576,14 +576,18 @@ async fn main() {
                                                     continue;
                                                 }
                                             } else {
+                                                println!("Error parsing");
                                                 continue;
                                             }
                                         } else {
+                                            println!("Error while getting");
                                             continue;
                                         }
                                     } else {
+                                        println!("Timed out");
                                         continue;
                                     };
+                            println!("Remote is a validator! Getting work...");
 
                             let req = Request::builder()
                                 .method(Method::GET)
@@ -597,9 +601,11 @@ async fn main() {
                                         if let Ok(res) = res {
                                             res
                                         } else {
+                                            println!("Error getting work!");
                                             continue;
                                         }
                                     } else {
+                                        println!("Timed out!");
                                         continue;
                                     };
                             let work_resp: GetWorkResponse = bincode::deserialize(&resp)?;
@@ -754,8 +760,6 @@ async fn main() {
 
             let conf = get_blockchain_config();
 
-            let mut last_height = None;
-
             let packager_loop = async {
                 loop {
                     if let Err(e) = async {
@@ -795,14 +799,6 @@ async fn main() {
                     }
 
                     let curr_height = client.get_height().await?;
-
-                    if Some(curr_height) == last_height {
-                        log::info!("Proof already generated for height {}!", curr_height);
-                        std::thread::sleep(std::time::Duration::from_millis(1000));
-                        return Ok::<(), ZoroError>(());
-                    } else {
-                        last_height = Some(curr_height);
-                    }
 
                     println!("Started on height: {}", curr_height);
 
