@@ -393,6 +393,7 @@ async fn process_request(
                 }
                 if ctx.remaining_works.is_empty() {
                     ctx.remaining_works = ctx.works.keys().cloned().collect();
+                    println!("Resending works!");
                 }
                 let remaining_works: HashSet<usize> = ctx.remaining_works.iter().cloned().collect();
                 let sendable: Vec<usize> =
@@ -415,6 +416,7 @@ async fn process_request(
                     })
                     .collect();
                 for id in works.keys() {
+                    println!("Posted work-id {} to client {}", id, client);
                     ctx.sent.entry(client).or_default().insert(*id);
                 }
                 let resp = GetWorkResponse {
@@ -427,16 +429,19 @@ async fn process_request(
             }
         }
         "/post" => {
-            let body = request.into_body();
-            let body_bytes = hyper::body::to_bytes(body).await?;
-            let req: PostProofRequest = bincode::deserialize(&body_bytes)?;
-            let mut ctx = context.write().await;
-            if ctx.height == Some(req.height) {
-                for (id, p) in req.proofs {
-                    if let Some(w) = ctx.works.get(&id) {
-                        if w.verify(&ctx.verif_keys, &p) {
-                            ctx.submissions.insert(id, p);
-                            ctx.works.remove(&id);
+            if let Some(client) = client {
+                let body = request.into_body();
+                let body_bytes = hyper::body::to_bytes(body).await?;
+                let req: PostProofRequest = bincode::deserialize(&body_bytes)?;
+                let mut ctx = context.write().await;
+                if ctx.height == Some(req.height) {
+                    for (id, p) in req.proofs {
+                        if let Some(w) = ctx.works.get(&id) {
+                            if w.verify(&ctx.verif_keys, &p) {
+                                println!("Client {} sent the solution for work-id {}", client, id);
+                                ctx.submissions.insert(id, p);
+                                ctx.works.remove(&id);
+                            }
                         }
                     }
                 }
@@ -792,7 +797,7 @@ async fn main() {
                         std::thread::sleep(std::time::Duration::from_millis(1000));
                         return Ok::<(), ZoroError>(());
                     }
-                    
+
                     // Wait till chain gets updated
                     if client.is_outdated().await? {
                         log::info!("Chain is outdated!");
