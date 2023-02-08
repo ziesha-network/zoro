@@ -771,7 +771,7 @@ async fn main() {
             let client = SyncClient::new(node_addr, "mainnet", opt.miner_token.clone());
 
             let conf = get_blockchain_config();
-
+            let mut last_solved_height = None;
             let packager_loop = async {
                 loop {
                     if let Err(e) = async {
@@ -804,6 +804,11 @@ async fn main() {
                     }
 
                     let curr_height = client.get_height().await?;
+                    if Some(curr_height) == last_solved_height {
+                       log::info!("Proof already generated for height {}!", curr_height);
+                       std::thread::sleep(std::time::Duration::from_millis(1000));
+                       return Ok::<(), ZoroError>(());
+                    }
 
                     println!("Started on height: {}", curr_height);
 
@@ -939,7 +944,7 @@ async fn main() {
                     };
 
                     client.transact(tx_delta).await?;
-
+                    last_solved_height = Some(curr_height);
                     Ok(())
                 }
                 .await
