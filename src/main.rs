@@ -597,12 +597,12 @@ async fn main() {
                                             )
                                             .await?;
                                             let resp: GetStatsResponse = serde_json::from_slice(&resp)?;
-                                            if resp.height != Some(height) {
+                                            if resp.height != Some(height) || resp.validator_proof.is_none() {
                                                 *cancel_cloned.write().unwrap() = true;
                                             }
                                         }
                                     }
-                                            std::thread::sleep(std::time::Duration::from_millis(2000));
+                                            std::thread::sleep(std::time::Duration::from_millis(3000));
                                         }
                                         Ok::<(), ZoroError>(())
                                     });
