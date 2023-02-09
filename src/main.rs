@@ -7,9 +7,13 @@ use circuits::{Deposit, Withdraw};
 
 use bazuka::blockchain::{BlockchainConfig, ValidatorProof};
 use bazuka::config::blockchain::get_blockchain_config;
-use bazuka::core::{Amount, Money, MpnDeposit, MpnWithdraw, TokenId};
+use bazuka::core::{
+    Amount, ChainSourcedTx, Money, MpnAddress, MpnDeposit, MpnSourcedTx, MpnWithdraw, TokenId,
+    TransactionData,
+};
 use bazuka::db::KvStore;
 use bazuka::db::ReadOnlyLevelDbKvStore;
+use bazuka::wallet::{TxBuilder, Wallet};
 use bazuka::zk::MpnTransaction;
 use bellman::gpu::{Brand, Device};
 use bellman::groth16::Backend;
@@ -27,7 +31,9 @@ use rand_chacha::ChaCha20Rng;
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
+use std::io::{Read, Write};
 use std::net::SocketAddr;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::{Arc, RwLock};
@@ -36,7 +42,7 @@ use structopt::StructOpt;
 use tokio::sync::RwLock as AsyncRwLock;
 use zeekit::BellmanFr;
 
-const LISTEN: &'static str = "127.0.0.1:8767";
+const LISTEN: &'static str = "0.0.0.0:8767";
 
 #[derive(Debug, Clone, StructOpt)]
 struct GenerateParamsOpt {
@@ -50,6 +56,8 @@ struct GenerateParamsOpt {
 
 #[derive(Debug, Clone, StructOpt)]
 struct ProveOpt {
+    #[structopt(long)]
+    address: MpnAddress,
     #[structopt(long)]
     connect: Vec<SocketAddr>,
     #[structopt(long, default_value = "update_params.dat")]
@@ -84,6 +92,8 @@ struct PackOpt {
     miner_token: String,
     #[structopt(long, default_value = "1")]
     work_per_ip: usize,
+    #[structopt(long, default_value = "10")]
+    reward_delay: u64,
 }
 
 #[derive(Debug, Clone, StructOpt)]
@@ -164,6 +174,10 @@ pub enum ZoroError {
     NotValidator,
     #[error("http request timed out!")]
     HttpTimeout(#[from] tokio::time::error::Elapsed),
+    #[error("from-hex error happened: {0}")]
+    FromHexError(#[from] hex::FromHexError),
+    #[error("mpn-address parse error happened: {0}")]
+    MpnAddressError(#[from] bazuka::core::ParseMpnAddressError),
 }
 
 type ZoroWork = bank::ZoroWork<
@@ -336,6 +350,7 @@ struct ZoroContext {
     sent: HashMap<SocketAddr, HashSet<usize>>,
     remaining_works: HashSet<usize>,
     submissions: HashMap<usize, bazuka::zk::groth16::Groth16Proof>,
+    rewards: HashMap<MpnAddress, usize>,
     validator_proof: Option<ValidatorProof>,
 }
 
@@ -360,9 +375,109 @@ struct GetStatsResponse {
 struct PostProofRequest {
     height: u64,
     proofs: HashMap<usize, bazuka::zk::groth16::Groth16Proof>,
+    address: MpnAddress,
 }
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
-struct PostProofResponse {}
+struct PostProofResponse {
+    accepted: usize,
+}
+
+fn create_tx(
+    wallet: &mut Wallet,
+    memo: String,
+    entries: HashMap<MpnAddress, Amount>,
+    remote_nonce: u32,
+    remote_mpn_nonce: u64,
+) -> Result<(bazuka::core::MpnDeposit, Vec<MpnTransaction>), ZoroError> {
+    let mpn_id = bazuka::config::blockchain::get_blockchain_config().mpn_contract_id;
+    let tx_builder = TxBuilder::new(&wallet.seed());
+    let new_nonce = wallet.new_r_nonce().unwrap_or(remote_nonce + 1);
+    let pool_mpn_address = MpnAddress {
+        pub_key: tx_builder.get_zk_address(),
+    };
+    let new_mpn_nonce = wallet
+        .new_z_nonce(&pool_mpn_address)
+        .unwrap_or(remote_mpn_nonce);
+    let sum_all = entries
+        .iter()
+        .map(|(_, m)| Into::<u64>::into(*m))
+        .sum::<u64>();
+    let tx = tx_builder.deposit_mpn(
+        memo,
+        mpn_id,
+        pool_mpn_address.clone(),
+        0,
+        new_nonce,
+        Money::ziesha(sum_all),
+        Money::ziesha(0),
+    );
+    wallet.add_deposit(tx.clone());
+    let mut ztxs = Vec::new();
+    for (i, (addr, mon)) in entries.iter().enumerate() {
+        if *addr != pool_mpn_address {
+            let tx = tx_builder.create_mpn_transaction(
+                0,
+                addr.clone(),
+                0,
+                Money::ziesha((*mon).into()),
+                0,
+                Money::ziesha(0),
+                new_mpn_nonce + i as u64,
+            );
+            wallet.add_zsend(tx.clone());
+            ztxs.push(tx);
+        }
+    }
+    Ok((tx, ztxs))
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct History {
+    solved: HashMap<u64, HashMap<MpnAddress, Amount>>,
+    sent: HashMap<u64, (MpnDeposit, Vec<MpnTransaction>)>,
+}
+
+fn save_history(h: &History) -> Result<(), ZoroError> {
+    let history_path = home::home_dir().unwrap().join(Path::new(".zoro-history"));
+    File::create(history_path)?.write_all(&bincode::serialize(h)?)?;
+    Ok(())
+}
+
+fn get_history() -> Result<History, ZoroError> {
+    let history_path = home::home_dir().unwrap().join(Path::new(".zoro-history"));
+    Ok(if let Ok(mut f) = File::open(history_path.clone()) {
+        let mut bytes = Vec::new();
+        f.read_to_end(&mut bytes)?;
+        drop(f);
+        bincode::deserialize(&bytes)?
+    } else {
+        History {
+            solved: HashMap::new(),
+            sent: HashMap::new(),
+        }
+    })
+}
+
+fn job_solved(
+    total_reward: Amount,
+    owner_reward_ratio: f32,
+    shares: &HashMap<MpnAddress, usize>,
+) -> HashMap<MpnAddress, Amount> {
+    let total_reward_64 = Into::<u64>::into(total_reward);
+    let owner_reward_64 = (total_reward_64 as f64 * owner_reward_ratio as f64) as u64;
+    let total_proofs = shares.values().sum::<usize>() as u64;
+    let per_share_reward: Amount = ((total_reward_64 - owner_reward_64) / total_proofs).into();
+    shares
+        .clone()
+        .into_iter()
+        .map(|(prover, count)| {
+            (
+                prover,
+                (count as u64 * Into::<u64>::into(per_share_reward)).into(),
+            )
+        })
+        .collect()
+}
 
 async fn process_request(
     context: Arc<AsyncRwLock<ZoroContext>>,
@@ -430,6 +545,7 @@ async fn process_request(
             }
         }
         "/post" => {
+            let mut accepted = 0;
             if let Some(client) = client {
                 let body = request.into_body();
                 let body_bytes = hyper::body::to_bytes(body).await?;
@@ -441,13 +557,17 @@ async fn process_request(
                             if w.verify(&ctx.verif_keys, &p) {
                                 println!("Client {} sent the solution for work-id {}", client, id);
                                 ctx.submissions.insert(id, p);
+                                *ctx.rewards.entry(req.address.clone()).or_default() += 1;
                                 ctx.works.remove(&id);
+                                accepted += 1;
                             }
                         }
                     }
                 }
             }
-            Response::new(Body::empty())
+            Response::new(Body::from(bincode::serialize(&PostProofResponse {
+                accepted,
+            })?))
         }
         _ => {
             let mut resp = Response::new(Body::empty());
@@ -573,6 +693,7 @@ async fn main() {
                             println!("Checking {}...", connect);
                             let backend = backend.clone();
                             let zoro_params = zoro_params.clone();
+                            let opt = opt.clone();
                             let cancel = Arc::new(RwLock::new(false));
 
                             let req = Request::builder()
@@ -696,12 +817,31 @@ async fn main() {
                                     .method(Method::POST)
                                     .uri(format!("http://{}/post", connect))
                                     .body(Body::from(bincode::serialize(&PostProofRequest {
+                                        address: opt.address,
                                         height,
                                         proofs,
                                     })?))?;
                                 let client = Client::new();
 
-                                if tokio::time::timeout(std::time::Duration::from_millis(5000), client.request(req)).await.is_err() {
+                                if let Ok(res) = tokio::time::timeout(std::time::Duration::from_millis(5000), async {
+                                        hyper::body::to_bytes(client.request(req).await?.into_body()).await
+                                    }).await
+                                    {
+                                    if let Ok(res) = res {
+                                        let resp :Result<PostProofResponse,_>=  serde_json::from_slice(&res);
+                                        if let Ok(resp) = resp {
+                                            println!("{} of your proofs were accepted!", resp.accepted);
+                                        } else {
+                                            println!("Error parsing response");
+                                            continue;
+                                        }
+                                    } else {
+                                        println!("Error while sending solution");
+                                        continue;
+                                    }
+                                }
+                                else {
+                                    println!("Timed out when sending solution!");
                                     continue;
                                 }
 
@@ -738,6 +878,7 @@ async fn main() {
                 works: HashMap::new(),
                 remaining_works: HashSet::new(),
                 submissions: HashMap::new(),
+                rewards: HashMap::new(),
                 sent: HashMap::new(),
             }));
 
@@ -778,7 +919,118 @@ async fn main() {
             let client = SyncClient::new(node_addr, "mainnet", opt.miner_token.clone());
 
             let conf = get_blockchain_config();
+
+            let opt_reward_sender = opt.clone();
+            let client_reward_sender = client.clone();
+            let reward_sender_loop = {
+                let opt = opt_reward_sender.clone();
+                let client = client_reward_sender.clone();
+                async move {
+                    loop {
+                        let opt = opt.clone();
+                        let client = client.clone();
+                        if let Err(e) = async move {
+                            let mpn_log4_acc_cap =
+                                bazuka::config::blockchain::get_blockchain_config()
+                                    .mpn_log4_account_capacity;
+
+                            let mut hist = get_history()?;
+                            let curr_height = client.get_height().await?;
+                            let wallet_path =
+                                home::home_dir().unwrap().join(Path::new(".bazuka-wallet"));
+                            let mut wallet = Wallet::open(wallet_path.clone()).unwrap().unwrap();
+                            let tx_builder = TxBuilder::new(&wallet.seed());
+                            let pool_mpn_address = MpnAddress {
+                                pub_key: tx_builder.get_zk_address(),
+                            };
+                            let curr_nonce = client
+                                .get_account(tx_builder.get_address())
+                                .await?
+                                .account
+                                .nonce;
+                            let curr_mpn_nonce = client
+                                .get_mpn_account(pool_mpn_address.account_index(mpn_log4_acc_cap))
+                                .await?
+                                .account
+                                .nonce;
+                            for (block_number, rewards) in hist.solved.clone().into_iter() {
+                                if let Some(actual_block) = client.get_block(block_number).await? {
+                                    if curr_height - block_number >= opt.reward_delay {
+                                        hist.solved.remove(&block_number);
+                                        if let Some(TransactionData::RegularSend { entries }) =
+                                            actual_block.body.first().map(|tx| tx.data.clone())
+                                        {
+                                            if let Some(entry) = entries.first() {
+                                                if entry.dst == tx_builder.get_address() {
+                                                    let (tx, ztxs) = create_tx(
+                                                        &mut wallet,
+                                                        format!(
+                                                            "Pool-Reward, block #{}",
+                                                            block_number
+                                                        )
+                                                        .into(),
+                                                        rewards,
+                                                        curr_nonce,
+                                                        curr_mpn_nonce,
+                                                    )?;
+                                                    wallet.save(wallet_path.clone()).unwrap();
+                                                    println!(
+                                                        "Tx with nonce {} created...",
+                                                        tx.payment.nonce
+                                                    );
+                                                    hist.sent.insert(block_number, (tx, ztxs));
+                                                }
+                                            }
+                                        }
+                                        save_history(&hist)?;
+                                    }
+                                }
+                            }
+                            println!("Current nonce: {}", curr_nonce);
+
+                            println!("Resending unprocessed transactions...");
+                            for tx in wallet.chain_sourced_txs.iter() {
+                                if tx.nonce() > curr_nonce {
+                                    match tx {
+                                        ChainSourcedTx::MpnDeposit(tx) => {
+                                            client.transact_deposit(tx.clone()).await?;
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                            for tx in wallet
+                                .mpn_sourced_txs
+                                .get(&pool_mpn_address)
+                                .cloned()
+                                .unwrap_or_default()
+                                .iter()
+                            {
+                                if tx.nonce() >= curr_mpn_nonce {
+                                    match tx {
+                                        MpnSourcedTx::MpnTransaction(tx) => {
+                                            client.transact_zero(tx.clone()).await?;
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+
+                            Ok::<_, ZoroError>(())
+                        }
+                        .await
+                        {
+                            log::error!("Error: {}", e);
+                        }
+                        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                    }
+
+                    Ok::<(), ZoroError>(())
+                }
+            };
+
             let mut last_solved_height = None;
+
             let packager_loop = async {
                 loop {
                     if let Err(e) = async {
@@ -786,6 +1038,7 @@ async fn main() {
                     let mut ctx = context.write().await;
                     ctx.works.clear();
                     ctx.submissions.clear();
+                    ctx.rewards.clear();
                     ctx.remaining_works.clear();
                     ctx.sent.clear();
                     ctx.height = None;
@@ -951,6 +1204,10 @@ async fn main() {
                     };
 
                     client.transact(tx_delta).await?;
+                    let ctx = context.read().await;
+                    let mut hist = get_history()?;
+                    hist.solved.insert(curr_height, job_solved(mempool.reward, 0.1, &ctx.rewards));
+                    save_history(&hist)?;
                     last_solved_height = Some(curr_height);
                     Ok(())
                 }
@@ -963,7 +1220,7 @@ async fn main() {
                 Ok::<(), ZoroError>(())
             };
 
-            tokio::try_join!(server_fut, packager_loop).unwrap();
+            tokio::try_join!(server_fut, packager_loop, reward_sender_loop).unwrap();
         }
     }
 }
