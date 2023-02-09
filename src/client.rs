@@ -83,6 +83,12 @@ impl SyncClient {
         })
         .await
     }
+    pub async fn get_block(&self, index: u64) -> Result<Option<bazuka::core::Block>, NodeError> {
+        self.call(move |client| async move {
+            Ok(client.get_blocks(index, 1).await?.blocks.first().cloned())
+        })
+        .await
+    }
     pub async fn get_mpn_account(
         &self,
         index: u64,

@@ -8,8 +8,8 @@ use circuits::{Deposit, Withdraw};
 use bazuka::blockchain::{BlockchainConfig, ValidatorProof};
 use bazuka::config::blockchain::get_blockchain_config;
 use bazuka::core::{
-    Amount, ChainSourcedTx, Header, Money, MpnAddress, MpnDeposit, MpnSourcedTx, MpnWithdraw,
-    TokenId,
+    Amount, ChainSourcedTx, Money, MpnAddress, MpnDeposit, MpnSourcedTx, MpnWithdraw, TokenId,
+    TransactionData,
 };
 use bazuka::db::KvStore;
 use bazuka::db::ReadOnlyLevelDbKvStore;
@@ -433,8 +433,8 @@ fn create_tx(
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct History {
-    solved: HashMap<Header, HashMap<MpnAddress, Amount>>,
-    sent: HashMap<Header, (MpnDeposit, Vec<MpnTransaction>)>,
+    solved: HashMap<u64, HashMap<MpnAddress, Amount>>,
+    sent: HashMap<u64, (MpnDeposit, Vec<MpnTransaction>)>,
 }
 
 fn save_history(h: &History) -> Result<(), ZoroError> {
@@ -456,6 +456,27 @@ fn get_history() -> Result<History, ZoroError> {
             sent: HashMap::new(),
         }
     })
+}
+
+fn job_solved(
+    total_reward: Amount,
+    owner_reward_ratio: f32,
+    shares: &HashMap<MpnAddress, usize>,
+) -> HashMap<MpnAddress, Amount> {
+    let total_reward_64 = Into::<u64>::into(total_reward);
+    let owner_reward_64 = (total_reward_64 as f64 * owner_reward_ratio as f64) as u64;
+    let total_proofs = shares.values().sum::<usize>() as u64;
+    let per_share_reward: Amount = ((total_reward_64 - owner_reward_64) / total_proofs).into();
+    shares
+        .clone()
+        .into_iter()
+        .map(|(prover, count)| {
+            (
+                prover,
+                (count as u64 * Into::<u64>::into(per_share_reward)).into(),
+            )
+        })
+        .collect()
 }
 
 async fn process_request(
@@ -918,11 +939,12 @@ async fn main() {
                             let wallet_path =
                                 home::home_dir().unwrap().join(Path::new(".bazuka-wallet"));
                             let mut wallet = Wallet::open(wallet_path.clone()).unwrap().unwrap();
+                            let tx_builder = TxBuilder::new(&wallet.seed());
                             let pool_mpn_address = MpnAddress {
-                                pub_key: TxBuilder::new(&wallet.seed()).get_zk_address(),
+                                pub_key: tx_builder.get_zk_address(),
                             };
                             let curr_nonce = client
-                                .get_account(TxBuilder::new(&wallet.seed()).get_address())
+                                .get_account(tx_builder.get_address())
                                 .await?
                                 .account
                                 .nonce;
@@ -931,24 +953,34 @@ async fn main() {
                                 .await?
                                 .account
                                 .nonce;
-                            for (h, entries) in hist.solved.clone().into_iter() {
-                                if let Some(actual_header) = client.get_header(h.number).await? {
-                                    if curr_height - h.number >= opt.reward_delay {
-                                        hist.solved.remove(&h);
-                                        if actual_header == h {
-                                            let (tx, ztxs) = create_tx(
-                                                &mut wallet,
-                                                format!("Pool-Reward, block #{}", h.number).into(),
-                                                entries,
-                                                curr_nonce,
-                                                curr_mpn_nonce,
-                                            )?;
-                                            wallet.save(wallet_path.clone()).unwrap();
-                                            println!(
-                                                "Tx with nonce {} created...",
-                                                tx.payment.nonce
-                                            );
-                                            hist.sent.insert(h, (tx, ztxs));
+                            for (block_number, rewards) in hist.solved.clone().into_iter() {
+                                if let Some(actual_block) = client.get_block(block_number).await? {
+                                    if curr_height - block_number >= opt.reward_delay {
+                                        hist.solved.remove(&block_number);
+                                        if let Some(TransactionData::RegularSend { entries }) =
+                                            actual_block.body.first().map(|tx| tx.data.clone())
+                                        {
+                                            if let Some(entry) = entries.first() {
+                                                if entry.dst == tx_builder.get_address() {
+                                                    let (tx, ztxs) = create_tx(
+                                                        &mut wallet,
+                                                        format!(
+                                                            "Pool-Reward, block #{}",
+                                                            block_number
+                                                        )
+                                                        .into(),
+                                                        rewards,
+                                                        curr_nonce,
+                                                        curr_mpn_nonce,
+                                                    )?;
+                                                    wallet.save(wallet_path.clone()).unwrap();
+                                                    println!(
+                                                        "Tx with nonce {} created...",
+                                                        tx.payment.nonce
+                                                    );
+                                                    hist.sent.insert(block_number, (tx, ztxs));
+                                                }
+                                            }
                                         }
                                         save_history(&hist)?;
                                     }
@@ -1172,6 +1204,10 @@ async fn main() {
                     };
 
                     client.transact(tx_delta).await?;
+                    let ctx = context.read().await;
+                    let mut hist = get_history()?;
+                    hist.solved.insert(curr_height, job_solved(mempool.reward, 0.1, &ctx.rewards));
+                    save_history(&hist)?;
                     last_solved_height = Some(curr_height);
                     Ok(())
                 }
