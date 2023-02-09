@@ -32,7 +32,7 @@ use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{Read, Write};
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -347,7 +347,7 @@ struct ZoroContext {
     verif_keys: bank::ZoroVerifyKeys,
     height: Option<u64>,
     works: HashMap<usize, ZoroWork>,
-    sent: HashMap<SocketAddr, HashSet<usize>>,
+    sent: HashMap<IpAddr, HashSet<usize>>,
     remaining_works: HashSet<usize>,
     submissions: HashMap<usize, bazuka::zk::groth16::Groth16Proof>,
     rewards: HashMap<MpnAddress, usize>,
@@ -499,7 +499,7 @@ async fn process_request(
         "/get" => {
             if let Some(client) = client {
                 let mut ctx = context.write().await;
-                let already_sent = ctx.sent.get(&client).cloned().unwrap_or_default();
+                let already_sent = ctx.sent.get(&client.ip()).cloned().unwrap_or_default();
                 if already_sent.len() >= opt.work_per_ip {
                     let resp = GetWorkResponse {
                         height: ctx.height,
@@ -533,7 +533,7 @@ async fn process_request(
                     .collect();
                 for id in works.keys() {
                     println!("Posted work-id {} to client {}", id, client);
-                    ctx.sent.entry(client).or_default().insert(*id);
+                    ctx.sent.entry(client.ip()).or_default().insert(*id);
                 }
                 let resp = GetWorkResponse {
                     height: ctx.height,
@@ -828,7 +828,7 @@ async fn main() {
                                     }).await
                                     {
                                     if let Ok(res) = res {
-                                        let resp :Result<PostProofResponse,_>=  serde_json::from_slice(&res);
+                                        let resp :Result<PostProofResponse,_>=  bincode::deserialize(&res);
                                         if let Ok(resp) = resp {
                                             println!("{} of your proofs were accepted!", resp.accepted);
                                         } else {
