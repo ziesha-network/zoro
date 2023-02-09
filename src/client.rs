@@ -67,15 +67,6 @@ impl SyncClient {
         self.call(move |client| async move { Ok(client.get_zero_mempool().await?) })
             .await
     }
-    pub async fn is_mining(&self) -> Result<bool, NodeError> {
-        self.call(move |client| async move {
-            Ok(client
-                .get_miner_puzzle()
-                .await
-                .map(|resp| resp.puzzle.is_some())?)
-        })
-        .await
-    }
     pub async fn get_height(&self) -> Result<u64, NodeError> {
         self.call(move |client| async move { Ok(client.stats().await.map(|resp| resp.height)?) })
             .await
