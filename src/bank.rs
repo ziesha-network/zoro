@@ -741,7 +741,7 @@ impl<
                 tx.fee.token_id == fee_token
                     && tx.src_pub_key.is_on_curve()
                     && tx.dst_pub_key.is_on_curve()
-                    && tx.verify()
+                    && tx.verify_signature()
             })
             .collect::<Vec<_>>();
 
