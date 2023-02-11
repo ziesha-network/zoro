@@ -11,7 +11,6 @@ use bazuka::core::{
     Amount, ChainSourcedTx, Money, MpnAddress, MpnDeposit, MpnSourcedTx, MpnWithdraw, TokenId,
     TransactionData,
 };
-use bazuka::db::KvStore;
 use bazuka::db::ReadOnlyLevelDbKvStore;
 use bazuka::wallet::{TxBuilder, Wallet};
 use bazuka::zk::MpnTransaction;
@@ -97,11 +96,15 @@ struct PackOpt {
 }
 
 #[derive(Debug, Clone, StructOpt)]
+struct BenchmarkOpt {}
+
+#[derive(Debug, Clone, StructOpt)]
 #[structopt(name = "Zoro", about = "Ziesha's MPN Executor")]
 enum Opt {
     Pack(PackOpt),
     Prove(ProveOpt),
     GenerateParams(GenerateParamsOpt),
+    Benchmark(BenchmarkOpt),
 }
 
 const MAXIMUM_PROVING_TIME: Duration = Duration::from_secs(50);
@@ -178,6 +181,8 @@ pub enum ZoroError {
     FromHexError(#[from] hex::FromHexError),
     #[error("mpn-address parse error happened: {0}")]
     MpnAddressError(#[from] bazuka::core::ParseMpnAddressError),
+    #[error("kv-store error happened: {0}")]
+    KvStoreError(#[from] bazuka::db::KvStoreError),
 }
 
 type ZoroWork = bank::ZoroWork<
@@ -577,6 +582,56 @@ async fn process_request(
     })
 }
 
+use bazuka::core::ContractId;
+use bazuka::db::{KvStore, RamKvStore};
+use bazuka::zk::{ZkCompressedState, ZkContract, ZkStateModel};
+use std::str::FromStr;
+fn benchmark_db() -> Result<(RamKvStore, ContractId), ZoroError> {
+    let state_model = ZkStateModel::List {
+        log4_size: config::LOG4_TREE_SIZE,
+        item_type: Box::new(ZkStateModel::Struct {
+            field_types: vec![
+                ZkStateModel::Scalar, // Nonce
+                ZkStateModel::Scalar, // Pub-key X
+                ZkStateModel::Scalar, // Pub-key Y
+                ZkStateModel::List {
+                    log4_size: config::LOG4_TOKENS_TREE_SIZE,
+                    item_type: Box::new(ZkStateModel::Struct {
+                        field_types: vec![
+                            ZkStateModel::Scalar, // Token-Id
+                            ZkStateModel::Scalar, // Balance
+                        ],
+                    }),
+                },
+            ],
+        }),
+    };
+    let mpn_contract_id =
+        ContractId::from_str("0000000000000000000000000000000000000000000000000000000000000000")
+            .unwrap();
+    let mut db = RamKvStore::new();
+    db.update(&[bazuka::db::WriteOp::Put(
+        bazuka::db::keys::contract(&mpn_contract_id),
+        ZkContract {
+            initial_state: ZkCompressedState::empty::<bazuka::core::ZkHasher>(state_model.clone())
+                .into(),
+            state_model: state_model,
+            deposit_functions: vec![],
+            withdraw_functions: vec![],
+            functions: vec![],
+        }
+        .into(),
+    )])
+    .unwrap();
+    let b = bank::Bank::new(config::LOG4_TREE_SIZE, mpn_contract_id, Some(Amount(0)));
+    let conf = bazuka::config::blockchain::get_blockchain_config();
+    let mut mirror = db.mirror();
+    process_deposits(&conf, &[], &b, &mut mirror)?;
+    let ops = mirror.to_ops();
+    db.update(&ops)?;
+    Ok((db, mpn_contract_id))
+}
+
 #[tokio::main]
 async fn main() {
     env_logger::init();
@@ -588,6 +643,42 @@ async fn main() {
     let opt = Opt::from_args();
 
     match opt {
+        Opt::Benchmark(_) => {
+            let (db, mpn_contract_id) = benchmark_db().unwrap();
+
+            let tx_builder = TxBuilder::new(b"hi");
+            let b = bank::Bank::new(config::LOG4_TREE_SIZE, mpn_contract_id, Some(Amount(0)));
+            let mut txs = Vec::new();
+            for i in 0..256 {
+                txs.push(tx_builder.create_mpn_transaction(
+                    0,
+                    MpnAddress {
+                        pub_key: tx_builder.get_zk_address(),
+                    },
+                    0,
+                    Money {
+                        amount: Amount(1),
+                        token_id: TokenId::Ziesha,
+                    },
+                    0,
+                    Money {
+                        amount: Amount(1),
+                        token_id: TokenId::Ziesha,
+                    },
+                    i,
+                ));
+            }
+            loop {
+                let start = std::time::Instant::now();
+                let mut mirror = db.mirror();
+                process_updates(&txs, &b, &mut mirror).unwrap();
+                println!(
+                    "{} {}ms",
+                    "Packing took:".bright_green(),
+                    start.elapsed().as_millis()
+                );
+            }
+        }
         Opt::GenerateParams(opt) => {
             let rng = Some(ChaCha20Rng::seed_from_u64(123456));
 
