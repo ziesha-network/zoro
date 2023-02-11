@@ -194,7 +194,8 @@ type ZoroWork = bank::ZoroWork<
 >;
 
 fn process_deposits<K: bazuka::db::KvStore>(
-    conf: &BlockchainConfig,
+    mpn_contract_id: ContractId,
+    mpn_log4_account_capacity: u8,
     mempool: &[MpnDeposit],
     b: &bank::Bank<
         { config::LOG4_DEPOSIT_BATCH_SIZE },
@@ -207,10 +208,10 @@ fn process_deposits<K: bazuka::db::KvStore>(
 ) -> Result<(bazuka::core::ContractUpdate, ZoroWork), ZoroError> {
     let mut mpn_deposits = mempool
         .iter()
-        .filter(|dw| dw.payment.contract_id == conf.mpn_contract_id)
+        .filter(|dw| dw.payment.contract_id == mpn_contract_id)
         .map(|dw| Deposit {
             mpn_deposit: Some(dw.clone()),
-            index: dw.zk_address_index(conf.mpn_log4_account_capacity),
+            index: dw.zk_address_index(mpn_log4_account_capacity),
             token_index: dw.zk_token_index,
             pub_key: dw.zk_address.0.decompress(),
             amount: dw.payment.amount,
@@ -644,7 +645,13 @@ fn benchmark_db() -> Result<(RamKvStore, ContractId), ZoroError> {
             token_id: TokenId::Ziesha,
         },
     );
-    process_deposits(&conf, &[initial], &b, &mut mirror)?;
+    process_deposits(
+        mpn_contract_id,
+        config::LOG4_TREE_SIZE,
+        &[initial],
+        &b,
+        &mut mirror,
+    )?;
     let ops = mirror.to_ops();
     db.update(&ops)?;
     Ok((db, mpn_contract_id))
@@ -1206,7 +1213,8 @@ async fn main() {
                                 opt.deposit_batches
                             );
                             updates.push(process_deposits(
-                                &task_conf,
+                                conf.mpn_contract_id,
+                                conf.mpn_log4_account_capacity,
                                 &mempool.deposits,
                                 &b,
                                 &mut db_mirror,
