@@ -626,7 +626,25 @@ fn benchmark_db() -> Result<(RamKvStore, ContractId), ZoroError> {
     let b = bank::Bank::new(config::LOG4_TREE_SIZE, mpn_contract_id, Some(Amount(0)));
     let conf = bazuka::config::blockchain::get_blockchain_config();
     let mut mirror = db.mirror();
-    process_deposits(&conf, &[], &b, &mut mirror)?;
+    let tx_builder = TxBuilder::new(b"hi");
+    let initial = tx_builder.deposit_mpn(
+        "".into(),
+        mpn_contract_id,
+        MpnAddress {
+            pub_key: tx_builder.get_zk_address(),
+        },
+        0,
+        0,
+        Money {
+            amount: Amount(100000000),
+            token_id: TokenId::Ziesha,
+        },
+        Money {
+            amount: Amount(1),
+            token_id: TokenId::Ziesha,
+        },
+    );
+    process_deposits(&conf, &[initial], &b, &mut mirror)?;
     let ops = mirror.to_ops();
     db.update(&ops)?;
     Ok((db, mpn_contract_id))
