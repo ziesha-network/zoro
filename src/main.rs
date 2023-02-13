@@ -304,7 +304,7 @@ fn process_withdraws<K: bazuka::db::KvStore>(
 }
 
 fn process_updates<K: bazuka::db::KvStore>(
-    mempool: &[MpnTransaction],
+    mempool: &mut Vec<MpnTransaction>,
     b: &bank::Bank<
         { config::LOG4_DEPOSIT_BATCH_SIZE },
         { config::LOG4_WITHDRAW_BATCH_SIZE },
@@ -325,6 +325,10 @@ fn process_updates<K: bazuka::db::KvStore>(
         .iter()
         .map(|tx| Into::<u64>::into(tx.fee.amount))
         .sum::<u64>();
+
+    for acc in accepted.iter() {
+        mempool.retain(|tx| tx != acc);
+    }
     //for tx in accepted.into_iter().chain(rejected.into_iter()) {
     //    mempool.remove(&tx);
     //}
@@ -625,7 +629,6 @@ fn benchmark_db() -> Result<(RamKvStore, ContractId), ZoroError> {
     )])
     .unwrap();
     let b = bank::Bank::new(config::LOG4_TREE_SIZE, mpn_contract_id, Some(Amount(0)));
-    let conf = bazuka::config::blockchain::get_blockchain_config();
     let mut mirror = db.mirror();
     let tx_builder = TxBuilder::new(b"hi");
     let initial = tx_builder.deposit_mpn(
@@ -696,7 +699,7 @@ async fn main() {
             loop {
                 let start = std::time::Instant::now();
                 let mut mirror = db.mirror();
-                process_updates(&txs, &b, &mut mirror).unwrap();
+                process_updates(&mut txs.clone(), &b, &mut mirror).unwrap();
                 println!(
                     "{} {}ms",
                     "Packing took:".bright_green(),
@@ -1190,7 +1193,7 @@ async fn main() {
 
                     let acc = client.get_account(exec_wallet.get_address()).await?.account;
 
-                    let mempool = client.get_zero_mempool().await?;
+                    let mut mempool = client.get_zero_mempool().await?;
                     let task_conf = conf.clone();
                     let task_opt_db = opt.db.clone();
                     let (mut updates, provers, ops) = tokio::task::spawn_blocking(move || -> Result<(Vec< bazuka::core::ContractUpdate>,Vec<ZoroWork>, Vec<bazuka::db::WriteOp>),ZoroError > {
@@ -1244,7 +1247,7 @@ async fn main() {
                                 opt.update_batches
                             );
                             updates.push(process_updates(
-                                &mempool.updates,
+                                &mut mempool.updates,
                                 &b,
                                 &mut db_mirror,
                             )?);

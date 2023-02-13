@@ -77,12 +77,6 @@ impl SyncClient {
         })
         .await
     }
-    pub async fn get_header(&self, index: u64) -> Result<Option<bazuka::core::Header>, NodeError> {
-        self.call(move |client| async move {
-            Ok(client.get_headers(index, 1).await?.headers.first().cloned())
-        })
-        .await
-    }
     pub async fn get_block(&self, index: u64) -> Result<Option<bazuka::core::Block>, NodeError> {
         self.call(move |client| async move {
             Ok(client.get_blocks(index, 1).await?.blocks.first().cloned())
