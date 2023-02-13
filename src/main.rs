@@ -326,9 +326,9 @@ fn process_updates<K: bazuka::db::KvStore>(
         .map(|tx| Into::<u64>::into(tx.fee.amount))
         .sum::<u64>();
 
-    for acc in accepted.iter() {
+    /*for acc in accepted.iter() {
         mempool.retain(|tx| tx != acc);
-    }
+    }*/
     //for tx in accepted.into_iter().chain(rejected.into_iter()) {
     //    mempool.remove(&tx);
     //}
