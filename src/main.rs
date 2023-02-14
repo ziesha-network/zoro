@@ -830,7 +830,7 @@ async fn main() {
                         let found_validator = resps.into_iter().find(|resp| resp.as_ref().map(|r| r.1.height.is_some()).unwrap_or_default());
 
                         if let Some(Ok((connect,_))) = found_validator {
-                            println!("Checking {}...", connect);
+                            println!("{} is validator!", connect);
 
                             let req = Request::builder()
                                 .method(Method::GET)
