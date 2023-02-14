@@ -808,41 +808,29 @@ async fn main() {
                     let zoro_params = zoro_params.clone();
                     let opt = opt.clone();
                     if let Err(e) = async move {
-                        for connect in opt.connect.clone() {
-                            println!("Checking {}...", connect);
-                            let backend = backend.clone();
-                            let zoro_params = zoro_params.clone();
-                            let opt = opt.clone();
-                            let cancel = Arc::new(RwLock::new(false));
+                        let backend = backend.clone();
+                        let zoro_params = zoro_params.clone();
+                        let opt = opt.clone();
+                        let cancel = Arc::new(RwLock::new(false));
 
+                        println!("Finding the validator...");
+                        let tasks = opt.connect.iter().map(|connect| async move {
                             let req = Request::builder()
                                 .method(Method::GET)
                                 .uri(format!("http://{}/stats", connect))
                                 .body(Body::empty())?;
                             let client = Client::new();
-                                if let Ok(res) = tokio::time::timeout(Duration::from_millis(2000), async {
-                                        hyper::body::to_bytes(client.request(req).await?.into_body()).await
-                                    }).await {
-                                        if let Ok(res) = res {
-                                            let resp :Result<GetStatsResponse,_>=  serde_json::from_slice(&res);
-                                            if let Ok(resp) = resp {
-                                                if resp.height.is_none() {
-                                                    println!("Remote is not a validator!");
-                                                    continue;
-                                                }
-                                            } else {
-                                                println!("Error parsing");
-                                                continue;
-                                            }
-                                        } else {
-                                            println!("Error while getting");
-                                            continue;
-                                        }
-                                    } else {
-                                        println!("Timed out");
-                                        continue;
-                                    };
-                            println!("Remote is a validator! Getting work...");
+                            let bytes = tokio::time::timeout(Duration::from_millis(3000), async {
+                                hyper::body::to_bytes(client.request(req).await?.into_body()).await
+                            }).await??;
+                            let resp = serde_json::from_slice(&bytes)?;
+                            Ok::<(SocketAddr, GetStatsResponse), ZoroError>((*connect, resp))
+                        }).collect::<Vec<_>>();
+                        let resps = futures::future::join_all(tasks).await;
+                        let found_validator = resps.into_iter().find(|resp| resp.as_ref().map(|r| r.1.height.is_some()).unwrap_or_default());
+
+                        if let Some(Ok((connect,_))) = found_validator {
+                            println!("Checking {}...", connect);
 
                             let req = Request::builder()
                                 .method(Method::GET)
@@ -850,19 +838,9 @@ async fn main() {
                                 .body(Body::empty())?;
                             let client = Client::new();
                             let resp =
-                                if let Ok(res) = tokio::time::timeout(Duration::from_millis(15000), async {
+                                tokio::time::timeout(Duration::from_millis(15000), async {
                                         hyper::body::to_bytes(client.request(req).await?.into_body()).await
-                                    }).await {
-                                        if let Ok(res) = res {
-                                            res
-                                        } else {
-                                            println!("Error getting work!");
-                                            continue;
-                                        }
-                                    } else {
-                                        println!("Timed out!");
-                                        continue;
-                                    };
+                                    }).await??;
                             let work_resp: GetWorkResponse = bincode::deserialize(&resp)?;
                             if let Some(height) = work_resp.height {
                                 println!("Work found! Starting...");
@@ -942,27 +920,11 @@ async fn main() {
                                     })?))?;
                                 let client = Client::new();
 
-                                if let Ok(res) = tokio::time::timeout(std::time::Duration::from_millis(5000), async {
-                                        hyper::body::to_bytes(client.request(req).await?.into_body()).await
-                                    }).await
-                                    {
-                                    if let Ok(res) = res {
-                                        let resp :Result<PostProofResponse,_>=  bincode::deserialize(&res);
-                                        if let Ok(resp) = resp {
-                                            println!("{} of your proofs were accepted!", resp.accepted);
-                                        } else {
-                                            println!("Error parsing response");
-                                            continue;
-                                        }
-                                    } else {
-                                        println!("Error while sending solution");
-                                        continue;
-                                    }
-                                }
-                                else {
-                                    println!("Timed out when sending solution!");
-                                    continue;
-                                }
+                                let bytes = tokio::time::timeout(std::time::Duration::from_millis(5000), async {
+                                    hyper::body::to_bytes(client.request(req).await?.into_body()).await
+                                }).await??;
+                                let resp: PostProofResponse = bincode::deserialize(&bytes)?;
+                                println!("{} of your proofs were accepted!", resp.accepted);
 
                                 let _ = cancel_controller_tx.send(());
                                 cancel_controller.await??;
