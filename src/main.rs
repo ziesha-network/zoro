@@ -1105,9 +1105,9 @@ async fn main() {
                                     }
                                 }
                             }
-                            println!("Current nonce: {}", curr_nonce);
+                            log::info!("Current nonce: {}", curr_nonce);
 
-                            println!("Resending unprocessed transactions...");
+                            log::info!("Resending unprocessed transactions...");
                             for tx in wallet.chain_sourced_txs.iter() {
                                 if tx.nonce() > curr_nonce {
                                     match tx {
