@@ -53,6 +53,29 @@ struct GenerateParamsOpt {
     withdraw_circuit_params: PathBuf,
 }
 
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct Optimization {
+    n_g1: usize,
+    window_size_g1: usize,
+    groups_g1: usize,
+    n_g2: usize,
+    window_size_g2: usize,
+    groups_g2: usize,
+}
+
+impl Into<bellman::gpu::OptParams> for Optimization {
+    fn into(self) -> bellman::gpu::OptParams {
+        bellman::gpu::OptParams {
+            n_g1: self.n_g1,
+            window_size_g1: self.window_size_g1,
+            groups_g1: self.groups_g1,
+            n_g2: self.n_g2,
+            window_size_g2: self.window_size_g2,
+            groups_g2: self.groups_g2,
+        }
+    }
+}
+
 #[derive(Debug, Clone, StructOpt)]
 struct ProveOpt {
     #[structopt(long)]
@@ -107,6 +130,8 @@ struct BenchmarkOpt {
     prove: bool,
     #[structopt(long)]
     gpu: bool,
+    #[structopt(long)]
+    optimize: Option<String>,
 }
 
 #[derive(Debug, Clone, StructOpt)]
@@ -729,14 +754,20 @@ async fn main() {
                         .map(|d| {
                             (
                                 d,
-                                bellman::gpu::OptParams {
-                                    n_g1: 32 * 1024 * 1024,
-                                    window_size_g1: 10,
-                                    groups_g1: 807,
-                                    n_g2: 16 * 1024 * 1024,
-                                    window_size_g2: 9,
-                                    groups_g2: 723,
-                                },
+                                opt.optimize.as_ref().map(|s| {
+                                    let o: Optimization = serde_json::from_str(s).unwrap();
+                                    o.into()
+                                })
+                                .unwrap_or(
+                                    bellman::gpu::OptParams {
+                                        n_g1: 32 * 1024 * 1024,
+                                        window_size_g1: 10,
+                                        groups_g1: 807,
+                                        n_g2: 16 * 1024 * 1024,
+                                        window_size_g2: 9,
+                                        groups_g2: 723,
+                                    },
+                                ),
                             )
                         })
                         .collect(),
