@@ -732,10 +732,10 @@ async fn main() {
                                 bellman::gpu::OptParams {
                                     n_g1: 32 * 1024 * 1024,
                                     window_size_g1: 10,
-                                    groups_g1: 807,
+                                    groups_g1: 2520,
                                     n_g2: 16 * 1024 * 1024,
                                     window_size_g2: 9,
-                                    groups_g2: 723,
+                                    groups_g2: 2259,
                                 },
                             )
                         })
