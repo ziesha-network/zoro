@@ -96,7 +96,18 @@ struct PackOpt {
 }
 
 #[derive(Debug, Clone, StructOpt)]
-struct BenchmarkOpt {}
+struct BenchmarkOpt {
+    #[structopt(long, default_value = "update_params.dat")]
+    update_circuit_params: PathBuf,
+    #[structopt(long, default_value = "deposit_params.dat")]
+    deposit_circuit_params: PathBuf,
+    #[structopt(long, default_value = "withdraw_params.dat")]
+    withdraw_circuit_params: PathBuf,
+    #[structopt(long)]
+    prove: bool,
+    #[structopt(long)]
+    gpu: bool,
+}
 
 #[derive(Debug, Clone, StructOpt)]
 #[structopt(name = "Zoro", about = "Ziesha's MPN Executor")]
@@ -671,13 +682,74 @@ async fn main() {
     let opt = Opt::from_args();
 
     match opt {
-        Opt::Benchmark(_) => {
+        Opt::Benchmark(opt) => {
+            let zoro_params = if opt.prove {
+                let deposit_params =
+                    load_params::<
+                        circuits::DepositCircuit<
+                            { config::LOG4_DEPOSIT_BATCH_SIZE },
+                            { config::LOG4_TREE_SIZE },
+                            { config::LOG4_TOKENS_TREE_SIZE },
+                        >,
+                        _,
+                    >(opt.deposit_circuit_params.clone(), None::<ChaCha20Rng>);
+
+                let withdraw_params =
+                    load_params::<
+                        circuits::WithdrawCircuit<
+                            { config::LOG4_WITHDRAW_BATCH_SIZE },
+                            { config::LOG4_TREE_SIZE },
+                            { config::LOG4_TOKENS_TREE_SIZE },
+                        >,
+                        _,
+                    >(opt.withdraw_circuit_params.clone(), None::<ChaCha20Rng>);
+
+                let update_params =
+                    load_params::<
+                        circuits::UpdateCircuit<
+                            { config::LOG4_UPDATE_BATCH_SIZE },
+                            { config::LOG4_TREE_SIZE },
+                            { config::LOG4_TOKENS_TREE_SIZE },
+                        >,
+                        _,
+                    >(opt.update_circuit_params.clone(), None::<ChaCha20Rng>);
+                Some(bank::ZoroParams {
+                    update: update_params.clone(),
+                    deposit: deposit_params.clone(),
+                    withdraw: withdraw_params.clone(),
+                })
+            } else {
+                None
+            };
+            let backend = if opt.gpu {
+                Backend::Gpu(Arc::new(Mutex::new(
+                    Device::by_brand(Brand::Nvidia)
+                        .unwrap()
+                        .into_iter()
+                        .map(|d| {
+                            (
+                                d,
+                                bellman::gpu::OptParams {
+                                    n_g1: 32 * 1024 * 1024,
+                                    window_size_g1: 10,
+                                    groups_g1: 807,
+                                    n_g2: 16 * 1024 * 1024,
+                                    window_size_g2: 9,
+                                    groups_g2: 723,
+                                },
+                            )
+                        })
+                        .collect(),
+                )))
+            } else {
+                Backend::Cpu
+            };
             let (db, mpn_contract_id) = benchmark_db().unwrap();
 
             let tx_builder = TxBuilder::new(b"hi");
             let b = bank::Bank::new(config::LOG4_TREE_SIZE, mpn_contract_id, Some(Amount(0)));
             let mut txs = Vec::new();
-            for i in 0..256 {
+            for i in 0..(1 << (2 * config::LOG4_UPDATE_BATCH_SIZE)) {
                 txs.push(tx_builder.create_mpn_transaction(
                     0,
                     MpnAddress {
@@ -697,12 +769,22 @@ async fn main() {
                 ));
             }
             loop {
-                let start = std::time::Instant::now();
+                let mut start = std::time::Instant::now();
                 let mut mirror = db.mirror();
-                process_updates(&mut txs.clone(), &b, &mut mirror).unwrap();
+                let (_, work) = process_updates(&mut txs.clone(), &b, &mut mirror).unwrap();
                 println!(
                     "{} {}ms",
                     "Packing took:".bright_green(),
+                    start.elapsed().as_millis()
+                );
+                start = std::time::Instant::now();
+                if let Some(zoro_params) = &zoro_params {
+                    work.prove(zoro_params.clone(), backend.clone(), None)
+                        .unwrap();
+                }
+                println!(
+                    "{} {}ms",
+                    "Proving took:".bright_green(),
                     start.elapsed().as_millis()
                 );
             }
