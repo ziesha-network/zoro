@@ -135,12 +135,23 @@ struct BenchmarkOpt {
 }
 
 #[derive(Debug, Clone, StructOpt)]
+struct DebugOpt {
+    #[structopt(long)]
+    node: String,
+    #[structopt(long)]
+    db: String,
+    #[structopt(long)]
+    sender: Option<bool>
+}
+
+#[derive(Debug, Clone, StructOpt)]
 #[structopt(name = "Zoro", about = "Ziesha's MPN Executor")]
 enum Opt {
     Pack(PackOpt),
     Prove(ProveOpt),
     GenerateParams(GenerateParamsOpt),
     Benchmark(BenchmarkOpt),
+    Debug(DebugOpt),
 }
 
 const MAXIMUM_PROVING_TIME: Duration = Duration::from_secs(50);
@@ -1056,6 +1067,26 @@ async fn main() {
             };
             let workers: Vec<_> = (0..opt.workers).map(|_| new_worker()).collect();
             futures::future::join_all(workers).await;
+        }
+
+        Opt::Debug(opt) => {
+            let conf = get_blockchain_config();
+            let node_addr = bazuka::client::PeerAddress(opt.node.parse().unwrap());
+            let client = SyncClient::new(node_addr, "mainnet", "".into());
+            let db_shutter = db_shutter(&opt.db.clone());
+            let db = db_shutter.snapshot();
+            let mut db_mirror = db.mirror();
+            let b = bank::Bank::new(
+                conf.mpn_log4_account_capacity,
+                conf.mpn_contract_id,
+                Some(Amount(0)),
+            );
+            let mut mempool = client.get_zero_mempool().await.unwrap();
+            process_updates(
+                &mut mempool.updates,
+                &b,
+                &mut db_mirror,
+            ).unwrap();
         }
 
         Opt::Pack(opt) => {
