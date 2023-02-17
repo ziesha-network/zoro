@@ -675,7 +675,7 @@ fn benchmark_db() -> Result<(RamKvStore, ContractId), ZoroError> {
         .into(),
     )])
     .unwrap();
-    let b = bank::Bank::new(config::LOG4_TREE_SIZE, mpn_contract_id, Some(Amount(0)));
+    let b = bank::Bank::new(config::LOG4_TREE_SIZE, mpn_contract_id);
     let mut mirror = db.mirror();
     let tx_builder = TxBuilder::new(b"hi");
     let initial = tx_builder.deposit_mpn(
@@ -789,7 +789,7 @@ async fn main() {
             let (db, mpn_contract_id) = benchmark_db().unwrap();
 
             let tx_builder = TxBuilder::new(b"hi");
-            let b = bank::Bank::new(config::LOG4_TREE_SIZE, mpn_contract_id, Some(Amount(0)));
+            let b = bank::Bank::new(config::LOG4_TREE_SIZE, mpn_contract_id);
             let mut txs = Vec::new();
             for i in 0..(1 << (2 * config::LOG4_UPDATE_BATCH_SIZE)) {
                 txs.push(tx_builder.create_mpn_transaction(
@@ -1076,11 +1076,7 @@ async fn main() {
             let db_shutter = db_shutter(&opt.db.clone());
             let db = db_shutter.snapshot();
             let mut db_mirror = db.mirror();
-            let b = bank::Bank::new(
-                conf.mpn_log4_account_capacity,
-                conf.mpn_contract_id,
-                Some(Amount(0)),
-            );
+            let b = bank::Bank::new(conf.mpn_log4_account_capacity, conf.mpn_contract_id);
             let mut mempool = client.get_zero_mempool().await.unwrap();
             if let Some(sender) = &opt.sender {
                 mempool.updates.retain(|t| t.src_pub_key == sender.pub_key);
@@ -1307,8 +1303,7 @@ async fn main() {
                         let mut db_mirror = db.mirror();
                         let b = bank::Bank::new(
                             conf.mpn_log4_account_capacity,
-                            conf.mpn_contract_id,
-                            Some(Amount(0)),
+                            conf.mpn_contract_id
                         );
 
                         let mut updates = Vec::new();

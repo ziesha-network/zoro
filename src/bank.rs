@@ -34,7 +34,6 @@ pub struct Bank<
 > {
     mpn_contract_id: ContractId,
     mpn_log4_account_capacity: u8,
-    mpn_minimum_ziesha_balance: Option<Amount>,
 }
 
 #[derive(Clone)]
@@ -231,15 +230,10 @@ impl<
         LOG4_TOKENS_TREE_SIZE,
     >
 {
-    pub fn new(
-        mpn_log4_account_capacity: u8,
-        mpn_contract_id: ContractId,
-        mpn_minimum_ziesha_balance: Option<Amount>,
-    ) -> Self {
+    pub fn new(mpn_log4_account_capacity: u8, mpn_contract_id: ContractId) -> Self {
         Self {
             mpn_contract_id,
             mpn_log4_account_capacity,
-            mpn_minimum_ziesha_balance,
         }
     }
 
@@ -545,13 +539,6 @@ impl<
             let src_pub = tx.mpn_deposit.as_ref().unwrap().payment.src.clone();
             if rejected_pub_keys.contains(&src_pub)
                 || (acc.address != Default::default() && tx.pub_key != acc.address)
-                || self
-                    .mpn_minimum_ziesha_balance
-                    .map(|min| {
-                        acc.address == Default::default()
-                            && (tx.amount.token_id != TokenId::Ziesha || tx.amount.amount < min)
-                    })
-                    .unwrap_or(false)
                 || (acc_token.is_some() && acc_token.unwrap().token_id != tx.amount.token_id)
             {
                 rejected.push(tx.clone());
@@ -771,13 +758,6 @@ impl<
                 || src_before.address != tx.src_pub_key.decompress()
                 || (dst_before.address.is_on_curve()
                     && dst_before.address != tx.dst_pub_key.decompress())
-                || self
-                    .mpn_minimum_ziesha_balance
-                    .map(|min| {
-                        dst_before.address == Default::default()
-                            && (tx.amount.token_id != TokenId::Ziesha || tx.amount.amount < min)
-                    })
-                    .unwrap_or(false)
                 || dst_token.is_some() && (src_token.token_id != dst_token.unwrap().token_id)
                 || src_token.token_id != tx.amount.token_id
                 || src_token.amount < tx.amount.amount
