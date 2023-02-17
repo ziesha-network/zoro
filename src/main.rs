@@ -141,7 +141,7 @@ struct DebugOpt {
     #[structopt(long)]
     db: String,
     #[structopt(long)]
-    sender: Option<bool>
+    sender: Option<bazuka::core::MpnAddress>,
 }
 
 #[derive(Debug, Clone, StructOpt)]
@@ -765,20 +765,20 @@ async fn main() {
                         .map(|d| {
                             (
                                 d,
-                                opt.optimize.as_ref().map(|s| {
-                                    let o: Optimization = serde_json::from_str(s).unwrap();
-                                    o.into()
-                                })
-                                .unwrap_or(
-                                    bellman::gpu::OptParams {
+                                opt.optimize
+                                    .as_ref()
+                                    .map(|s| {
+                                        let o: Optimization = serde_json::from_str(s).unwrap();
+                                        o.into()
+                                    })
+                                    .unwrap_or(bellman::gpu::OptParams {
                                         n_g1: 32 * 1024 * 1024,
                                         window_size_g1: 10,
                                         groups_g1: 807,
                                         n_g2: 16 * 1024 * 1024,
                                         window_size_g2: 9,
                                         groups_g2: 723,
-                                    },
-                                ),
+                                    }),
                             )
                         })
                         .collect(),
@@ -1082,11 +1082,10 @@ async fn main() {
                 Some(Amount(0)),
             );
             let mut mempool = client.get_zero_mempool().await.unwrap();
-            process_updates(
-                &mut mempool.updates,
-                &b,
-                &mut db_mirror,
-            ).unwrap();
+            if let Some(sender) = &opt.sender {
+                mempool.updates.retain(|t| t.src_pub_key == sender.pub_key);
+            }
+            process_updates(&mut mempool.updates, &b, &mut db_mirror).unwrap();
         }
 
         Opt::Pack(opt) => {
