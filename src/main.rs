@@ -579,7 +579,7 @@ async fn process_request(
                     ctx.sent.entry(client.ip()).or_default().insert(*id);
                     ctx.remaining_works.remove(id);
                 }
-                let already_sent = ctx.sent.get(&client.ip()).cloned().unwrap_or_default();
+
                 let resp = PostAckResponse {};
                 Response::new(Body::from(bincode::serialize(&resp)?))
             } else {
@@ -589,6 +589,14 @@ async fn process_request(
         "/get" => {
             if let Some(client) = client {
                 let mut ctx = context.write().await;
+                let already_sent = ctx.sent.get(&client.ip()).cloned().unwrap_or_default();
+                if already_sent.len() >= opt.work_per_ip {
+                    let resp = GetWorkResponse {
+                        height: ctx.height,
+                        works: Default::default(),
+                    };
+                    return Ok(Response::new(Body::from(bincode::serialize(&resp)?)));
+                }
                 if ctx.remaining_works.is_empty() && ctx.works.len() > 0 {
                     ctx.remaining_works = ctx.works.keys().cloned().collect();
                     println!("Preparing work queue!");
