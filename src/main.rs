@@ -589,7 +589,7 @@ async fn process_request(
         "/get" => {
             if let Some(client) = client {
                 let mut ctx = context.write().await;
-                if ctx.remaining_works.is_empty() {
+                if ctx.remaining_works.is_empty() && ctx.works.len() > 0 {
                     ctx.remaining_works = ctx.works.keys().cloned().collect();
                     println!("Preparing work queue!");
                 }
