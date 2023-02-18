@@ -1,6 +1,56 @@
 # ⚔️ Zoro
 
-Zoro is the SNARK circuit implementation of Ziesha's Main Payment Network contract. This readme tries to explain the circuit in detail, for someone who is not an expert in Zero-Knowledge proofs.
+Zoro is the SNARK circuit implementation of Ziesha's Main Payment Network contract.
+
+## Packaging/Proving guide
+
+The process of selecting transactions and proving/compressing them is separated
+in Ziesha Network. Validators who are elected according to their stake, have to
+select the transactions they want to include in the next block. The process of
+packaging isn't computationally intensive since packagers do not need to bother
+themselves proving the blocks. They will just make drafts of their block and
+provide these drafts to the provers.
+
+The Pelmeni testnet is currently considering 90% of block rewards to be distributed
+between provers, and 10% of the rest to be distributed among stakers.
+
+In order to setup a prover, you will need a machine with:
+
+ - At least 32GB of RAM
+ - 1 high-end Nvidia GPU **Connected directly to the motherboard (Risers will slow down the process significantly!)**
+
+### Installation
+
+You will first need to install `zoro`:
+
+```
+git clone https://github.com/ziesha-network/zoro
+cd zoro
+cargo update
+cargo install --path .
+```
+
+Now you'll need to generate the parameters needed for proving. You will need 64GB
+of memory for generating the params! If your RAM is 32GB, you can create an extra
+32GB swap space.
+
+```
+zoro generate-params
+```
+
+Now you will need to connect to packagers and prove their drafted blocks for them:
+
+```
+zoro prove --gpu ---address MPN_ADDRESS --connect 65.108.248.12:8767 --connect 93.81.246.111:8767 --connect 136.169.209.154:8767 --connect 5.78.75.120:8767 --connect 34.125.14.164:8767 --connect 178.208.252.54:8767 --connect 185.188.249.208:8767 --connect 78.46.185.127:8767 --connect 94.16.109.190:8767 --connect 159.69.146.240:8767 --connect 65.108.65.36:8767 --connect 3.239.88.25:8767 --connect 178.238.230.218:8767 --connect 65.108.240.128:8767 --connect 65.108.218.99:8767 --connect 61.213.68.129:8767 --connect 135.181.199.165:8767 --connect 65.108.72.230:8767 --connect 65.108.193.133:8767 --workers 1
+```
+
+(Note: the IPs are for the current validators of the Pelmeni Testnet)
+
+`MPN_ADDRESS` is the address which will receive your proving rewards!
+
+## Circuit details
+
+This readme tries to explain the circuit in detail, for someone who is not an expert in Zero-Knowledge proofs.
 
 ### Prime-Field elements
 
