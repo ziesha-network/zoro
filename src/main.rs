@@ -573,19 +573,7 @@ async fn process_request(
                 let body = request.into_body();
                 let body_bytes = hyper::body::to_bytes(body).await?;
                 let req: PostAckRequest = bincode::deserialize(&body_bytes)?;
-                let mut ctx = context.write().await;
-                let already_sent = ctx.sent.get(&client.ip()).cloned().unwrap_or_default();
-                if already_sent.len() >= opt.work_per_ip {
-                    return Ok(Response::new(Body::from(bincode::serialize(
-                        &PostAckResponse {},
-                    )?)));
-                }
-                for id in req.work_ids.iter() {
-                    println!("Posted work-id {} to client {}", id, client);
-                    ctx.sent.entry(client.ip()).or_default().insert(*id);
-                    ctx.remaining_works.remove(id);
-                }
-
+                println!("Work-id {} delivered client {}", id, client);
                 let resp = PostAckResponse {};
                 Response::new(Body::from(bincode::serialize(&resp)?))
             } else {
@@ -625,6 +613,10 @@ async fn process_request(
                         }
                     })
                     .collect();
+                for id in works.keys() {
+                    ctx.sent.entry(client.ip()).or_default().insert(*id);
+                    ctx.remaining_works.remove(id);
+                }
                 let resp = GetWorkResponse {
                     height: ctx.height,
                     works,
