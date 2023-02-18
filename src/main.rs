@@ -45,6 +45,8 @@ const LISTEN: &'static str = "0.0.0.0:8767";
 
 #[derive(Debug, Clone, StructOpt)]
 struct GenerateParamsOpt {
+    #[structopt(long, default_value = "super_update_params.dat")]
+    super_update_circuit_params: PathBuf,
     #[structopt(long, default_value = "update_params.dat")]
     update_circuit_params: PathBuf,
     #[structopt(long, default_value = "deposit_params.dat")]
@@ -82,6 +84,8 @@ struct ProveOpt {
     address: MpnAddress,
     #[structopt(long)]
     connect: Vec<SocketAddr>,
+    #[structopt(long, default_value = "super_update_params.dat")]
+    super_update_circuit_params: PathBuf,
     #[structopt(long, default_value = "update_params.dat")]
     update_circuit_params: PathBuf,
     #[structopt(long, default_value = "deposit_params.dat")]
@@ -108,8 +112,10 @@ struct PackOpt {
     deposit_batches: usize,
     #[structopt(long, default_value = "1")]
     withdraw_batches: usize,
-    #[structopt(long, default_value = "1")]
+    #[structopt(long, default_value = "10")]
     update_batches: usize,
+    #[structopt(long, default_value = "0")]
+    super_update_batches: usize,
     #[structopt(long, default_value = "")]
     miner_token: String,
     #[structopt(long, default_value = "1")]
@@ -120,6 +126,8 @@ struct PackOpt {
 
 #[derive(Debug, Clone, StructOpt)]
 struct BenchmarkOpt {
+    #[structopt(long, default_value = "super_update_params.dat")]
+    super_update_circuit_params: PathBuf,
     #[structopt(long, default_value = "update_params.dat")]
     update_circuit_params: PathBuf,
     #[structopt(long, default_value = "deposit_params.dat")]
@@ -863,6 +871,12 @@ async fn main() {
         }
 
         Opt::Prove(opt) => {
+            let verif_keys = bank::ZoroVerifyKeys {
+                update: bazuka::config::blockchain::MPN_UPDATE_VK.clone(),
+                deposit: bazuka::config::blockchain::MPN_DEPOSIT_VK.clone(),
+                withdraw: bazuka::config::blockchain::MPN_WITHDRAW_VK.clone(),
+            };
+
             let deposit_params =
                 load_params::<
                     circuits::DepositCircuit<
@@ -872,6 +886,11 @@ async fn main() {
                     >,
                     _,
                 >(opt.deposit_circuit_params.clone(), None::<ChaCha20Rng>);
+            if Into::<bazuka::zk::groth16::Groth16VerifyingKey>::into(deposit_params.vk.clone())
+                != verif_keys.deposit
+            {
+                panic!("Incorrect deposit-params! Regenerate params via: zoro generate-params");
+            }
 
             let withdraw_params =
                 load_params::<
@@ -882,6 +901,11 @@ async fn main() {
                     >,
                     _,
                 >(opt.withdraw_circuit_params.clone(), None::<ChaCha20Rng>);
+            if Into::<bazuka::zk::groth16::Groth16VerifyingKey>::into(withdraw_params.vk.clone())
+                != verif_keys.withdraw
+            {
+                panic!("Incorrect withdraw-params! Regenerate params via: zoro generate-params");
+            }
 
             let update_params =
                 load_params::<
@@ -892,6 +916,11 @@ async fn main() {
                     >,
                     _,
                 >(opt.update_circuit_params.clone(), None::<ChaCha20Rng>);
+            if Into::<bazuka::zk::groth16::Groth16VerifyingKey>::into(update_params.vk.clone())
+                != verif_keys.update
+            {
+                panic!("Incorrect update-params! Regenerate params via: zoro generate-params");
+            }
 
             let zoro_params = bank::ZoroParams {
                 update: update_params.clone(),
