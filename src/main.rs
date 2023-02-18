@@ -573,7 +573,9 @@ async fn process_request(
                 let body = request.into_body();
                 let body_bytes = hyper::body::to_bytes(body).await?;
                 let req: PostAckRequest = bincode::deserialize(&body_bytes)?;
-                println!("Work-id {} delivered client {}", id, client);
+                for id in req.work_ids.iter() {
+                    println!("Work-id {} delivered to client {}", id, client);
+                }
                 let resp = PostAckResponse {};
                 Response::new(Body::from(bincode::serialize(&resp)?))
             } else {
