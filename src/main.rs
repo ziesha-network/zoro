@@ -1006,7 +1006,7 @@ async fn main() {
                                 .uri(format!("http://{}/get", connect))
                                 .body(Body::empty())?;
                             let client = Client::new();
-                            tokio::time::timeout(Duration::from_millis(5000), async {
+                            let resp = tokio::time::timeout(Duration::from_millis(5000), async {
                                     hyper::body::to_bytes(client.request(req).await?.into_body()).await
                                 }).await??;
                             let work_resp: GetWorkResponse = bincode::deserialize(&resp)?;
