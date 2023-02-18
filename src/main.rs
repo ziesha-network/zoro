@@ -625,6 +625,8 @@ async fn process_request(
                                 *ctx.rewards.entry(req.address.clone()).or_default() += 1;
                                 ctx.works.remove(&id);
                                 accepted += 1;
+                            } else {
+                                println!("Client {} sent a WRONG solution for work-id {}", client, id);
                             }
                         }
                     }
