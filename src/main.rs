@@ -635,6 +635,7 @@ async fn process_request(
                                 ctx.submissions.insert(id, p);
                                 *ctx.rewards.entry(req.address.clone()).or_default() += 1;
                                 ctx.works.remove(&id);
+                                ctx.remaining_works.remove(&id);
                                 accepted += 1;
                             } else {
                                 println!(
