@@ -574,10 +574,6 @@ async fn process_request(
                 let body_bytes = hyper::body::to_bytes(body).await?;
                 let req: PostAckRequest = bincode::deserialize(&body_bytes)?;
                 let mut ctx = context.write().await;
-                if ctx.remaining_works.is_empty() {
-                    ctx.remaining_works = ctx.works.keys().cloned().collect();
-                    println!("Preparing work queue!");
-                }
                 for id in req.work_ids.iter() {
                     println!("Posted work-id {} to client {}", id, client);
                     ctx.sent.entry(client.ip()).or_default().insert(*id);
@@ -592,7 +588,11 @@ async fn process_request(
         }
         "/get" => {
             if let Some(client) = client {
-                let ctx = context.read().await;
+                let mut ctx = context.write().await;
+                if ctx.remaining_works.is_empty() {
+                    ctx.remaining_works = ctx.works.keys().cloned().collect();
+                    println!("Preparing work queue!");
+                }
                 let already_sent = ctx.sent.get(&client.ip()).cloned().unwrap_or_default();
                 let remaining_works: HashSet<usize> = ctx.remaining_works.iter().cloned().collect();
                 let sendable: Vec<usize> =
