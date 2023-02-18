@@ -565,8 +565,7 @@ async fn process_request(
             if let Some(client) = client {
                 let mut ctx = context.write().await;
                 let already_sent = ctx.sent.get(&client.ip()).cloned().unwrap_or_default();
-                let solved_count = ctx.rewards.get(&client.ip()).unwrap_or_default();
-                if already_sent.len().saturating_sub(solved_count) >= opt.work_per_ip {
+                if already_sent.len() >= opt.work_per_ip {
                     let resp = GetWorkResponse {
                         height: ctx.height,
                         works: Default::default(),
@@ -819,7 +818,7 @@ async fn main() {
                     i,
                 ));
             }
-            for _ in 0..3 {
+            loop {
                 let mut start = std::time::Instant::now();
                 let mut mirror = db.mirror();
                 let (_, work) = process_updates(&mut txs.clone(), &b, &mut mirror).unwrap();
