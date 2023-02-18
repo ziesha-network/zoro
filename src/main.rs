@@ -447,6 +447,13 @@ struct PostProofResponse {
     accepted: usize,
 }
 
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct PostAckRequest {
+    work_ids: HashSet<usize>,
+}
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct PostAckResponse {}
+
 fn create_tx(
     wallet: &mut Wallet,
     memo: String,
@@ -561,21 +568,32 @@ async fn process_request(
             };
             Response::new(Body::from(serde_json::to_vec(&resp)?))
         }
-        "/get" => {
+        "/ack" => {
             if let Some(client) = client {
+                let body = request.into_body();
+                let body_bytes = hyper::body::to_bytes(body).await?;
+                let req: PostAckRequest = bincode::deserialize(&body_bytes)?;
                 let mut ctx = context.write().await;
-                let already_sent = ctx.sent.get(&client.ip()).cloned().unwrap_or_default();
-                /*if already_sent.len() >= opt.work_per_ip {
-                    let resp = GetWorkResponse {
-                        height: ctx.height,
-                        works: Default::default(),
-                    };
-                    return Ok(Response::new(Body::from(bincode::serialize(&resp)?)));
-                }*/
+                for id in req.work_ids.iter() {
+                    println!("Posted work-id {} to client {}", id, client);
+                    ctx.sent.entry(client.ip()).or_default().insert(*id);
+                    ctx.remaining_works.remove(id);
+                }
                 if ctx.remaining_works.is_empty() {
                     ctx.remaining_works = ctx.works.keys().cloned().collect();
                     println!("Resending works!");
                 }
+                let already_sent = ctx.sent.get(&client.ip()).cloned().unwrap_or_default();
+                let resp = PostAckResponse {};
+                Response::new(Body::from(bincode::serialize(&resp)?))
+            } else {
+                Response::new(Body::empty())
+            }
+        }
+        "/get" => {
+            if let Some(client) = client {
+                let ctx = context.read().await;
+                let already_sent = ctx.sent.get(&client.ip()).cloned().unwrap_or_default();
                 let remaining_works: HashSet<usize> = ctx.remaining_works.iter().cloned().collect();
                 let sendable: Vec<usize> =
                     remaining_works.difference(&already_sent).cloned().collect();
@@ -583,9 +601,6 @@ async fn process_request(
                     .iter()
                     .cloned()
                     .choose_multiple(&mut rand::thread_rng(), opt.work_per_ip);
-                for id in work_ids.iter() {
-                    ctx.remaining_works.remove(id);
-                }
                 let works: HashMap<usize, ZoroWork> = work_ids
                     .into_iter()
                     .filter_map(|id| {
@@ -596,10 +611,6 @@ async fn process_request(
                         }
                     })
                     .collect();
-                for id in works.keys() {
-                    println!("Posted work-id {} to client {}", id, client);
-                    ctx.sent.entry(client.ip()).or_default().insert(*id);
-                }
                 let resp = GetWorkResponse {
                     height: ctx.height,
                     works,
@@ -626,7 +637,10 @@ async fn process_request(
                                 ctx.works.remove(&id);
                                 accepted += 1;
                             } else {
-                                println!("Client {} sent a WRONG solution for work-id {}", client, id);
+                                println!(
+                                    "Client {} sent a WRONG solution for work-id {}",
+                                    client, id
+                                );
                             }
                         }
                     }
@@ -992,11 +1006,22 @@ async fn main() {
                                 .uri(format!("http://{}/get", connect))
                                 .body(Body::empty())?;
                             let client = Client::new();
-                            let resp =
-                                tokio::time::timeout(Duration::from_millis(15000), async {
-                                        hyper::body::to_bytes(client.request(req).await?.into_body()).await
-                                    }).await??;
+                            tokio::time::timeout(Duration::from_millis(5000), async {
+                                    hyper::body::to_bytes(client.request(req).await?.into_body()).await
+                                }).await??;
                             let work_resp: GetWorkResponse = bincode::deserialize(&resp)?;
+
+                            let req = Request::builder()
+                                .method(Method::GET)
+                                .uri(format!("http://{}/ack", connect))
+                                .body(Body::from(bincode::serialize(&PostAckRequest {
+                                    work_ids: work_resp.works.keys().cloned().collect()
+                                })?))?;
+                            let client = Client::new();
+                            let _ = tokio::time::timeout(Duration::from_millis(2000), async {
+                                    hyper::body::to_bytes(client.request(req).await?.into_body()).await
+                                }).await;
+
                             if let Some(height) = work_resp.height {
                                 println!("Work found! Starting...");
                                 let (cancel_controller_tx, mut cancel_controller_rx) =
