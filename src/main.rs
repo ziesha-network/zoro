@@ -1004,7 +1004,7 @@ async fn main() {
                         let resp: GetStatsResponse = serde_json::from_slice(&bytes)?;
 
                         if let Some(claim) = resp.validator_claim {
-                            let connect = claim.node.clone();
+                            let connect = SocketAddr::new(claim.node.ip(), 8767);
                             println!("{} is validator!", connect);
 
                             let req = Request::builder()
