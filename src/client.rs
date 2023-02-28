@@ -1,5 +1,5 @@
+use bazuka::client::messages::ValidatorClaim;
 use bazuka::client::NodeError;
-use bazuka::core::ValidatorProof;
 use std::future::Future;
 
 #[derive(Clone)]
@@ -71,9 +71,9 @@ impl SyncClient {
         self.call(move |client| async move { Ok(client.stats().await.map(|resp| resp.height)?) })
             .await
     }
-    pub async fn validator_proof(&self) -> Result<ValidatorProof, NodeError> {
+    pub async fn validator_claim(&self) -> Result<Option<ValidatorClaim>, NodeError> {
         self.call(move |client| async move {
-            Ok(client.stats().await.map(|resp| resp.validator_proof)?)
+            Ok(client.stats().await.map(|resp| resp.validator_claim)?)
         })
         .await
     }

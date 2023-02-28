@@ -2,7 +2,7 @@ use crate::circuits;
 use crate::circuits::{Deposit, Withdraw};
 use bazuka::zk::ZkScalar;
 use bazuka::{
-    core::{Amount, ContractId, Money, TokenId, ZkHasher},
+    core::{ContractId, Money, TokenId, ZkHasher},
     db::KvStore,
     zk::{KvStoreStateManager, MpnAccount, MpnTransaction, ZkDataLocator},
 };

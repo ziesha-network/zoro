@@ -6,10 +6,11 @@ mod config;
 use circuits::{Deposit, Withdraw};
 
 use bazuka::blockchain::BlockchainConfig;
+use bazuka::client::messages::ValidatorClaim;
 use bazuka::config::blockchain::get_blockchain_config;
 use bazuka::core::{
     Amount, ChainSourcedTx, Money, MpnAddress, MpnDeposit, MpnSourcedTx, MpnWithdraw, TokenId,
-    TransactionData, ValidatorProof,
+    TransactionData,
 };
 use bazuka::db::ReadOnlyLevelDbKvStore;
 use bazuka::wallet::{TxBuilder, Wallet};
@@ -83,7 +84,7 @@ struct ProveOpt {
     #[structopt(long)]
     address: MpnAddress,
     #[structopt(long)]
-    connect: Vec<SocketAddr>,
+    connect: SocketAddr,
     #[structopt(long, default_value = "super_update_params.dat")]
     super_update_circuit_params: PathBuf,
     #[structopt(long, default_value = "update_params.dat")]
@@ -416,7 +417,7 @@ struct ZoroContext {
     remaining_works: HashSet<usize>,
     submissions: HashMap<usize, bazuka::zk::groth16::Groth16Proof>,
     rewards: HashMap<MpnAddress, usize>,
-    validator_proof: ValidatorProof,
+    validator_claim: Option<ValidatorClaim>,
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -432,7 +433,7 @@ struct GetStatsRequest {}
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct GetStatsResponse {
     height: Option<u64>,
-    validator_proof: ValidatorProof,
+    validator_claim: Option<ValidatorClaim>,
     version: String,
 }
 
@@ -563,7 +564,7 @@ async fn process_request(
             let ctx = context.read().await;
             let resp = GetStatsResponse {
                 height: ctx.height,
-                validator_proof: ctx.validator_proof.clone(),
+                validator_claim: ctx.validator_claim.clone(),
                 version: env!("CARGO_PKG_VERSION").into(),
             };
             Response::new(Body::from(serde_json::to_vec(&resp)?))
@@ -992,22 +993,18 @@ async fn main() {
                         let cancel = Arc::new(RwLock::new(false));
 
                         println!("Finding the validator...");
-                        let tasks = opt.connect.iter().map(|connect| async move {
-                            let req = Request::builder()
-                                .method(Method::GET)
-                                .uri(format!("http://{}/stats", connect))
-                                .body(Body::empty())?;
-                            let client = Client::new();
-                            let bytes = tokio::time::timeout(Duration::from_millis(3000), async {
-                                hyper::body::to_bytes(client.request(req).await?.into_body()).await
-                            }).await??;
-                            let resp = serde_json::from_slice(&bytes)?;
-                            Ok::<(SocketAddr, GetStatsResponse), ZoroError>((*connect, resp))
-                        }).collect::<Vec<_>>();
-                        let resps = futures::future::join_all(tasks).await;
-                        let found_validator = resps.into_iter().find(|resp| resp.as_ref().map(|r| r.1.height.is_some()).unwrap_or_default());
+                        let req = Request::builder()
+                            .method(Method::GET)
+                            .uri(format!("http://{}/stats", opt.connect))
+                            .body(Body::empty())?;
+                        let client = Client::new();
+                        let bytes = tokio::time::timeout(Duration::from_millis(3000), async {
+                            hyper::body::to_bytes(client.request(req).await?.into_body()).await
+                        }).await??;
+                        let resp: GetStatsResponse = serde_json::from_slice(&bytes)?;
 
-                        if let Some(Ok((connect,_))) = found_validator {
+                        if let Some(claim) = resp.validator_claim {
+                            let connect = claim.node.clone();
                             println!("{} is validator!", connect);
 
                             let req = Request::builder()
@@ -1055,7 +1052,7 @@ async fn main() {
                                             )
                                             .await?;
                                             let resp: GetStatsResponse = serde_json::from_slice(&resp)?;
-                                            if resp.height != Some(height) || resp.validator_proof.is_unproven() {
+                                            if resp.height != Some(height) || resp.validator_claim.is_none() {
                                                 *cancel_cloned.write().unwrap() = true;
                                             }
                                         }
@@ -1159,7 +1156,7 @@ async fn main() {
             let context = Arc::new(AsyncRwLock::new(ZoroContext {
                 verif_keys: verif_keys.clone(),
                 height: None,
-                validator_proof: ValidatorProof::Unproven,
+                validator_claim: None,
                 works: HashMap::new(),
                 remaining_works: HashSet::new(),
                 submissions: HashMap::new(),
@@ -1327,14 +1324,14 @@ async fn main() {
                     ctx.remaining_works.clear();
                     ctx.sent.clear();
                     ctx.height = None;
-                    ctx.validator_proof = ValidatorProof::Unproven;
+                    ctx.validator_claim = None;
                     drop(ctx);
 
-                    let validator_proof = client.validator_proof().await?;
-                    context.write().await.validator_proof = validator_proof.clone();
-
+                    let claim = client.validator_claim().await?;
                     // Wait till mine is done
-                    if validator_proof.is_unproven() {
+                    if claim.is_some() {
+                        context.write().await.validator_claim = claim;
+                    } {
                         log::info!("You are not the selected validator!");
                         std::thread::sleep(std::time::Duration::from_millis(1000));
                         return Ok::<(), ZoroError>(());
@@ -1438,7 +1435,7 @@ async fn main() {
                         if remote_height != curr_height {
                             return Err(ZoroError::Aborted);
                         }
-                        if client.validator_proof().await?.is_unproven() {
+                        if client.validator_claim().await?.is_none() {
                             return Err(ZoroError::NotValidator);
                         }
                         std::thread::sleep(std::time::Duration::from_millis(1000));
