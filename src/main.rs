@@ -1331,7 +1331,7 @@ async fn main() {
                     // Wait till mine is done
                     if claim.is_some() {
                         context.write().await.validator_claim = claim;
-                    } {
+                    } else {
                         log::info!("You are not the selected validator!");
                         std::thread::sleep(std::time::Duration::from_millis(1000));
                         return Ok::<(), ZoroError>(());
