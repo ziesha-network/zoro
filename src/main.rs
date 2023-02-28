@@ -1324,15 +1324,20 @@ async fn main() {
                     ctx.remaining_works.clear();
                     ctx.sent.clear();
                     ctx.height = None;
-                    ctx.validator_claim = None;
                     drop(ctx);
 
+                    let self_addr = client.get_address().await?;
                     let claim = client.validator_claim().await?;
+                    context.write().await.validator_claim = claim.clone();
                     // Wait till mine is done
-                    if claim.is_some() {
-                        context.write().await.validator_claim = claim;
+                    if let Some(claim) = claim {
+                        if claim.address != self_addr {
+                            log::info!("You are not the selected validator!");
+                            std::thread::sleep(std::time::Duration::from_millis(1000));
+                            return Ok::<(), ZoroError>(());
+                        }
                     } else {
-                        log::info!("You are not the selected validator!");
+                        log::info!("Validator not found!");
                         std::thread::sleep(std::time::Duration::from_millis(1000));
                         return Ok::<(), ZoroError>(());
                     }

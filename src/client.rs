@@ -1,5 +1,6 @@
 use bazuka::client::messages::ValidatorClaim;
 use bazuka::client::NodeError;
+use bazuka::core::Address;
 use std::future::Future;
 
 #[derive(Clone)]
@@ -66,6 +67,12 @@ impl SyncClient {
     ) -> Result<bazuka::client::messages::GetZeroMempoolResponse, NodeError> {
         self.call(move |client| async move { Ok(client.get_zero_mempool().await?) })
             .await
+    }
+    pub async fn get_address(&self) -> Result<Address, NodeError> {
+        let addr_str = self
+            .call(move |client| async move { Ok(client.stats().await.map(|resp| resp.address)?) })
+            .await?;
+        Ok(addr_str.parse()?)
     }
     pub async fn get_height(&self) -> Result<u64, NodeError> {
         self.call(move |client| async move { Ok(client.stats().await.map(|resp| resp.height)?) })
