@@ -5,11 +5,11 @@ mod config;
 
 use circuits::{Deposit, Withdraw};
 
-use bazuka::blockchain::{BlockchainConfig, ValidatorProof};
+use bazuka::blockchain::BlockchainConfig;
 use bazuka::config::blockchain::get_blockchain_config;
 use bazuka::core::{
     Amount, ChainSourcedTx, Money, MpnAddress, MpnDeposit, MpnSourcedTx, MpnWithdraw, TokenId,
-    TransactionData,
+    TransactionData, ValidatorProof,
 };
 use bazuka::db::ReadOnlyLevelDbKvStore;
 use bazuka::wallet::{TxBuilder, Wallet};
@@ -416,7 +416,7 @@ struct ZoroContext {
     remaining_works: HashSet<usize>,
     submissions: HashMap<usize, bazuka::zk::groth16::Groth16Proof>,
     rewards: HashMap<MpnAddress, usize>,
-    validator_proof: Option<ValidatorProof>,
+    validator_proof: ValidatorProof,
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -432,7 +432,7 @@ struct GetStatsRequest {}
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct GetStatsResponse {
     height: Option<u64>,
-    validator_proof: Option<ValidatorProof>,
+    validator_proof: ValidatorProof,
     version: String,
 }
 
@@ -1055,7 +1055,7 @@ async fn main() {
                                             )
                                             .await?;
                                             let resp: GetStatsResponse = serde_json::from_slice(&resp)?;
-                                            if resp.height != Some(height) || resp.validator_proof.is_none() {
+                                            if resp.height != Some(height) || resp.validator_proof.is_unproven() {
                                                 *cancel_cloned.write().unwrap() = true;
                                             }
                                         }
@@ -1159,7 +1159,7 @@ async fn main() {
             let context = Arc::new(AsyncRwLock::new(ZoroContext {
                 verif_keys: verif_keys.clone(),
                 height: None,
-                validator_proof: None,
+                validator_proof: ValidatorProof::Unproven,
                 works: HashMap::new(),
                 remaining_works: HashSet::new(),
                 submissions: HashMap::new(),
@@ -1327,15 +1327,14 @@ async fn main() {
                     ctx.remaining_works.clear();
                     ctx.sent.clear();
                     ctx.height = None;
-                    ctx.validator_proof = None;
+                    ctx.validator_proof = ValidatorProof::Unproven;
                     drop(ctx);
 
                     let validator_proof = client.validator_proof().await?;
+                    context.write().await.validator_proof = validator_proof.clone();
 
                     // Wait till mine is done
-                    if let Some(validator_proof) = validator_proof {
-                        context.write().await.validator_proof=Some(validator_proof);
-                    } else {
+                    if validator_proof.is_unproven() {
                         log::info!("You are not the selected validator!");
                         std::thread::sleep(std::time::Duration::from_millis(1000));
                         return Ok::<(), ZoroError>(());
@@ -1439,7 +1438,7 @@ async fn main() {
                         if remote_height != curr_height {
                             return Err(ZoroError::Aborted);
                         }
-                        if client.validator_proof().await?.is_none() {
+                        if client.validator_proof().await?.is_unproven() {
                             return Err(ZoroError::NotValidator);
                         }
                         std::thread::sleep(std::time::Duration::from_millis(1000));
