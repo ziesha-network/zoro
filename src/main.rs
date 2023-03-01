@@ -1239,30 +1239,23 @@ async fn main() {
                                 if let Some(actual_block) = client.get_block(block_number).await? {
                                     if curr_height - block_number >= opt.reward_delay {
                                         hist.solved.remove(&block_number);
-                                        if let Some(TransactionData::RegularSend { entries }) =
-                                            actual_block.body.first().map(|tx| tx.data.clone())
+                                        if actual_block.header.proof_of_stake.validator
+                                            == tx_builder.get_address()
                                         {
-                                            if let Some(entry) = entries.first() {
-                                                if entry.dst == tx_builder.get_address() {
-                                                    let (tx, ztxs) = create_tx(
-                                                        &mut wallet,
-                                                        format!(
-                                                            "Pool-Reward, block #{}",
-                                                            block_number
-                                                        )
-                                                        .into(),
-                                                        rewards,
-                                                        curr_nonce,
-                                                        curr_mpn_nonce,
-                                                    )?;
-                                                    wallet.save(wallet_path.clone()).unwrap();
-                                                    println!(
-                                                        "Tx with nonce {} created...",
-                                                        tx.payment.nonce
-                                                    );
-                                                    hist.sent.insert(block_number, (tx, ztxs));
-                                                }
-                                            }
+                                            let (tx, ztxs) = create_tx(
+                                                &mut wallet,
+                                                format!("Pool-Reward, block #{}", block_number)
+                                                    .into(),
+                                                rewards,
+                                                curr_nonce,
+                                                curr_mpn_nonce,
+                                            )?;
+                                            wallet.save(wallet_path.clone()).unwrap();
+                                            println!(
+                                                "Tx with nonce {} created...",
+                                                tx.payment.nonce
+                                            );
+                                            hist.sent.insert(block_number, (tx, ztxs));
                                         }
                                         save_history(&hist)?;
                                     }
