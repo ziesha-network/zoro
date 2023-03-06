@@ -5,12 +5,10 @@ mod config;
 
 use bazuka::client::PeerAddress;
 
-use bazuka::core::{Amount, Money, MpnAddress, MpnDeposit};
-use bazuka::db::ReadOnlyLevelDbKvStore;
+use bazuka::core::{MpnAddress, TokenId};
 
 use bazuka::mpn::{MpnWork, MpnWorkData};
-use bazuka::wallet::{TxBuilder, Wallet};
-use bazuka::zk::MpnTransaction;
+
 use bellman::gpu::{Brand, Device};
 use bellman::groth16::Backend;
 use bellman::{groth16, Circuit};
@@ -25,7 +23,6 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
 
-use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::{Arc, RwLock};
@@ -183,10 +180,41 @@ type ZoroWork = bank::ZoroWork<
 >;
 
 fn to_zoro_work(work: MpnWork) -> ZoroWork {
-    match &work.data {
-        MpnWorkData::Deposit(_deposits) => unimplemented!(),
-        MpnWorkData::Withdraw(_withdraws) => unimplemented!(),
-        MpnWorkData::Update(_updates) => unimplemented!(),
+    ZoroWork {
+        height: work.public_inputs.height.into(),
+        state: work.public_inputs.state,
+        aux_data: work.public_inputs.aux_data,
+        next_state: work.public_inputs.next_state,
+        circuit: match &work.data {
+            MpnWorkData::Deposit(deposits) => {
+                bank::ZoroCircuit::Deposit(circuits::DepositCircuit {
+                    height: work.public_inputs.height.into(),
+                    state: work.public_inputs.state,
+                    aux_data: work.public_inputs.aux_data,
+                    next_state: work.public_inputs.next_state,
+                    transitions: Box::new(circuits::DepositTransitionBatch::new(deposits.clone())),
+                })
+            }
+            MpnWorkData::Withdraw(withdraws) => {
+                bank::ZoroCircuit::Withdraw(circuits::WithdrawCircuit {
+                    height: work.public_inputs.height.into(),
+                    state: work.public_inputs.state,
+                    aux_data: work.public_inputs.aux_data,
+                    next_state: work.public_inputs.next_state,
+                    transitions: Box::new(circuits::WithdrawTransitionBatch::new(
+                        withdraws.clone(),
+                    )),
+                })
+            }
+            MpnWorkData::Update(updates) => bank::ZoroCircuit::Update(circuits::UpdateCircuit {
+                height: work.public_inputs.height.into(),
+                state: work.public_inputs.state,
+                aux_data: work.public_inputs.aux_data,
+                next_state: work.public_inputs.next_state,
+                fee_token: TokenId::Ziesha,
+                transitions: Box::new(circuits::TransitionBatch::new(updates.clone())),
+            }),
+        },
     }
 }
 

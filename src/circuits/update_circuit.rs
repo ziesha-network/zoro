@@ -36,6 +36,31 @@ pub struct Transition<const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE_SIZE: u8>
     pub dst_balance_proof: merkle::Proof<LOG4_TOKENS_TREE_SIZE>,
 }
 
+impl<const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE_SIZE: u8>
+    Transition<LOG4_TREE_SIZE, LOG4_TOKENS_TREE_SIZE>
+{
+    pub fn from_bazuka(trans: bazuka::mpn::UpdateTransition) -> Self {
+        Self {
+            enabled: true,
+            tx: trans.tx,
+            src_before: trans.src_before, // src_after can be derived
+            src_before_balances_hash: trans.src_before_balances_hash,
+            src_before_balance: trans.src_before_balance,
+            src_before_fee_balance: trans.src_before_fee_balance,
+            src_proof: merkle::Proof::<LOG4_TREE_SIZE>(trans.src_proof),
+            src_balance_proof: merkle::Proof::<LOG4_TOKENS_TREE_SIZE>(trans.src_balance_proof),
+            src_fee_balance_proof: merkle::Proof::<LOG4_TOKENS_TREE_SIZE>(
+                trans.src_fee_balance_proof,
+            ),
+            dst_before: trans.dst_before, // dst_after can be derived
+            dst_before_balances_hash: trans.dst_before_balances_hash,
+            dst_before_balance: trans.dst_before_balance,
+            dst_proof: merkle::Proof::<LOG4_TREE_SIZE>(trans.dst_proof),
+            dst_balance_proof: merkle::Proof::<LOG4_TOKENS_TREE_SIZE>(trans.dst_balance_proof),
+        }
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TransitionBatch<
     const LOG4_BATCH_SIZE: u8,
@@ -45,7 +70,11 @@ pub struct TransitionBatch<
 impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE_SIZE: u8>
     TransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE, LOG4_TOKENS_TREE_SIZE>
 {
-    pub fn new(mut ts: Vec<Transition<LOG4_TREE_SIZE, LOG4_TOKENS_TREE_SIZE>>) -> Self {
+    pub fn new(mut ts: Vec<bazuka::mpn::UpdateTransition>) -> Self {
+        let mut ts = ts
+            .into_iter()
+            .map(|t| Transition::from_bazuka(t))
+            .collect::<Vec<_>>();
         while ts.len() < 1 << (2 * LOG4_BATCH_SIZE) {
             ts.push(Transition::default());
         }

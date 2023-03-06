@@ -39,6 +39,36 @@ pub struct WithdrawTransition<const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE_S
     pub fee_balance_proof: merkle::Proof<LOG4_TOKENS_TREE_SIZE>,
 }
 
+impl<const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE_SIZE: u8>
+    WithdrawTransition<LOG4_TREE_SIZE, LOG4_TOKENS_TREE_SIZE>
+{
+    pub fn from_bazuka(trans: bazuka::mpn::WithdrawTransition) -> Self {
+        Self {
+            enabled: true,
+            tx: Withdraw {
+                mpn_withdraw: Some(trans.tx.clone()),
+                index: trans.tx.zk_address_index(LOG4_TREE_SIZE),
+                token_index: trans.tx.zk_token_index,
+                fee_token_index: trans.tx.zk_fee_token_index,
+                pub_key: trans.tx.zk_address.0.decompress(),
+                fingerprint: trans.tx.payment.fingerprint(),
+                nonce: trans.tx.zk_nonce,
+                sig: trans.tx.zk_sig,
+                amount: trans.tx.payment.amount,
+                fee: trans.tx.payment.fee,
+            },
+            before: trans.before,
+            before_token_hash: trans.before_token_hash,
+            before_token_balance: trans.before_token_balance,
+            before_fee_balance: trans.before_fee_balance,
+
+            proof: merkle::Proof::<LOG4_TREE_SIZE>(trans.proof),
+            token_balance_proof: merkle::Proof::<LOG4_TOKENS_TREE_SIZE>(trans.token_balance_proof),
+            fee_balance_proof: merkle::Proof::<LOG4_TOKENS_TREE_SIZE>(trans.fee_balance_proof),
+        }
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WithdrawTransitionBatch<
     const LOG4_BATCH_SIZE: u8,
@@ -48,7 +78,11 @@ pub struct WithdrawTransitionBatch<
 impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE_SIZE: u8>
     WithdrawTransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE, LOG4_TOKENS_TREE_SIZE>
 {
-    pub fn new(mut ts: Vec<WithdrawTransition<LOG4_TREE_SIZE, LOG4_TOKENS_TREE_SIZE>>) -> Self {
+    pub fn new(mut ts: Vec<bazuka::mpn::WithdrawTransition>) -> Self {
+        let mut ts = ts
+            .into_iter()
+            .map(|t| WithdrawTransition::from_bazuka(t))
+            .collect::<Vec<_>>();
         while ts.len() < 1 << (2 * LOG4_BATCH_SIZE) {
             ts.push(WithdrawTransition::default());
         }
