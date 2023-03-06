@@ -5,14 +5,13 @@ mod config;
 
 use circuits::{Deposit, Withdraw};
 
-use bazuka::blockchain::BlockchainConfig;
 use bazuka::client::messages::ValidatorClaim;
 use bazuka::config::blockchain::get_blockchain_config;
 use bazuka::core::{
     Amount, ChainSourcedTx, Money, MpnAddress, MpnDeposit, MpnSourcedTx, MpnWithdraw, TokenId,
-    TransactionData,
 };
 use bazuka::db::ReadOnlyLevelDbKvStore;
+use bazuka::mpn::MpnConfig;
 use bazuka::wallet::{TxBuilder, Wallet};
 use bazuka::zk::MpnTransaction;
 use bellman::gpu::{Brand, Device};
@@ -309,7 +308,7 @@ fn process_deposits<K: bazuka::db::KvStore>(
 }
 
 fn process_withdraws<K: bazuka::db::KvStore>(
-    conf: &BlockchainConfig,
+    conf: &MpnConfig,
     mempool: &[MpnWithdraw],
     b: &bank::Bank<
         { config::LOG4_DEPOSIT_BATCH_SIZE },
@@ -325,7 +324,7 @@ fn process_withdraws<K: bazuka::db::KvStore>(
         .filter(|dw| dw.payment.contract_id == conf.mpn_contract_id)
         .map(|dw| Withdraw {
             mpn_withdraw: Some(dw.clone()),
-            index: dw.zk_address_index(conf.mpn_log4_account_capacity),
+            index: dw.zk_address_index(conf.log4_tree_size),
             token_index: dw.zk_token_index,
             fee_token_index: dw.zk_fee_token_index,
             pub_key: dw.zk_address.0.decompress(),
@@ -462,7 +461,9 @@ fn create_tx(
     remote_nonce: u32,
     remote_mpn_nonce: u64,
 ) -> Result<(bazuka::core::MpnDeposit, Vec<MpnTransaction>), ZoroError> {
-    let mpn_id = bazuka::config::blockchain::get_blockchain_config().mpn_contract_id;
+    let mpn_id = bazuka::config::blockchain::get_blockchain_config()
+        .mpn_config
+        .mpn_contract_id;
     let tx_builder = TxBuilder::new(&wallet.seed());
     let new_nonce = wallet.new_r_nonce().unwrap_or(remote_nonce + 1);
     let pool_mpn_address = MpnAddress {
@@ -1132,13 +1133,13 @@ async fn main() {
         }
 
         Opt::Debug(opt) => {
-            let conf = get_blockchain_config();
+            let conf = get_blockchain_config().mpn_config;
             let node_addr = bazuka::client::PeerAddress(opt.node.parse().unwrap());
             let client = SyncClient::new(node_addr, "mainnet", "".into());
             let db_shutter = db_shutter(&opt.db.clone());
             let db = db_shutter.snapshot();
             let mut db_mirror = db.mirror();
-            let b = bank::Bank::new(conf.mpn_log4_account_capacity, conf.mpn_contract_id);
+            let b = bank::Bank::new(conf.log4_tree_size, conf.mpn_contract_id);
             let mut mempool = client.get_zero_mempool().await.unwrap();
             if let Some(sender) = &opt.sender {
                 mempool.updates.retain(|t| t.src_pub_key == sender.pub_key);
@@ -1200,7 +1201,7 @@ async fn main() {
             let node_addr = bazuka::client::PeerAddress(opt.node.parse().unwrap());
             let client = SyncClient::new(node_addr, "mainnet", opt.miner_token.clone());
 
-            let conf = get_blockchain_config();
+            let conf = get_blockchain_config().mpn_config;
 
             let opt_reward_sender = opt.clone();
             let client_reward_sender = client.clone();
@@ -1214,7 +1215,8 @@ async fn main() {
                         if let Err(e) = async move {
                             let mpn_log4_acc_cap =
                                 bazuka::config::blockchain::get_blockchain_config()
-                                    .mpn_log4_account_capacity;
+                                    .mpn_config
+                                    .log4_tree_size;
 
                             let mut hist = get_history()?;
                             let curr_height = client.get_height().await?;
@@ -1361,7 +1363,7 @@ async fn main() {
                         let db = db_shutter.snapshot();
                         let mut db_mirror = db.mirror();
                         let b = bank::Bank::new(
-                            conf.mpn_log4_account_capacity,
+                            conf.log4_tree_size,
                             conf.mpn_contract_id
                         );
 
@@ -1376,7 +1378,7 @@ async fn main() {
                             );
                             updates.push(process_deposits(
                                 conf.mpn_contract_id,
-                                conf.mpn_log4_account_capacity,
+                                conf.log4_tree_size,
                                 &mempool.deposits,
                                 &b,
                                 &mut db_mirror,
