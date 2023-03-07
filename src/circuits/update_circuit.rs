@@ -70,7 +70,7 @@ pub struct TransitionBatch<
 impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE_SIZE: u8>
     TransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE, LOG4_TOKENS_TREE_SIZE>
 {
-    pub fn new(mut ts: Vec<bazuka::mpn::UpdateTransition>) -> Self {
+    pub fn new(ts: Vec<bazuka::mpn::UpdateTransition>) -> Self {
         let mut ts = ts
             .into_iter()
             .map(|t| Transition::from_bazuka(t))

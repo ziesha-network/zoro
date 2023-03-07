@@ -62,7 +62,7 @@ pub struct DepositTransitionBatch<
 impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE_SIZE: u8>
     DepositTransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE, LOG4_TOKENS_TREE_SIZE>
 {
-    pub fn new(mut ts: Vec<bazuka::mpn::DepositTransition>) -> Self {
+    pub fn new(ts: Vec<bazuka::mpn::DepositTransition>) -> Self {
         let mut ts = ts
             .into_iter()
             .map(|t| DepositTransition::from_bazuka(t))

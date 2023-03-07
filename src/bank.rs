@@ -1,17 +1,12 @@
 use crate::circuits;
-use crate::circuits::{Deposit, Withdraw};
+
+use bazuka::core::ContractId;
 use bazuka::zk::ZkScalar;
-use bazuka::{
-    core::{ContractId, Money, TokenId, ZkHasher},
-    db::KvStore,
-    zk::{KvStoreStateManager, MpnAccount, MpnTransaction, ZkDataLocator},
-};
 use bellman::groth16;
 use bellman::groth16::Backend;
 use bls12_381::Bls12;
 use rand::rngs::OsRng;
-use rayon::prelude::*;
-use std::collections::HashSet;
+
 use std::sync::{Arc, RwLock};
 use thiserror::Error;
 

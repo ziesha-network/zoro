@@ -21,7 +21,6 @@ use rand_chacha::ChaCha20Rng;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{Read, Write};
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -30,8 +29,6 @@ use std::time::Duration;
 use structopt::StructOpt;
 
 use zeekit::BellmanFr;
-
-const LISTEN: &'static str = "0.0.0.0:8767";
 
 #[derive(Debug, Clone, StructOpt)]
 struct GenerateParamsOpt {
@@ -226,8 +223,6 @@ fn alice_shuffle() {
         bazuka::config::SYMBOL.bright_red()
     );
 }
-
-use bazuka::db::KvStore;
 
 #[tokio::main]
 async fn main() {

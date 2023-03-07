@@ -78,7 +78,7 @@ pub struct WithdrawTransitionBatch<
 impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE_SIZE: u8>
     WithdrawTransitionBatch<LOG4_BATCH_SIZE, LOG4_TREE_SIZE, LOG4_TOKENS_TREE_SIZE>
 {
-    pub fn new(mut ts: Vec<bazuka::mpn::WithdrawTransition>) -> Self {
+    pub fn new(ts: Vec<bazuka::mpn::WithdrawTransition>) -> Self {
         let mut ts = ts
             .into_iter()
             .map(|t| WithdrawTransition::from_bazuka(t))
