@@ -1,6 +1,5 @@
 use crate::circuits;
 
-use bazuka::core::ContractId;
 use bazuka::zk::ZkScalar;
 use bellman::groth16;
 use bellman::groth16::Backend;
@@ -19,18 +18,6 @@ pub enum BankError {
     #[error("kv-store error: {0}")]
     KvStoreError(#[from] bazuka::db::KvStoreError),
 }
-
-pub struct Bank<
-    const LOG4_DEPOSIT_BATCH_SIZE: u8,
-    const LOG4_WITHDRAW_BATCH_SIZE: u8,
-    const LOG4_UPDATE_BATCH_SIZE: u8,
-    const LOG4_TREE_SIZE: u8,
-    const LOG4_TOKENS_TREE_SIZE: u8,
-> {
-    mpn_contract_id: ContractId,
-    mpn_log4_account_capacity: u8,
-}
-
 #[derive(Clone)]
 pub struct ZoroParams {
     pub deposit: groth16::Parameters<Bls12>,

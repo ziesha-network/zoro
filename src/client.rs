@@ -66,6 +66,7 @@ impl SyncClient {
         })
         .await
     }
+    #[allow(dead_code)]
     pub async fn get_mpn_account(
         &self,
         index: u64,
