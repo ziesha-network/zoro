@@ -441,6 +441,8 @@ async fn main() {
 
                                 let _ = cancel_controller_tx.send(());
                                 cancel_controller.await??;
+                        } else {
+                            std::thread::sleep(std::time::Duration::from_millis(1000));
                         }
                         Ok::<(), ZoroError>(())
                     }
