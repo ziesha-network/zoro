@@ -372,30 +372,30 @@ async fn main() {
 
                             let works = client.get_mpn_works().await?;
 
-                                println!("Work found! Starting...");
-                                let (cancel_controller_tx, mut cancel_controller_rx) =
-                                    tokio::sync::mpsc::unbounded_channel::<()>();
-                                let cancel_cloned = cancel.clone();
-                                let cancel_controller =
-                                    tokio::task::spawn(async move {
-                                        loop {
-                                            match cancel_controller_rx.try_recv() {
-                                        Ok(_)
-                                        | Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
-                                            break;
-                                        }
-                                        Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
-                                            let client = SyncClient::new(opt.connect, &opt.network, "".into());
-                                            let new_claim = client.validator_claim().await?;
-                                            if new_claim!= validator_claim {
-                                                *cancel_cloned.write().unwrap() = true;
-                                            }
+                            let (cancel_controller_tx, mut cancel_controller_rx) =
+                                tokio::sync::mpsc::unbounded_channel::<()>();
+                            let cancel_cloned = cancel.clone();
+                            let cancel_controller =
+                                tokio::task::spawn(async move {
+                                    loop {
+                                        match cancel_controller_rx.try_recv() {
+                                    Ok(_)
+                                    | Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+                                        break;
+                                    }
+                                    Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
+                                        let client = SyncClient::new(opt.connect, &opt.network, "".into());
+                                        let new_claim = client.validator_claim().await?;
+                                        if new_claim!= validator_claim {
+                                            *cancel_cloned.write().unwrap() = true;
                                         }
                                     }
-                                            std::thread::sleep(std::time::Duration::from_millis(3000));
-                                        }
-                                        Ok::<(), ZoroError>(())
-                                    });
+                                }
+                                        std::thread::sleep(std::time::Duration::from_millis(3000));
+                                    }
+                                    Ok::<(), ZoroError>(())
+                                });
+                                if !works.works.is_empty() {
                                 println!("Got {} SNARK-works to solve...", works.works.len());
                                 alice_shuffle();
                                 let start = std::time::Instant::now();
@@ -437,6 +437,10 @@ async fn main() {
 
                                 let _ = cancel_controller_tx.send(());
                                 cancel_controller.await??;
+                            }
+                            else {
+                                println!("No work to do!");
+                            }
                         } else {
                             std::thread::sleep(std::time::Duration::from_millis(1000));
                         }
