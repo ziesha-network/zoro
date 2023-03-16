@@ -8,16 +8,14 @@ use std::future::Future;
 pub struct SyncClient {
     node: bazuka::client::PeerAddress,
     network: String,
-    miner_token: String,
     sk: <bazuka::core::Signer as bazuka::crypto::SignatureScheme>::Priv,
 }
 
 impl SyncClient {
-    pub fn new(node: bazuka::client::PeerAddress, network: &str, miner_token: String) -> Self {
+    pub fn new(node: bazuka::client::PeerAddress, network: &str) -> Self {
         Self {
             node,
             network: network.to_string(),
-            miner_token,
             sk: <bazuka::core::Signer as bazuka::crypto::SignatureScheme>::generate_keys(b"dummy")
                 .1,
         }
@@ -30,12 +28,8 @@ impl SyncClient {
         &self,
         f: F,
     ) -> Result<R, NodeError> {
-        let (lp, client) = bazuka::client::BazukaClient::connect(
-            self.sk.clone(),
-            self.node,
-            self.network.clone(),
-            Some(self.miner_token.clone()),
-        );
+        let (lp, client) =
+            bazuka::client::BazukaClient::connect(self.sk.clone(), self.node, self.network.clone());
 
         let (res, _) = tokio::join!(
             async move { Ok::<_, bazuka::client::NodeError>(f(client).await) },
@@ -43,21 +37,29 @@ impl SyncClient {
         );
         Ok(res??)
     }
+    pub async fn post_mpn_worker(
+        &self,
+        token: String,
+        reward_address: bazuka::core::MpnAddress,
+    ) -> Result<bazuka::client::messages::PostMpnWorkerResponse, NodeError> {
+        self.call(
+            move |client| async move { Ok(client.post_mpn_worker(token, reward_address).await?) },
+        )
+        .await
+    }
     pub async fn get_mpn_works(
         &self,
+        token: String,
     ) -> Result<bazuka::client::messages::GetMpnWorkResponse, NodeError> {
-        self.call(move |client| async move { Ok(client.get_mpn_works().await?) })
+        self.call(move |client| async move { Ok(client.get_mpn_works(token).await?) })
             .await
     }
     pub async fn post_mpn_solution(
         &self,
-        reward_address: bazuka::core::MpnAddress,
         proofs: HashMap<usize, bazuka::zk::groth16::Groth16Proof>,
     ) -> Result<bazuka::client::messages::PostMpnSolutionResponse, NodeError> {
-        self.call(
-            move |client| async move { Ok(client.post_mpn_proof(reward_address, proofs).await?) },
-        )
-        .await
+        self.call(move |client| async move { Ok(client.post_mpn_proof(proofs).await?) })
+            .await
     }
 
     pub async fn validator_claim(&self) -> Result<Option<ValidatorClaim>, NodeError> {

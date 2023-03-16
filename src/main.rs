@@ -68,8 +68,6 @@ impl Into<bellman::gpu::OptParams> for Optimization {
 #[derive(Debug, Clone, StructOpt)]
 struct ProveOpt {
     #[structopt(long)]
-    address: MpnAddress,
-    #[structopt(long)]
     network: String,
     #[structopt(long)]
     connect: PeerAddress,
@@ -85,6 +83,8 @@ struct ProveOpt {
     gpu: bool,
     #[structopt(long, default_value = "1")]
     workers: usize,
+    #[structopt(long)]
+    token: String,
 }
 
 #[derive(Debug, Clone, StructOpt)]
@@ -184,6 +184,7 @@ fn to_zoro_work(work: MpnWork) -> ZoroWork {
         next_state: work.public_inputs.next_state,
         circuit: match &work.data {
             MpnWorkData::Deposit(deposits) => {
+                println!("{} deposits", deposits.len());
                 bank::ZoroCircuit::Deposit(circuits::DepositCircuit {
                     height: work.public_inputs.height.into(),
                     state: work.public_inputs.state,
@@ -193,6 +194,7 @@ fn to_zoro_work(work: MpnWork) -> ZoroWork {
                 })
             }
             MpnWorkData::Withdraw(withdraws) => {
+                println!("{} withdraws", withdraws.len());
                 bank::ZoroCircuit::Withdraw(circuits::WithdrawCircuit {
                     height: work.public_inputs.height.into(),
                     state: work.public_inputs.state,
@@ -203,14 +205,17 @@ fn to_zoro_work(work: MpnWork) -> ZoroWork {
                     )),
                 })
             }
-            MpnWorkData::Update(updates) => bank::ZoroCircuit::Update(circuits::UpdateCircuit {
-                height: work.public_inputs.height.into(),
-                state: work.public_inputs.state,
-                aux_data: work.public_inputs.aux_data,
-                next_state: work.public_inputs.next_state,
-                fee_token: TokenId::Ziesha,
-                transitions: Box::new(circuits::TransitionBatch::new(updates.clone())),
-            }),
+            MpnWorkData::Update(updates) => {
+                println!("{} updates", updates.len());
+                bank::ZoroCircuit::Update(circuits::UpdateCircuit {
+                    height: work.public_inputs.height.into(),
+                    state: work.public_inputs.state,
+                    aux_data: work.public_inputs.aux_data,
+                    next_state: work.public_inputs.next_state,
+                    fee_token: TokenId::Ziesha,
+                    transitions: Box::new(circuits::TransitionBatch::new(updates.clone())),
+                })
+            }
         },
     }
 }
@@ -363,14 +368,14 @@ async fn main() {
                         let cancel = Arc::new(RwLock::new(false));
 
                         println!("Finding the validator...");
-                        let client = SyncClient::new(opt.connect, &opt.network, "".into());
+                        let client = SyncClient::new(opt.connect, &opt.network);
                         let validator_claim = client.validator_claim().await?;
 
                         if let Some(claim) = validator_claim.clone() {
                             println!("{} is validator!", claim.node);
-                            let client = SyncClient::new(claim.node, &opt.network, "".into());
+                            let client = SyncClient::new(claim.node, &opt.network);
 
-                            let works = client.get_mpn_works().await?;
+                            let works = client.get_mpn_works(opt.token.clone()).await?;
 
                             let (cancel_controller_tx, mut cancel_controller_rx) =
                                 tokio::sync::mpsc::unbounded_channel::<()>();
@@ -384,7 +389,7 @@ async fn main() {
                                         break;
                                     }
                                     Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
-                                        let client = SyncClient::new(opt.connect, &opt.network, "".into());
+                                        let client = SyncClient::new(opt.connect, &opt.network);
                                         let new_claim = client.validator_claim().await?;
                                         if new_claim!= validator_claim {
                                             *cancel_cloned.write().unwrap() = true;
@@ -432,7 +437,7 @@ async fn main() {
                                     println!("{} {}", "WARNING:".bright_red(), "Your proving time is too high! You will most probably not win any rewards with this latency.");
                                 }
 
-                                let resp = client.post_mpn_solution(opt.address, proofs).await?;
+                                let resp = client.post_mpn_solution(proofs).await?;
                                 println!("{} of your proofs were accepted!", resp.accepted);
 
                                 let _ = cancel_controller_tx.send(());
