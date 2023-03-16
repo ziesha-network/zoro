@@ -84,7 +84,7 @@ struct ProveOpt {
     #[structopt(long, default_value = "1")]
     workers: usize,
     #[structopt(long)]
-    token: String,
+    address: MpnAddress,
 }
 
 #[derive(Debug, Clone, StructOpt)]
@@ -375,7 +375,7 @@ async fn main() {
                             println!("{} is validator!", claim.node);
                             let client = SyncClient::new(claim.node, &opt.network);
 
-                            let works = client.get_mpn_works(opt.token.clone()).await?;
+                            let works = client.get_mpn_works(opt.address.clone()).await?;
 
                             let (cancel_controller_tx, mut cancel_controller_rx) =
                                 tokio::sync::mpsc::unbounded_channel::<()>();

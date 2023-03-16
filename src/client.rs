@@ -1,5 +1,6 @@
 use bazuka::client::messages::ValidatorClaim;
 use bazuka::client::NodeError;
+use bazuka::core::MpnAddress;
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -39,19 +40,16 @@ impl SyncClient {
     }
     pub async fn post_mpn_worker(
         &self,
-        token: String,
         reward_address: bazuka::core::MpnAddress,
     ) -> Result<bazuka::client::messages::PostMpnWorkerResponse, NodeError> {
-        self.call(
-            move |client| async move { Ok(client.post_mpn_worker(token, reward_address).await?) },
-        )
-        .await
+        self.call(move |client| async move { Ok(client.post_mpn_worker(reward_address).await?) })
+            .await
     }
     pub async fn get_mpn_works(
         &self,
-        token: String,
+        mpn_address: MpnAddress,
     ) -> Result<bazuka::client::messages::GetMpnWorkResponse, NodeError> {
-        self.call(move |client| async move { Ok(client.get_mpn_works(token).await?) })
+        self.call(move |client| async move { Ok(client.get_mpn_works(mpn_address).await?) })
             .await
     }
     pub async fn post_mpn_solution(
