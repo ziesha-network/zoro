@@ -476,12 +476,12 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             common::assert_true(&mut *cs, &is_lte);
 
             // Check tx nonce is equal with account nonce to prevent double spending
-            cs.enforce(
-                || "",
-                |lc| lc + tx_nonce_wit.get_variable(),
-                |lc| lc + CS::one(),
-                |lc| lc + src_tx_nonce_wit.get_variable() + CS::one(),
-            );
+            Number::from(tx_nonce_wit.clone()).assert_equal_if_enabled(
+                &mut *cs,
+                &enabled_wit,
+                &(Number::from(src_tx_nonce_wit.clone())
+                    + Number::constant::<CS>(BellmanFr::one())),
+            )?;
 
             // Fee is zero if transaction slot is empty, otherwise it equals to transaction fee
             // TODO: Check if fee token type is correct!

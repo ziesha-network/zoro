@@ -426,12 +426,12 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             )?;
 
             // Check tx nonce is equal with account nonce to prevent double spending
-            cs.enforce(
-                || "",
-                |lc| lc + tx_nonce_wit.get_variable(),
-                |lc| lc + CS::one(),
-                |lc| lc + src_withdraw_nonce_wit.get_variable() + CS::one(),
-            );
+            Number::from(tx_nonce_wit).assert_equal_if_enabled(
+                &mut *cs,
+                &enabled_wit,
+                &(Number::from(src_withdraw_nonce_wit.clone())
+                    + Number::constant::<CS>(BellmanFr::one())),
+            )?;
 
             let balance_final_root = merkle::calc_root_poseidon4(
                 &mut *cs,
