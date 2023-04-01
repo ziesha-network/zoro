@@ -54,7 +54,7 @@ impl SyncClient {
     }
     pub async fn post_mpn_solution(
         &self,
-        proofs: HashMap<usize, bazuka::zk::groth16::Groth16Proof>,
+        proofs: HashMap<usize, bazuka::zk::ZkProof>,
     ) -> Result<bazuka::client::messages::PostMpnSolutionResponse, NodeError> {
         self.call(move |client| async move { Ok(client.post_mpn_proof(proofs).await?) })
             .await

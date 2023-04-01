@@ -159,8 +159,11 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                 LOG4_TOKENS_TREE_SIZE as usize * 2,
             )?;
 
-            let src_nonce_wit =
-                AllocatedNum::alloc(&mut *cs, || Ok(trans.src_before.nonce.into()))?;
+            let src_tx_nonce_wit =
+                AllocatedNum::alloc(&mut *cs, || Ok((trans.src_before.tx_nonce as u64).into()))?;
+            let src_withdraw_nonce_wit = AllocatedNum::alloc(&mut *cs, || {
+                Ok((trans.src_before.withdraw_nonce as u64).into())
+            })?;
 
             let src_addr_wit = AllocatedPoint::alloc(&mut *cs, || Ok(trans.src_before.address))?;
             // Sender address should be on curve in case transaction slot is non-empty
@@ -267,7 +270,8 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                 &src_fee_balance_proof_wits,
             )?;
 
-            let tx_nonce_wit = AllocatedNum::alloc(&mut *cs, || Ok(trans.tx.nonce.into()))?;
+            let tx_nonce_wit =
+                AllocatedNum::alloc(&mut *cs, || Ok((trans.tx.nonce as u64).into()))?;
 
             // src and dst indices should only have 2 * LOG4_TREE_SIZE bits
             let tx_src_index_wit =
@@ -294,7 +298,8 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             let src_hash_wit = poseidon::poseidon(
                 &mut *cs,
                 &[
-                    &src_nonce_wit.clone().into(),
+                    &src_tx_nonce_wit.clone().into(),
+                    &src_withdraw_nonce_wit.clone().into(),
                     &src_addr_wit.x.clone().into(),
                     &src_addr_wit.y.clone().into(),
                     &src_before_balances_hash.clone().into(),
@@ -365,13 +370,14 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             )?;
 
             // Source nonce is incremented by one and balance is decreased by amount+fee
-            let new_src_nonce_wit =
-                Number::from(src_nonce_wit.clone()) + Number::constant::<CS>(BellmanFr::one());
+            let new_src_tx_nonce_wit =
+                Number::from(src_tx_nonce_wit.clone()) + Number::constant::<CS>(BellmanFr::one());
 
             let new_src_hash_wit = poseidon::poseidon(
                 &mut *cs,
                 &[
-                    &new_src_nonce_wit,
+                    &new_src_tx_nonce_wit,
+                    &src_withdraw_nonce_wit.clone().into(),
                     &src_addr_wit.x.clone().into(),
                     &src_addr_wit.y.clone().into(),
                     &src_balance_final_root,
@@ -395,8 +401,11 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                 UnsignedInteger::constrain_strict(&mut *cs, tx_dst_addr_wit.x.clone().into())?
                     .extract_bits(LOG4_TREE_SIZE as usize * 2);
 
-            let dst_nonce_wit =
-                AllocatedNum::alloc(&mut *cs, || Ok(trans.dst_before.nonce.into()))?;
+            let dst_tx_nonce_wit =
+                AllocatedNum::alloc(&mut *cs, || Ok((trans.dst_before.tx_nonce as u64).into()))?;
+            let dst_withdraw_nonce_wit = AllocatedNum::alloc(&mut *cs, || {
+                Ok((trans.dst_before.withdraw_nonce as u64).into())
+            })?;
 
             // Destination address doesn't necessarily need to reside on curve as it might be empty
             let dst_addr_wit = AllocatedPoint::alloc(&mut *cs, || Ok(trans.dst_before.address))?;
@@ -404,7 +413,8 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             let dst_hash_wit = poseidon::poseidon(
                 &mut *cs,
                 &[
-                    &dst_nonce_wit.clone().into(),
+                    &dst_tx_nonce_wit.clone().into(),
+                    &dst_withdraw_nonce_wit.clone().into(),
                     &dst_addr_wit.x.clone().into(),
                     &dst_addr_wit.y.clone().into(),
                     &dst_before_balances_hash.clone().into(),
@@ -438,7 +448,8 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             let new_dst_hash_wit = poseidon::poseidon(
                 &mut *cs,
                 &[
-                    &dst_nonce_wit.into(),
+                    &dst_tx_nonce_wit.clone().into(),
+                    &dst_withdraw_nonce_wit.clone().into(),
                     &tx_dst_addr_wit.x.clone().into(),
                     &tx_dst_addr_wit.y.clone().into(),
                     &dst_balance_final_root,
@@ -469,7 +480,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                 || "",
                 |lc| lc + tx_nonce_wit.get_variable(),
                 |lc| lc + CS::one(),
-                |lc| lc + src_nonce_wit.get_variable(),
+                |lc| lc + src_tx_nonce_wit.get_variable() + CS::one(),
             );
 
             // Fee is zero if transaction slot is empty, otherwise it equals to transaction fee

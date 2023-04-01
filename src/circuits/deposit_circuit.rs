@@ -200,7 +200,10 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             // Check if tx pub-key resides on the curve if tx is enabled
             tx_pub_key_wit.assert_on_curve(&mut *cs, &enabled_wit)?;
 
-            let src_nonce_wit = AllocatedNum::alloc(&mut *cs, || Ok(trans.before.nonce.into()))?;
+            let src_tx_nonce_wit =
+                AllocatedNum::alloc(&mut *cs, || Ok((trans.before.tx_nonce as u64).into()))?;
+            let src_withdraw_nonce_wit =
+                AllocatedNum::alloc(&mut *cs, || Ok((trans.before.withdraw_nonce as u64).into()))?;
 
             // Account address doesn't necessarily need to reside on curve as it might be empty
             let src_addr_wit = AllocatedPoint::alloc(&mut *cs, || Ok(trans.before.address))?;
@@ -247,7 +250,8 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             let src_hash_wit = poseidon::poseidon(
                 &mut *cs,
                 &[
-                    &src_nonce_wit.clone().into(),
+                    &src_tx_nonce_wit.clone().into(),
+                    &src_withdraw_nonce_wit.clone().into(),
                     &src_addr_wit.x.clone().into(),
                     &src_addr_wit.y.clone().into(),
                     &src_balances_hash_wit.clone().into(),
@@ -312,7 +316,8 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             let new_hash_wit = poseidon::poseidon(
                 &mut *cs,
                 &[
-                    &src_nonce_wit.into(),
+                    &src_tx_nonce_wit.clone().into(),
+                    &src_withdraw_nonce_wit.clone().into(),
                     &tx_pub_key_wit.x.clone().into(),
                     &tx_pub_key_wit.y.clone().into(),
                     &new_balances_hash_wit,

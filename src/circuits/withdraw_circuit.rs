@@ -20,7 +20,7 @@ pub struct Withdraw {
     pub fee_token_index: u64,
     pub pub_key: jubjub::PointAffine,
     pub fingerprint: ZkScalar,
-    pub nonce: u64,
+    pub nonce: u32,
     pub sig: jubjub::Signature,
     pub amount: Money,
     pub fee: Money,
@@ -179,7 +179,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
 
             // Pub-key only needs to reside on curve if tx is enabled, which is checked in the main loop
             let pub_key = AllocatedPoint::alloc(&mut *cs, || Ok(trans.tx.pub_key))?;
-            let nonce = AllocatedNum::alloc(&mut *cs, || Ok(trans.tx.nonce.into()))?;
+            let nonce = AllocatedNum::alloc(&mut *cs, || Ok((trans.tx.nonce as u64).into()))?;
             let sig_r = AllocatedPoint::alloc(&mut *cs, || Ok(trans.tx.sig.r))?;
             let sig_s = AllocatedNum::alloc(&mut *cs, || Ok(trans.tx.sig.s.into()))?;
 
@@ -290,7 +290,10 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                 &tx_sig_s_wit,
             )?;
 
-            let src_nonce_wit = AllocatedNum::alloc(&mut *cs, || Ok(trans.before.nonce.into()))?;
+            let src_tx_nonce_wit =
+                AllocatedNum::alloc(&mut *cs, || Ok((trans.before.tx_nonce as u64).into()))?;
+            let src_withdraw_nonce_wit =
+                AllocatedNum::alloc(&mut *cs, || Ok((trans.before.withdraw_nonce as u64).into()))?;
 
             let src_addr_wit = AllocatedPoint::alloc(&mut *cs, || Ok(trans.before.address))?;
             src_addr_wit.assert_on_curve(&mut *cs, &enabled_wit)?;
@@ -398,7 +401,8 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             let src_hash_wit = poseidon::poseidon(
                 &mut *cs,
                 &[
-                    &src_nonce_wit.clone().into(),
+                    &src_tx_nonce_wit.clone().into(),
+                    &src_withdraw_nonce_wit.clone().into(),
                     &src_addr_wit.x.clone().into(),
                     &src_addr_wit.y.clone().into(),
                     &src_balances_before_token_hash_wit.clone().into(),
@@ -426,7 +430,7 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                 || "",
                 |lc| lc + tx_nonce_wit.get_variable(),
                 |lc| lc + CS::one(),
-                |lc| lc + src_nonce_wit.get_variable(),
+                |lc| lc + src_withdraw_nonce_wit.get_variable() + CS::one(),
             );
 
             let balance_final_root = merkle::calc_root_poseidon4(
@@ -440,7 +444,9 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             let new_hash_wit = poseidon::poseidon(
                 &mut *cs,
                 &[
-                    &(Number::from(src_nonce_wit) + Number::constant::<CS>(BellmanFr::one())),
+                    &src_tx_nonce_wit.clone().into(),
+                    &(Number::from(src_withdraw_nonce_wit)
+                        + Number::constant::<CS>(BellmanFr::one())),
                     &tx_pub_key_wit.x.clone().into(),
                     &tx_pub_key_wit.y.clone().into(),
                     &balance_final_root,

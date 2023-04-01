@@ -437,7 +437,9 @@ async fn main() {
                                     println!("{} {}", "WARNING:".bright_red(), "Your proving time is too high! You will most probably not win any rewards with this latency.");
                                 }
 
-                                let resp = client.post_mpn_solution(proofs).await?;
+                                let resp = client.post_mpn_solution(proofs.into_iter().map(|(id,proof)| {
+                                    (id, bazuka::zk::ZkProof::Groth16(Box::new(proof)))
+                                }).collect()).await?;
                                 println!("{} of your proofs were accepted!", resp.accepted);
 
                                 let _ = cancel_controller_tx.send(());
