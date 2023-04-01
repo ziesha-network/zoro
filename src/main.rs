@@ -124,13 +124,7 @@ fn load_params<C: Circuit<BellmanFr> + Default, R: Rng>(
 
 fn vk_to_hex(vk: &bellman::groth16::VerifyingKey<Bls12>) -> String {
     hex::encode(
-        &bincode::serialize(&unsafe {
-            std::mem::transmute::<
-                bellman::groth16::VerifyingKey<Bls12>,
-                bazuka::zk::groth16::Groth16VerifyingKey,
-            >(vk.clone())
-        })
-        .unwrap(),
+        &bincode::serialize(&bazuka::zk::groth16::Groth16VerifyingKey::from(vk.clone())).unwrap(),
     )
 }
 
