@@ -40,7 +40,7 @@ impl<const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE_SIZE: u8>
             tx: Deposit {
                 mpn_deposit: Some(trans.tx.clone()),
                 index: trans.tx.zk_address_index(LOG4_TREE_SIZE),
-                token_index: trans.tx.zk_token_index,
+                token_index: trans.token_index,
                 pub_key: trans.tx.zk_address.0.decompress(),
                 amount: trans.tx.payment.amount,
             },

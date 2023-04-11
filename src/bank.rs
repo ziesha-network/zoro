@@ -107,21 +107,21 @@ impl<
         let proof = unsafe {
             std::mem::transmute::<bellman::groth16::Proof<Bls12>, bazuka::zk::groth16::Groth16Proof>(
                 match &self.circuit {
-                    ZoroCircuit::Deposit(circuit) => groth16::create_random_proof(
+                    ZoroCircuit::Deposit(circuit) => groth16::create_random_proof_with_backend(
                         circuit.clone(),
                         &params.deposit.clone(),
                         &mut OsRng,
                         backend.clone(),
                         cancel.clone(),
                     )?,
-                    ZoroCircuit::Withdraw(circuit) => groth16::create_random_proof(
+                    ZoroCircuit::Withdraw(circuit) => groth16::create_random_proof_with_backend(
                         circuit.clone(),
                         &params.withdraw.clone(),
                         &mut OsRng,
                         backend.clone(),
                         cancel.clone(),
                     )?,
-                    ZoroCircuit::Update(circuit) => groth16::create_random_proof(
+                    ZoroCircuit::Update(circuit) => groth16::create_random_proof_with_backend(
                         circuit.clone(),
                         &params.update.clone(),
                         &mut OsRng,

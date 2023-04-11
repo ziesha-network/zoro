@@ -69,9 +69,9 @@ impl SyncClient {
     #[allow(dead_code)]
     pub async fn get_mpn_account(
         &self,
-        index: u64,
+        addr: MpnAddress,
     ) -> Result<bazuka::client::messages::GetMpnAccountResponse, NodeError> {
-        self.call(move |client| async move { Ok(client.get_mpn_account(index).await?) })
+        self.call(move |client| async move { Ok(client.get_mpn_account(addr).await?) })
             .await
     }
 }

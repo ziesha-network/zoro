@@ -21,6 +21,9 @@ use zeekit::{common, eddsa, poseidon, BellmanFr};
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Transition<const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE_SIZE: u8> {
     pub enabled: bool,
+    pub src_token_index: u64,
+    pub src_fee_token_index: u64,
+    pub dst_token_index: u64,
     pub tx: MpnTransaction,
     pub src_before: MpnAccount, // src_after can be derived
     pub src_before_balances_hash: ZkScalar,
@@ -41,6 +44,9 @@ impl<const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE_SIZE: u8>
 {
     pub fn from_bazuka(trans: bazuka::mpn::UpdateTransition) -> Self {
         Self {
+            src_token_index: trans.src_token_index,
+            src_fee_token_index: trans.src_fee_token_index,
+            dst_token_index: trans.dst_token_index,
             enabled: true,
             tx: trans.tx,
             src_before: trans.src_before, // src_after can be derived
@@ -143,19 +149,19 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
 
             let tx_src_token_index_wit = UnsignedInteger::alloc(
                 &mut *cs,
-                (trans.tx.src_token_index as u64).into(),
+                (trans.src_token_index as u64).into(),
                 LOG4_TOKENS_TREE_SIZE as usize * 2,
             )?;
 
             let tx_src_fee_token_index_wit = UnsignedInteger::alloc(
                 &mut *cs,
-                (trans.tx.src_fee_token_index as u64).into(),
+                (trans.src_fee_token_index as u64).into(),
                 LOG4_TOKENS_TREE_SIZE as usize * 2,
             )?;
 
             let tx_dst_token_index_wit = UnsignedInteger::alloc(
                 &mut *cs,
-                (trans.tx.dst_token_index as u64).into(),
+                (trans.dst_token_index as u64).into(),
                 LOG4_TOKENS_TREE_SIZE as usize * 2,
             )?;
 
