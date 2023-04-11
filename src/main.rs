@@ -442,9 +442,8 @@ async fn main() {
                             else {
                                 println!("No work to do!");
                             }
-                        } else {
-                            std::thread::sleep(std::time::Duration::from_millis(1000));
                         }
+                        std::thread::sleep(std::time::Duration::from_millis(1000));
                         Ok::<(), ZoroError>(())
                     }
                     .await
