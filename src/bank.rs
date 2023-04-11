@@ -1,4 +1,4 @@
-use crate::circuits;
+use bazuka::mpn::circuits;
 
 use bazuka::zk::ZkScalar;
 use bellman::groth16;
@@ -15,8 +15,6 @@ pub enum BankError {
     CannotProve(#[from] bellman::SynthesisError),
     #[error("snark proof incorrect!")]
     IncorrectProof,
-    #[error("kv-store error: {0}")]
-    KvStoreError(#[from] bazuka::db::KvStoreError),
 }
 #[derive(Clone)]
 pub struct ZoroParams {
@@ -43,41 +41,15 @@ pub struct ZoroVerifyKeys {
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
-pub struct ZoroWork<
-    const LOG4_DEPOSIT_BATCH_SIZE: u8,
-    const LOG4_WITHDRAW_BATCH_SIZE: u8,
-    const LOG4_UPDATE_BATCH_SIZE: u8,
-    const LOG4_TREE_SIZE: u8,
-    const LOG4_TOKENS_TREE_SIZE: u8,
-> {
-    pub circuit: ZoroCircuit<
-        LOG4_DEPOSIT_BATCH_SIZE,
-        LOG4_WITHDRAW_BATCH_SIZE,
-        LOG4_UPDATE_BATCH_SIZE,
-        LOG4_TREE_SIZE,
-        LOG4_TOKENS_TREE_SIZE,
-    >,
+pub struct ZoroWork {
+    pub circuit: ZoroCircuit,
     pub height: u64,
     pub state: ZkScalar,
     pub aux_data: ZkScalar,
     pub next_state: ZkScalar,
 }
 
-impl<
-        const LOG4_DEPOSIT_BATCH_SIZE: u8,
-        const LOG4_WITHDRAW_BATCH_SIZE: u8,
-        const LOG4_UPDATE_BATCH_SIZE: u8,
-        const LOG4_TREE_SIZE: u8,
-        const LOG4_TOKENS_TREE_SIZE: u8,
-    >
-    ZoroWork<
-        LOG4_DEPOSIT_BATCH_SIZE,
-        LOG4_WITHDRAW_BATCH_SIZE,
-        LOG4_UPDATE_BATCH_SIZE,
-        LOG4_TREE_SIZE,
-        LOG4_TOKENS_TREE_SIZE,
-    >
-{
+impl ZoroWork {
     pub fn verify(
         &self,
         params: &ZoroVerifyKeys,
@@ -107,21 +79,21 @@ impl<
         let proof = unsafe {
             std::mem::transmute::<bellman::groth16::Proof<Bls12>, bazuka::zk::groth16::Groth16Proof>(
                 match &self.circuit {
-                    ZoroCircuit::Deposit(circuit) => groth16::create_random_proof(
+                    ZoroCircuit::Deposit(circuit) => groth16::create_random_proof_with_backend(
                         circuit.clone(),
                         &params.deposit.clone(),
                         &mut OsRng,
                         backend.clone(),
                         cancel.clone(),
                     )?,
-                    ZoroCircuit::Withdraw(circuit) => groth16::create_random_proof(
+                    ZoroCircuit::Withdraw(circuit) => groth16::create_random_proof_with_backend(
                         circuit.clone(),
                         &params.withdraw.clone(),
                         &mut OsRng,
                         backend.clone(),
                         cancel.clone(),
                     )?,
-                    ZoroCircuit::Update(circuit) => groth16::create_random_proof(
+                    ZoroCircuit::Update(circuit) => groth16::create_random_proof_with_backend(
                         circuit.clone(),
                         &params.update.clone(),
                         &mut OsRng,
@@ -142,32 +114,8 @@ impl<
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub enum ZoroCircuit<
-    const LOG4_DEPOSIT_BATCH_SIZE: u8,
-    const LOG4_WITHDRAW_BATCH_SIZE: u8,
-    const LOG4_UPDATE_BATCH_SIZE: u8,
-    const LOG4_TREE_SIZE: u8,
-    const LOG4_TOKENS_TREE_SIZE: u8,
-> {
-    Deposit(
-        circuits::DepositCircuit<
-            { LOG4_DEPOSIT_BATCH_SIZE },
-            { LOG4_TREE_SIZE },
-            { LOG4_TOKENS_TREE_SIZE },
-        >,
-    ),
-    Withdraw(
-        circuits::WithdrawCircuit<
-            { LOG4_WITHDRAW_BATCH_SIZE },
-            { LOG4_TREE_SIZE },
-            { LOG4_TOKENS_TREE_SIZE },
-        >,
-    ),
-    Update(
-        circuits::UpdateCircuit<
-            { LOG4_UPDATE_BATCH_SIZE },
-            { LOG4_TREE_SIZE },
-            { LOG4_TOKENS_TREE_SIZE },
-        >,
-    ),
+pub enum ZoroCircuit {
+    Deposit(circuits::DepositCircuit),
+    Withdraw(circuits::WithdrawCircuit),
+    Update(circuits::UpdateCircuit),
 }
