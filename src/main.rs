@@ -362,12 +362,12 @@ async fn main() {
                         let cancel = Arc::new(RwLock::new(false));
 
                         println!("Finding the validator...");
-                        let client = SyncClient::new(opt.connect, &opt.network);
+                        let client = SyncClient::new(opt.connect, &opt.network, Duration::from_secs(2));
                         let validator_claim = client.validator_claim().await?;
 
                         if let Some(claim) = validator_claim.clone() {
                             println!("{} is validator!", claim.node);
-                            let client = SyncClient::new(claim.node, &opt.network);
+                            let client = SyncClient::new(claim.node, &opt.network,Duration::from_secs(5));
 
                             let works = client.get_mpn_works(opt.address.clone()).await?;
 
@@ -383,7 +383,7 @@ async fn main() {
                                         break;
                                     }
                                     Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
-                                        let client = SyncClient::new(opt.connect, &opt.network);
+                                        let client = SyncClient::new(opt.connect, &opt.network,Duration::from_secs(1));
                                         let new_claim = client.validator_claim().await?;
                                         if new_claim!= validator_claim {
                                             *cancel_cloned.write().unwrap() = true;

@@ -1,24 +1,26 @@
-use bazuka::client::messages::ValidatorClaim;
-use bazuka::client::NodeError;
+use bazuka::client::{messages::ValidatorClaim, Limit, NodeError};
 use bazuka::core::MpnAddress;
 
 use std::collections::HashMap;
 use std::future::Future;
+use std::time::Duration;
 
 #[derive(Clone)]
 pub struct SyncClient {
     node: bazuka::client::PeerAddress,
     network: String,
     sk: <bazuka::core::Signer as bazuka::crypto::SignatureScheme>::Priv,
+    timeout: Duration,
 }
 
 impl SyncClient {
-    pub fn new(node: bazuka::client::PeerAddress, network: &str) -> Self {
+    pub fn new(node: bazuka::client::PeerAddress, network: &str, timeout: Duration) -> Self {
         Self {
             node,
             network: network.to_string(),
             sk: <bazuka::core::Signer as bazuka::crypto::SignatureScheme>::generate_keys(b"dummy")
                 .1,
+            timeout,
         }
     }
     async fn call<
@@ -29,8 +31,12 @@ impl SyncClient {
         &self,
         f: F,
     ) -> Result<R, NodeError> {
-        let (lp, client) =
-            bazuka::client::BazukaClient::connect(self.sk.clone(), self.node, self.network.clone());
+        let (lp, client) = bazuka::client::BazukaClient::connect(
+            self.sk.clone(),
+            self.node,
+            self.network.clone(),
+            Some(Limit::default().time(self.timeout.as_millis().try_into().unwrap())),
+        );
 
         let (res, _) = tokio::join!(
             async move { Ok::<_, bazuka::client::NodeError>(f(client).await) },
