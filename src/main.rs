@@ -384,9 +384,11 @@ async fn main() {
                                     }
                                     Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
                                         let client = SyncClient::new(opt.connect, &opt.network,Duration::from_secs(1));
-                                        let new_claim = client.validator_claim().await?;
-                                        if new_claim!= validator_claim {
-                                            *cancel_cloned.write().unwrap() = true;
+                                        if let Ok(new_claim) = client.validator_claim().await {
+                                            if new_claim != validator_claim {
+                                                println!("Validator changed!");
+                                                *cancel_cloned.write().unwrap() = true;
+                                            }
                                         }
                                     }
                                 }
