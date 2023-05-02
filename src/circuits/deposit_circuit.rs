@@ -39,7 +39,7 @@ impl<const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE_SIZE: u8>
             enabled: true,
             tx: Deposit {
                 mpn_deposit: Some(trans.tx.clone()),
-                index: trans.tx.zk_address_index(LOG4_TREE_SIZE),
+                index: trans.account_index,
                 token_index: trans.token_index,
                 pub_key: trans.tx.zk_address.0.decompress(),
                 amount: trans.tx.payment.amount,
@@ -187,9 +187,11 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             self.transitions.0.iter().zip(tx_wits.into_iter())
         {
             // Tx index should always have at most LOG4_TREE_SIZE * 2 bits
-            let tx_index_wit =
-                UnsignedInteger::constrain_strict(&mut *cs, tx_pub_key_wit.x.clone().into())?
-                    .extract_bits(LOG4_TREE_SIZE as usize * 2);
+            let tx_index_wit = UnsignedInteger::alloc(
+                &mut *cs,
+                (trans.tx.index as u64).into(),
+                LOG4_TREE_SIZE as usize * 2,
+            )?;
 
             let tx_token_index_wit = UnsignedInteger::alloc(
                 &mut *cs,

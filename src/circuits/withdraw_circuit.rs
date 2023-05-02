@@ -47,7 +47,7 @@ impl<const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE_SIZE: u8>
             enabled: true,
             tx: Withdraw {
                 mpn_withdraw: Some(trans.tx.clone()),
-                index: trans.tx.zk_address_index(LOG4_TREE_SIZE),
+                index: trans.account_index,
                 token_index: trans.token_index,
                 fee_token_index: trans.fee_token_index,
                 pub_key: trans.tx.zk_address.0.decompress(),

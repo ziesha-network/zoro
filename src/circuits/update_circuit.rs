@@ -21,6 +21,7 @@ use zeekit::{common, eddsa, poseidon, BellmanFr};
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Transition<const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE_SIZE: u8> {
     pub enabled: bool,
+    pub src_index: u64,
     pub src_token_index: u64,
     pub src_fee_token_index: u64,
     pub dst_token_index: u64,
@@ -33,6 +34,7 @@ pub struct Transition<const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE_SIZE: u8>
     pub src_balance_proof: merkle::Proof<LOG4_TOKENS_TREE_SIZE>,
     pub src_fee_balance_proof: merkle::Proof<LOG4_TOKENS_TREE_SIZE>,
     pub dst_before: MpnAccount, // dst_after can be derived
+    pub dst_index: u64,
     pub dst_before_balances_hash: ZkScalar,
     pub dst_before_balance: Money,
     pub dst_proof: merkle::Proof<LOG4_TREE_SIZE>,
@@ -44,6 +46,8 @@ impl<const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE_SIZE: u8>
 {
     pub fn from_bazuka(trans: bazuka::mpn::UpdateTransition) -> Self {
         Self {
+            src_index: trans.src_index,
+            dst_index: trans.dst_index,
             src_token_index: trans.src_token_index,
             src_fee_token_index: trans.src_fee_token_index,
             dst_token_index: trans.dst_token_index,
@@ -280,9 +284,11 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
                 AllocatedNum::alloc(&mut *cs, || Ok((trans.tx.nonce as u64).into()))?;
 
             // src and dst indices should only have 2 * LOG4_TREE_SIZE bits
-            let tx_src_index_wit =
-                UnsignedInteger::constrain_strict(&mut *cs, src_addr_wit.x.clone().into())?
-                    .extract_bits(LOG4_TREE_SIZE as usize * 2);
+            let tx_src_index_wit = UnsignedInteger::alloc(
+                &mut *cs,
+                (trans.src_index as u64).into(),
+                LOG4_TREE_SIZE as usize * 2,
+            )?;
             let tx_amount_token_id_wit = AllocatedNum::alloc(&mut *cs, || {
                 Ok(Into::<ZkScalar>::into(trans.tx.amount.token_id).into())
             })?;
@@ -403,9 +409,11 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
             // Destination address should be on curve in case transaction slot is non-empty
             tx_dst_addr_wit.assert_on_curve(&mut *cs, &enabled_wit)?;
 
-            let tx_dst_index_wit =
-                UnsignedInteger::constrain_strict(&mut *cs, tx_dst_addr_wit.x.clone().into())?
-                    .extract_bits(LOG4_TREE_SIZE as usize * 2);
+            let tx_dst_index_wit = UnsignedInteger::alloc(
+                &mut *cs,
+                (trans.dst_index as u64).into(),
+                LOG4_TREE_SIZE as usize * 2,
+            )?;
 
             let dst_tx_nonce_wit =
                 AllocatedNum::alloc(&mut *cs, || Ok((trans.dst_before.tx_nonce as u64).into()))?;
