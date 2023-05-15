@@ -107,6 +107,7 @@ pub struct WithdrawCircuit<
     const LOG4_TREE_SIZE: u8,
     const LOG4_TOKENS_TREE_SIZE: u8,
 > {
+    pub commitment: ZkScalar, // Public
     pub height: u64,          // Public
     pub state: ZkScalar,      // Public
     pub aux_data: ZkScalar,   // Public
@@ -122,6 +123,10 @@ impl<const LOG4_BATCH_SIZE: u8, const LOG4_TREE_SIZE: u8, const LOG4_TOKENS_TREE
         self,
         cs: &mut CS,
     ) -> Result<(), SynthesisError> {
+        // Reward commitment feeded as input
+        let commit_wit = AllocatedNum::alloc(&mut *cs, || Ok(self.commitment.into()))?;
+        commit_wit.inputize(&mut *cs)?;
+
         // Contract height feeded as input
         let height_wit = AllocatedNum::alloc(&mut *cs, || Ok(self.height.into()))?;
         height_wit.inputize(&mut *cs)?;

@@ -1,5 +1,5 @@
 use bazuka::client::{messages::ValidatorClaim, Limit, NodeError};
-use bazuka::core::MpnAddress;
+use bazuka::core::{Address, MpnAddress};
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -46,23 +46,24 @@ impl SyncClient {
     }
     pub async fn post_mpn_worker(
         &self,
-        reward_address: bazuka::core::MpnAddress,
+        reward_address: bazuka::core::Address,
     ) -> Result<bazuka::client::messages::PostMpnWorkerResponse, NodeError> {
         self.call(move |client| async move { Ok(client.post_mpn_worker(reward_address).await?) })
             .await
     }
     pub async fn get_mpn_works(
         &self,
-        mpn_address: MpnAddress,
+        address: Address,
     ) -> Result<bazuka::client::messages::GetMpnWorkResponse, NodeError> {
-        self.call(move |client| async move { Ok(client.get_mpn_works(mpn_address).await?) })
+        self.call(move |client| async move { Ok(client.get_mpn_works(address).await?) })
             .await
     }
     pub async fn post_mpn_solution(
         &self,
+        address: Address,
         proofs: HashMap<usize, bazuka::zk::ZkProof>,
     ) -> Result<bazuka::client::messages::PostMpnSolutionResponse, NodeError> {
-        self.call(move |client| async move { Ok(client.post_mpn_proof(proofs).await?) })
+        self.call(move |client| async move { Ok(client.post_mpn_proof(address, proofs).await?) })
             .await
     }
 

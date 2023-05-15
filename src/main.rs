@@ -5,7 +5,7 @@ mod config;
 
 use bazuka::client::PeerAddress;
 
-use bazuka::core::{MpnAddress, TokenId};
+use bazuka::core::{Address, TokenId};
 
 use bazuka::mpn::{MpnWork, MpnWorkData};
 
@@ -84,7 +84,7 @@ struct ProveOpt {
     #[structopt(long, default_value = "1")]
     workers: usize,
     #[structopt(long)]
-    address: MpnAddress,
+    address: Address,
 }
 
 #[derive(Debug, Clone, StructOpt)]
@@ -156,8 +156,6 @@ pub enum ZoroError {
     HttpTimeout(#[from] tokio::time::error::Elapsed),
     #[error("from-hex error happened: {0}")]
     FromHexError(#[from] hex::FromHexError),
-    #[error("mpn-address parse error happened: {0}")]
-    MpnAddressError(#[from] bazuka::core::ParseMpnAddressError),
     #[error("kv-store error happened: {0}")]
     KvStoreError(#[from] bazuka::db::KvStoreError),
 }
@@ -170,8 +168,14 @@ type ZoroWork = bank::ZoroWork<
     { config::LOG4_TOKENS_TREE_SIZE },
 >;
 
-fn to_zoro_work(work: MpnWork) -> ZoroWork {
+fn to_zoro_work(address: Address, work: MpnWork) -> ZoroWork {
+    use bazuka::core::hash::Hash;
+    let commitment = bazuka::zk::ZkScalar::new(
+        bazuka::core::Hasher::hash(&bincode::serialize(&(address.clone(), work.reward)).unwrap())
+            .as_ref(),
+    );
     ZoroWork {
+        commitment,
         height: work.public_inputs.height.into(),
         state: work.public_inputs.state,
         aux_data: work.public_inputs.aux_data,
@@ -180,6 +184,7 @@ fn to_zoro_work(work: MpnWork) -> ZoroWork {
             MpnWorkData::Deposit(deposits) => {
                 println!("{} deposits", deposits.len());
                 bank::ZoroCircuit::Deposit(circuits::DepositCircuit {
+                    commitment,
                     height: work.public_inputs.height.into(),
                     state: work.public_inputs.state,
                     aux_data: work.public_inputs.aux_data,
@@ -190,6 +195,7 @@ fn to_zoro_work(work: MpnWork) -> ZoroWork {
             MpnWorkData::Withdraw(withdraws) => {
                 println!("{} withdraws", withdraws.len());
                 bank::ZoroCircuit::Withdraw(circuits::WithdrawCircuit {
+                    commitment,
                     height: work.public_inputs.height.into(),
                     state: work.public_inputs.state,
                     aux_data: work.public_inputs.aux_data,
@@ -202,6 +208,7 @@ fn to_zoro_work(work: MpnWork) -> ZoroWork {
             MpnWorkData::Update(updates) => {
                 println!("{} updates", updates.len());
                 bank::ZoroCircuit::Update(circuits::UpdateCircuit {
+                    commitment,
                     height: work.public_inputs.height.into(),
                     state: work.public_inputs.state,
                     aux_data: work.public_inputs.aux_data,
@@ -404,6 +411,7 @@ async fn main() {
                                     .num_threads(32)
                                     .build()
                                     .unwrap();
+                                let prover_address = opt.address.clone();
                                 let proofs = tokio::task::spawn_blocking(move || {
                                     pool.install(|| -> Result<
                                     HashMap<usize, bazuka::zk::groth16::Groth16Proof>,
@@ -413,7 +421,7 @@ async fn main() {
                                         .works
                                         .into_par_iter()
                                         .map(|(id, p)| {
-                                            to_zoro_work(p).prove(
+                                            to_zoro_work(prover_address.clone(), p).prove(
                                                 zoro_params.clone(),
                                                 backend.clone(),
                                                 Some(cancel.clone()),
@@ -433,7 +441,7 @@ async fn main() {
                                     println!("{} {}", "WARNING:".bright_red(), "Your proving time is too high! You will most probably not win any rewards with this latency.");
                                 }
 
-                                let resp = client.post_mpn_solution(proofs.into_iter().map(|(id,proof)| {
+                                let resp = client.post_mpn_solution(opt.address.clone(), proofs.into_iter().map(|(id,proof)| {
                                     (id, bazuka::zk::ZkProof::Groth16(Box::new(proof)))
                                 }).collect()).await?;
                                 println!("{} of your proofs were accepted!", resp.accepted);

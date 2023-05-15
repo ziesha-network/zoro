@@ -57,6 +57,7 @@ pub struct ZoroWork<
         LOG4_TREE_SIZE,
         LOG4_TOKENS_TREE_SIZE,
     >,
+    pub commitment: ZkScalar,
     pub height: u64,
     pub state: ZkScalar,
     pub aux_data: ZkScalar,
@@ -91,6 +92,7 @@ impl<
         .into();
         bazuka::zk::groth16::groth16_verify(
             &verifier,
+            self.commitment,
             self.height,
             self.state,
             self.aux_data,
