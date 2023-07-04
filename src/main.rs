@@ -1,13 +1,14 @@
+use bazuka::mpn::circuits;
+
 mod bank;
-mod circuits;
 mod client;
-mod config;
 
 use bazuka::client::PeerAddress;
 
 use bazuka::core::{Address, TokenId};
 
-use bazuka::mpn::{MpnWork, MpnWorkData};
+use bazuka::mpn::{circuits::MpnCircuit, MpnWork, MpnWorkData};
+use bazuka::mpn::{DepositTransition, UpdateTransition, WithdrawTransition};
 
 use bellman::gpu::{Brand, Device};
 use bellman::groth16::Backend;
@@ -96,13 +97,16 @@ enum Opt {
 
 const MAXIMUM_PROVING_TIME: Duration = Duration::from_secs(50);
 
-fn load_params<C: Circuit<BellmanFr> + Default, R: Rng>(
+fn load_params<C: Circuit<BellmanFr> + MpnCircuit, R: Rng>(
     path: PathBuf,
     rng: Option<R>,
+    log4_tree_size: u8,
+    log4_token_tree_size: u8,
+    log4_batch_size: u8,
 ) -> groth16::Parameters<Bls12> {
     if let Some(mut rng) = rng {
         println!("Generating {}...", path.to_string_lossy());
-        let c = C::default();
+        let c = C::empty(log4_tree_size, log4_token_tree_size, log4_batch_size);
 
         let p = groth16::generate_random_parameters::<Bls12, _, _>(c, &mut rng).unwrap();
         let param_file = File::create(path.clone()).expect("Unable to create parameters file!");
@@ -160,13 +164,7 @@ pub enum ZoroError {
     KvStoreError(#[from] bazuka::db::KvStoreError),
 }
 
-type ZoroWork = bank::ZoroWork<
-    { config::LOG4_DEPOSIT_BATCH_SIZE },
-    { config::LOG4_WITHDRAW_BATCH_SIZE },
-    { config::LOG4_UPDATE_BATCH_SIZE },
-    { config::LOG4_TREE_SIZE },
-    { config::LOG4_TOKENS_TREE_SIZE },
->;
+type ZoroWork = bank::ZoroWork;
 
 fn to_zoro_work(address: Address, work: MpnWork) -> ZoroWork {
     use bazuka::core::hash::Hash;
@@ -183,38 +181,69 @@ fn to_zoro_work(address: Address, work: MpnWork) -> ZoroWork {
         circuit: match &work.data {
             MpnWorkData::Deposit(deposits) => {
                 println!("{} deposits", deposits.len());
+                let padding = (1 << (2 * work.config.log4_deposit_batch_size)) - deposits.len();
+                let mut transitions = deposits.to_vec();
+                for _ in 0..padding {
+                    transitions.push(DepositTransition::null(
+                        work.config.log4_tree_size,
+                        work.config.log4_token_tree_size,
+                    ));
+                }
                 bank::ZoroCircuit::Deposit(circuits::DepositCircuit {
-                    commitment,
+                    log4_tree_size: work.config.log4_tree_size,
+                    log4_token_tree_size: work.config.log4_token_tree_size,
+                    log4_deposit_batch_size: work.config.log4_deposit_batch_size,
                     height: work.public_inputs.height.into(),
                     state: work.public_inputs.state,
                     aux_data: work.public_inputs.aux_data,
                     next_state: work.public_inputs.next_state,
-                    transitions: Box::new(circuits::DepositTransitionBatch::new(deposits.clone())),
+                    transitions,
+                    commitment,
                 })
             }
             MpnWorkData::Withdraw(withdraws) => {
                 println!("{} withdraws", withdraws.len());
+                let padding = (1 << (2 * work.config.log4_withdraw_batch_size)) - withdraws.len();
+                let mut transitions = withdraws.to_vec();
+                for _ in 0..padding {
+                    transitions.push(WithdrawTransition::null(
+                        work.config.log4_tree_size,
+                        work.config.log4_token_tree_size,
+                    ));
+                }
                 bank::ZoroCircuit::Withdraw(circuits::WithdrawCircuit {
-                    commitment,
+                    log4_tree_size: work.config.log4_tree_size,
+                    log4_token_tree_size: work.config.log4_token_tree_size,
+                    log4_withdraw_batch_size: work.config.log4_withdraw_batch_size,
                     height: work.public_inputs.height.into(),
                     state: work.public_inputs.state,
                     aux_data: work.public_inputs.aux_data,
                     next_state: work.public_inputs.next_state,
-                    transitions: Box::new(circuits::WithdrawTransitionBatch::new(
-                        withdraws.clone(),
-                    )),
+                    transitions,
+                    commitment,
                 })
             }
             MpnWorkData::Update(updates) => {
                 println!("{} updates", updates.len());
+                let padding = (1 << (2 * work.config.log4_update_batch_size)) - updates.len();
+                let mut transitions = updates.to_vec();
+                for _ in 0..padding {
+                    transitions.push(UpdateTransition::null(
+                        work.config.log4_tree_size,
+                        work.config.log4_token_tree_size,
+                    ));
+                }
                 bank::ZoroCircuit::Update(circuits::UpdateCircuit {
-                    commitment,
+                    log4_tree_size: work.config.log4_tree_size,
+                    log4_token_tree_size: work.config.log4_token_tree_size,
+                    log4_update_batch_size: work.config.log4_update_batch_size,
                     height: work.public_inputs.height.into(),
                     state: work.public_inputs.state,
                     aux_data: work.public_inputs.aux_data,
                     next_state: work.public_inputs.next_state,
                     fee_token: TokenId::Ziesha,
-                    transitions: Box::new(circuits::TransitionBatch::new(updates.clone())),
+                    transitions,
+                    commitment,
                 })
             }
         },
@@ -239,37 +268,35 @@ async fn main() {
         env!("CARGO_PKG_VERSION")
     );
     let opt = Opt::from_args();
+    let mpn_config = bazuka::config::blockchain::get_blockchain_config().mpn_config;
 
     match opt {
         Opt::GenerateParams(opt) => {
             let rng = Some(ChaCha20Rng::seed_from_u64(123456));
 
-            load_params::<
-                circuits::DepositCircuit<
-                    { config::LOG4_DEPOSIT_BATCH_SIZE },
-                    { config::LOG4_TREE_SIZE },
-                    { config::LOG4_TOKENS_TREE_SIZE },
-                >,
-                _,
-            >(opt.deposit_circuit_params, rng.clone());
+            load_params::<circuits::DepositCircuit, _>(
+                opt.deposit_circuit_params,
+                rng.clone(),
+                mpn_config.log4_tree_size,
+                mpn_config.log4_token_tree_size,
+                mpn_config.log4_deposit_batch_size,
+            );
 
-            load_params::<
-                circuits::WithdrawCircuit<
-                    { config::LOG4_WITHDRAW_BATCH_SIZE },
-                    { config::LOG4_TREE_SIZE },
-                    { config::LOG4_TOKENS_TREE_SIZE },
-                >,
-                _,
-            >(opt.withdraw_circuit_params, rng.clone());
+            load_params::<circuits::WithdrawCircuit, _>(
+                opt.withdraw_circuit_params,
+                rng.clone(),
+                mpn_config.log4_tree_size,
+                mpn_config.log4_token_tree_size,
+                mpn_config.log4_withdraw_batch_size,
+            );
 
-            load_params::<
-                circuits::UpdateCircuit<
-                    { config::LOG4_UPDATE_BATCH_SIZE },
-                    { config::LOG4_TREE_SIZE },
-                    { config::LOG4_TOKENS_TREE_SIZE },
-                >,
-                _,
-            >(opt.update_circuit_params, rng.clone());
+            load_params::<circuits::UpdateCircuit, _>(
+                opt.update_circuit_params,
+                rng.clone(),
+                mpn_config.log4_tree_size,
+                mpn_config.log4_token_tree_size,
+                mpn_config.log4_update_batch_size,
+            );
         }
 
         Opt::Prove(opt) => {
@@ -279,45 +306,39 @@ async fn main() {
                 withdraw: bazuka::config::blockchain::MPN_WITHDRAW_VK.clone(),
             };
 
-            let deposit_params =
-                load_params::<
-                    circuits::DepositCircuit<
-                        { config::LOG4_DEPOSIT_BATCH_SIZE },
-                        { config::LOG4_TREE_SIZE },
-                        { config::LOG4_TOKENS_TREE_SIZE },
-                    >,
-                    _,
-                >(opt.deposit_circuit_params.clone(), None::<ChaCha20Rng>);
+            let deposit_params = load_params::<circuits::DepositCircuit, _>(
+                opt.deposit_circuit_params.clone(),
+                None::<ChaCha20Rng>,
+                mpn_config.log4_tree_size,
+                mpn_config.log4_token_tree_size,
+                mpn_config.log4_deposit_batch_size,
+            );
             if Into::<bazuka::zk::groth16::Groth16VerifyingKey>::into(deposit_params.vk.clone())
                 != verif_keys.deposit
             {
                 panic!("Incorrect deposit-params! Regenerate params via: zoro generate-params");
             }
 
-            let withdraw_params =
-                load_params::<
-                    circuits::WithdrawCircuit<
-                        { config::LOG4_WITHDRAW_BATCH_SIZE },
-                        { config::LOG4_TREE_SIZE },
-                        { config::LOG4_TOKENS_TREE_SIZE },
-                    >,
-                    _,
-                >(opt.withdraw_circuit_params.clone(), None::<ChaCha20Rng>);
+            let withdraw_params = load_params::<circuits::WithdrawCircuit, _>(
+                opt.withdraw_circuit_params.clone(),
+                None::<ChaCha20Rng>,
+                mpn_config.log4_tree_size,
+                mpn_config.log4_token_tree_size,
+                mpn_config.log4_withdraw_batch_size,
+            );
             if Into::<bazuka::zk::groth16::Groth16VerifyingKey>::into(withdraw_params.vk.clone())
                 != verif_keys.withdraw
             {
                 panic!("Incorrect withdraw-params! Regenerate params via: zoro generate-params");
             }
 
-            let update_params =
-                load_params::<
-                    circuits::UpdateCircuit<
-                        { config::LOG4_UPDATE_BATCH_SIZE },
-                        { config::LOG4_TREE_SIZE },
-                        { config::LOG4_TOKENS_TREE_SIZE },
-                    >,
-                    _,
-                >(opt.update_circuit_params.clone(), None::<ChaCha20Rng>);
+            let update_params = load_params::<circuits::UpdateCircuit, _>(
+                opt.update_circuit_params.clone(),
+                None::<ChaCha20Rng>,
+                mpn_config.log4_tree_size,
+                mpn_config.log4_token_tree_size,
+                mpn_config.log4_update_batch_size,
+            );
             if Into::<bazuka::zk::groth16::Groth16VerifyingKey>::into(update_params.vk.clone())
                 != verif_keys.update
             {
