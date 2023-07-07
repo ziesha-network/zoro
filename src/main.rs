@@ -390,41 +390,48 @@ async fn main() {
                         let cancel = Arc::new(RwLock::new(false));
 
                         println!("Finding the validator...");
-                        let client = SyncClient::new(opt.connect, &opt.network, Duration::from_secs(2));
+                        let client =
+                            SyncClient::new(opt.connect, &opt.network, Duration::from_secs(2));
                         let validator_claim = client.validator_claim().await?;
 
                         if let Some(claim) = validator_claim.clone() {
                             println!("{} is validator!", claim.node);
-                            let client = SyncClient::new(claim.node, &opt.network,Duration::from_secs(5));
+                            let client =
+                                SyncClient::new(claim.node, &opt.network, Duration::from_secs(5));
 
                             let works = client.get_mpn_works(opt.address.clone()).await?;
 
                             let (cancel_controller_tx, mut cancel_controller_rx) =
                                 tokio::sync::mpsc::unbounded_channel::<()>();
                             let cancel_cloned = cancel.clone();
-                            let cancel_controller =
-                                tokio::task::spawn(async move {
-                                    loop {
-                                        match cancel_controller_rx.try_recv() {
-                                    Ok(_)
-                                    | Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
-                                        break;
-                                    }
-                                    Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
-                                        let client = SyncClient::new(opt.connect, &opt.network,Duration::from_secs(1));
-                                        if let Ok(new_claim) = client.validator_claim().await {
-                                            if new_claim != validator_claim {
-                                                println!("Validator changed!");
-                                                *cancel_cloned.write().unwrap() = true;
+                            let cancel_controller = tokio::task::spawn(async move {
+                                loop {
+                                    match cancel_controller_rx.try_recv() {
+                                        Ok(_)
+                                        | Err(
+                                            tokio::sync::mpsc::error::TryRecvError::Disconnected,
+                                        ) => {
+                                            break;
+                                        }
+                                        Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
+                                            let client = SyncClient::new(
+                                                opt.connect,
+                                                &opt.network,
+                                                Duration::from_secs(1),
+                                            );
+                                            if let Ok(new_claim) = client.validator_claim().await {
+                                                if new_claim != validator_claim {
+                                                    println!("Validator changed!");
+                                                    *cancel_cloned.write().unwrap() = true;
+                                                }
                                             }
                                         }
                                     }
+                                    std::thread::sleep(std::time::Duration::from_millis(3000));
                                 }
-                                        std::thread::sleep(std::time::Duration::from_millis(3000));
-                                    }
-                                    Ok::<(), ZoroError>(())
-                                });
-                                if !works.works.is_empty() {
+                                Ok::<(), ZoroError>(())
+                            });
+                            if !works.works.is_empty() {
                                 println!("Got {} SNARK-works to solve...", works.works.len());
                                 alice_shuffle();
                                 let start = std::time::Instant::now();
@@ -459,18 +466,29 @@ async fn main() {
                                     start.elapsed().as_millis()
                                 );
                                 if start.elapsed() > MAXIMUM_PROVING_TIME {
-                                    println!("{} {}", "WARNING:".bright_red(), "Your proving time is too high! You will most probably not win any rewards with this latency.");
+                                    println!(
+                                        "{} {}",
+                                        "WARNING:".bright_red(),
+                                        "Proving time too high!"
+                                    );
                                 }
 
-                                let resp = client.post_mpn_solution(opt.address.clone(), proofs.into_iter().map(|(id,proof)| {
-                                    (id, bazuka::zk::ZkProof::Groth16(Box::new(proof)))
-                                }).collect()).await?;
+                                let resp = client
+                                    .post_mpn_solution(
+                                        opt.address.clone(),
+                                        proofs
+                                            .into_iter()
+                                            .map(|(id, proof)| {
+                                                (id, bazuka::zk::ZkProof::Groth16(Box::new(proof)))
+                                            })
+                                            .collect(),
+                                    )
+                                    .await?;
                                 println!("{} of your proofs were accepted!", resp.accepted);
 
                                 let _ = cancel_controller_tx.send(());
                                 cancel_controller.await??;
-                            }
-                            else {
+                            } else {
                                 println!("No work to do!");
                             }
                         }
